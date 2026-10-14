@@ -129,9 +129,8 @@ export function VoiceParticipantRoster({
             setSettingsPersonId(person.sessionId);
           }}><MoreGlyph /></button>}
           {isOpen && settingsPosition && createPortal(<div ref={settingsRef} id={`voice-participant-settings-${person.sessionId}`} className="voice-participant-settings" role="dialog" aria-label={`Local audio settings for ${person.local ? "you" : person.displayName}`} style={settingsPosition}>
-            <strong>Audio on this device</strong>
+            <strong>Configuration</strong>
             <label><span>Volume <output>{Math.round(audioLevel * 100)}%</output></span><input type="range" min="0" max="150" step="5" value={Math.round(audioLevel * 100)} onChange={(event) => onSetAudioLevel(person.username, Number(event.target.value) / 100)} /></label>
-            <small>Saved only in this browser.</small>
           </div>, document.body)}
         </li>;
       })}

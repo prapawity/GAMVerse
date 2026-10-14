@@ -2704,8 +2704,8 @@ export function OfficeApp() {
     if (sessionId === localSessionIdRef.current) return [];
     const playerAreaKey = officeMapLayout ? voiceRosterAreaKey(player, officeMapLayout) : "lobby";
     const sharesZoneWithLocal = Boolean(localRosterAreaKey && playerAreaKey === localRosterAreaKey);
-    const nearbyInSameOpenArea = localRosterAreaKey === "lobby" && playerAreaKey === "lobby" && (player.nearby || localRosterRangePlayers.has(sessionId));
-    if (sharesZoneWithLocal || nearbyInSameOpenArea) return [sessionId];
+    const nearbyInSameOpenArea = localRosterAreaKey === "lobby" && playerAreaKey === "lobby" && localRosterRangePlayers.has(sessionId);
+    if (player.presence === "online" && (sharesZoneWithLocal || nearbyInSameOpenArea)) return [sessionId];
     return [];
   }));
   const voiceRosterPeople: VoiceRosterPerson[] = rosterParticipantSessionIds.size === 0 ? [] : people.flatMap(([sessionId, player]) => {

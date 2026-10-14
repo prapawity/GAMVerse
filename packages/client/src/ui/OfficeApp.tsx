@@ -458,15 +458,12 @@ export function OfficeApp() {
   const [lockedZoneIds, setLockedZoneIds] = useState<string[]>([]);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const [voiceMuted, setVoiceMuted] = useState(true);
-  const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [proximityGroupId, setProximityGroupId] = useState<string | null>(null);
   const [proximityVoiceConnected, setProximityVoiceConnected] = useState(false);
   const [proximityVoiceMuted, setProximityVoiceMuted] = useState(true);
-  const [proximityVoiceBusy, setProximityVoiceBusy] = useState(false);
   const [privateVoiceConnected, setPrivateVoiceConnected] = useState(false);
   const [privateVoiceMuted, setPrivateVoiceMuted] = useState(true);
-  const [privateVoiceBusy, setPrivateVoiceBusy] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
   const [participantAudioLevels, setParticipantAudioLevels] = useState<Map<string, number>>(readVoiceParticipantAudioLevels);
@@ -1186,7 +1183,6 @@ export function OfficeApp() {
       setPrivateVoiceConnected(state.connected && state.target?.kind === "private");
       setProximityVoiceConnected(state.connected && state.target?.kind === "proximity");
       setVoiceMuted(state.muted); setPrivateVoiceMuted(state.muted); setProximityVoiceMuted(state.muted);
-      setVoiceBusy(state.busy); setPrivateVoiceBusy(state.busy); setProximityVoiceBusy(state.busy);
       setVoiceError(state.error?.message ?? null);
       setVoiceRetryExhausted(state.retryExhausted);
     },
@@ -2663,8 +2659,6 @@ export function OfficeApp() {
       : "You're the first one here.";
   const selectedVoiceConnected = meetingZoneActive ? voiceConnected : privateZoneId ? privateVoiceConnected : proximityVoiceConnected;
   const selectedMicMuted = meetingZoneActive ? voiceMuted : privateZoneId ? privateVoiceMuted : proximityVoiceMuted;
-  const selectedVoiceBusy = meetingZoneActive ? voiceBusy : privateZoneId ? privateVoiceBusy : proximityVoiceBusy;
-  const hasVoiceJoinTarget = Boolean(meetingZoneActive && meetingZoneId || privateZoneId || proximityGroupId);
   const selectedVoiceLabel = meetingZoneActive ? "Meeting" : privateZoneId ? (privateZoneName ?? "Private zone") : "Public";
   const activeDeskZoneId = privateZoneId ?? selectedDeskZoneId;
   const selectedMapZone = selectedMapZoneId ? officeMapLayout?.zones.find((zone) => zone.id === selectedMapZoneId) ?? null : null;
@@ -2970,7 +2964,6 @@ export function OfficeApp() {
 
       {voiceMediaNotice && <div className="error-banner" role="status">{voiceMediaNotice}<button type="button" onClick={() => setVoiceMediaNotice(null)}>{DISMISS_MEDIA_NOTICE_LABEL}</button></div>}
       <div className="bottom-dock" data-tutorial-target="office-toolbar" aria-label="Office controls">
-        {!selectedVoiceConnected && hasVoiceJoinTarget && <button type="button" className="dock-join-voice" disabled={appPaused || selectedVoiceBusy} title={appPaused ? "Unavailable while the app is paused" : selectedVoiceBusy ? "Joining voice chat…" : "Join voice chat to hear others; your microphone stays off"} aria-label={selectedVoiceBusy ? "Joining voice chat" : "Join voice chat"} onClick={() => voiceSessionRef.current?.reconnect()}><FeatherIcon name="headphones" /><span>{selectedVoiceBusy ? "Joining…" : "Join voice"}</span></button>}
         {voiceRetryExhausted && !appPaused ? <span className="dock-button voice-reconnect-indicator" role="img" aria-label="Voice disconnected" title="Voice disconnected"><FeatherIcon name="refresh" /></span> :
         <button data-tutorial-target="office-microphone" type="button" className={`dock-button ${selectedVoiceConnected && !selectedMicMuted ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : selectedVoiceConnected ? (selectedMicMuted ? "Turn microphone on" : "Turn microphone off") : "Voice connects automatically when you enter a voice zone"} aria-label={selectedMicMuted ? "Turn microphone on" : "Turn microphone off"} onClick={() => void toggleMicrophone()}><FeatherIcon name={selectedMicMuted ? "micOff" : "mic"} /></button>}
         <button type="button" className={`dock-button ${cameraEnabled ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "video" : "videoOff"} /></button>

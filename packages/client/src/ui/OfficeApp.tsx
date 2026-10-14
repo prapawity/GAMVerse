@@ -269,7 +269,7 @@ function VideoTile({ track, label, local, focused, onFocus, compact = false }: {
   </article>;
 }
 
-function FeatherIcon({ name, size = 18 }: { name: "mic" | "micOff" | "video" | "videoOff" | "screen" | "headphones" | "headphonesOff" | "close" | "maximize" | "exit" | "car" | "lock" | "unlock" | "refresh"; size?: number }) {
+function FeatherIcon({ name, size = 18 }: { name: "mic" | "micOff" | "video" | "videoOff" | "screen" | "screenOff" | "headphones" | "headphonesOff" | "close" | "maximize" | "exit" | "car" | "lock" | "unlock" | "refresh"; size?: number }) {
   const shared = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   const drawings = {
     mic: <><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></>,
@@ -277,6 +277,7 @@ function FeatherIcon({ name, size = 18 }: { name: "mic" | "micOff" | "video" | "
     video: <><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></>,
     videoOff: <><path d="m3 3 18 18M10.6 5H14a2 2 0 0 1 2 2v2l5-3v10l-5-3v2a2 2 0 0 1-.59 1.41M3 7v10a2 2 0 0 0 2 2h9"/></>,
     screen: <><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4m-3-9 2-2 2 2 3-4"/></>,
+    screenOff: <><path d="m3 3 18 18M10 3h10a2 2 0 0 1 2 2v10M2 8V5a2 2 0 0 1 2-2h1m-1 7v7a2 2 0 0 0 2 2h11M8 21h8m-4-4v4"/></>,
     headphones: <><path d="M3 14v-3a9 9 0 0 1 18 0v3"/><path d="M5 13h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Zm12 0h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z"/></>,
     headphonesOff: <><path d="M3 14v-3a9 9 0 0 1 15.4-6.4M21 11v3M5 13h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Zm12 0h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1M2 2l20 20"/></>,
     close: <><path d="m18 6-12 12M6 6l12 12"/></>,
@@ -456,15 +457,15 @@ export function OfficeApp() {
   useEffect(() => { setDeskClaimBusy(false); setDeskClaimError(null); }, [selectedDeskZoneId]);
   const [lockedZoneIds, setLockedZoneIds] = useState<string[]>([]);
   const [voiceConnected, setVoiceConnected] = useState(false);
-  const [voiceMuted, setVoiceMuted] = useState(false);
+  const [voiceMuted, setVoiceMuted] = useState(true);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [proximityGroupId, setProximityGroupId] = useState<string | null>(null);
   const [proximityVoiceConnected, setProximityVoiceConnected] = useState(false);
-  const [proximityVoiceMuted, setProximityVoiceMuted] = useState(false);
+  const [proximityVoiceMuted, setProximityVoiceMuted] = useState(true);
   const [proximityVoiceBusy, setProximityVoiceBusy] = useState(false);
   const [privateVoiceConnected, setPrivateVoiceConnected] = useState(false);
-  const [privateVoiceMuted, setPrivateVoiceMuted] = useState(false);
+  const [privateVoiceMuted, setPrivateVoiceMuted] = useState(true);
   const [privateVoiceBusy, setPrivateVoiceBusy] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
@@ -2962,8 +2963,8 @@ export function OfficeApp() {
           {miniVideoTiles.length > 0 && <section className="video-mini-strip" aria-label="Camera and screen share previews"><div className="video-mini-strip-scroll">{miniVideoTiles.map((tile) => <VideoTile key={`mini:${tile.key}`} track={tile.track} label={tile.label} local={tile.local} focused={tile.key === focusedVideoTile.key} compact onFocus={() => setFocusedVideoKey(tile.key)} />)}</div></section>}
           <div className="video-popup-controls" aria-label="Media controls">
             <button type="button" disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : selectedMicMuted ? "Turn microphone on" : "Turn microphone off"} aria-label={selectedMicMuted ? "Turn microphone on" : "Turn microphone off"} onClick={() => void toggleMicrophone()}><FeatherIcon name={selectedMicMuted ? "micOff" : "mic"} /><span>{selectedMicMuted ? "Mic off" : "Mic on"}</span></button>
-            <button type="button" className={cameraEnabled ? "active" : ""} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "videoOff" : "video"} /><span>{cameraEnabled ? "Camera off" : "Camera"}</span></button>
-            <button type="button" className={screenShareEnabled ? "active" : ""} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : screenShareEnabled ? "Stop sharing screen" : "Share screen"} aria-label={screenShareEnabled ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreenShare()}><FeatherIcon name="screen" /><span>{screenShareEnabled ? "Stop share" : "Share screen"}</span></button>
+            <button type="button" className={cameraEnabled ? "active" : ""} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "video" : "videoOff"} /><span>{cameraEnabled ? "Camera off" : "Camera"}</span></button>
+            <button type="button" className={screenShareEnabled ? "active" : ""} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : screenShareEnabled ? "Stop sharing screen" : "Share screen"} aria-label={screenShareEnabled ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreenShare()}><FeatherIcon name={screenShareEnabled ? "screen" : "screenOff"} /><span>{screenShareEnabled ? "Stop share" : "Share screen"}</span></button>
           </div>
         </section>,
         document.body,
@@ -2975,8 +2976,8 @@ export function OfficeApp() {
         {!selectedVoiceConnected && hasVoiceJoinTarget && <button type="button" className="dock-join-voice" disabled={appPaused || selectedVoiceBusy} title={appPaused ? "Unavailable while the app is paused" : selectedVoiceBusy ? "Joining voice chat…" : "Join voice chat to hear others; your microphone stays off"} aria-label={selectedVoiceBusy ? "Joining voice chat" : "Join voice chat"} onClick={() => voiceSessionRef.current?.reconnect()}><FeatherIcon name="headphones" /><span>{selectedVoiceBusy ? "Joining…" : "Join voice"}</span></button>}
         {voiceRetryExhausted && !appPaused ? <span className="dock-button voice-reconnect-indicator" role="img" aria-label="Voice disconnected" title="Voice disconnected"><FeatherIcon name="refresh" /></span> :
         <button data-tutorial-target="office-microphone" type="button" className={`dock-button ${selectedVoiceConnected && !selectedMicMuted ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : selectedVoiceConnected ? (selectedMicMuted ? "Turn microphone on" : "Turn microphone off") : "Voice connects automatically when you enter a voice zone"} aria-label={selectedMicMuted ? "Turn microphone on" : "Turn microphone off"} onClick={() => void toggleMicrophone()}><FeatherIcon name={selectedMicMuted ? "micOff" : "mic"} /></button>}
-        <button type="button" className={`dock-button ${cameraEnabled ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "videoOff" : "video"} /></button>
-        <button type="button" className={`dock-button ${screenShareEnabled ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : screenShareEnabled ? "Stop sharing screen" : "Share screen"} aria-label={screenShareEnabled ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreenShare()}><FeatherIcon name="screen" /></button>
+        <button type="button" className={`dock-button ${cameraEnabled ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "video" : "videoOff"} /></button>
+        <button type="button" className={`dock-button ${screenShareEnabled ? "active" : ""}`} disabled={!selectedVoiceConnected || appPaused} title={appPaused ? "Unavailable while the app is paused" : screenShareEnabled ? "Stop sharing screen" : "Share screen"} aria-label={screenShareEnabled ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreenShare()}><FeatherIcon name={screenShareEnabled ? "screen" : "screenOff"} /></button>
         <button type="button" className={`dock-button ${userStatus === "do-not-disturb" || userStatus === "in-meeting" ? "active" : ""}`} aria-pressed={userStatus === "do-not-disturb" || userStatus === "in-meeting"} title={userStatus === "do-not-disturb" || userStatus === "in-meeting" ? "Headphones off · click to set Available" : "Headphones on · click to turn on Do not disturb"} aria-label={userStatus === "do-not-disturb" || userStatus === "in-meeting" ? "Turn headphones on" : "Turn headphones off"} onClick={toggleHeadphones}><FeatherIcon name={userStatus === "do-not-disturb" || userStatus === "in-meeting" ? "headphonesOff" : "headphones"} /></button>
         <button type="button" className={`dock-button ghost-mode-button${ghostModeEnabled ? " active" : ""}`} aria-pressed={ghostModeEnabled} title="Hold this button or hold G to pass through props and interior walls" aria-label="Hold to enable ghost mode" disabled={appPaused} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setGhostMode(true); }} onPointerUp={() => setGhostMode(false)} onPointerCancel={() => setGhostMode(false)} onLostPointerCapture={() => setGhostMode(false)} onBlur={() => setGhostMode(false)} onKeyDown={(event) => { if (event.code === "Space") { event.preventDefault(); return; } if (event.code === "Enter" && !event.repeat) { event.preventDefault(); setGhostMode(true); } }} onKeyUp={(event) => { if (event.code === "Enter") setGhostMode(false); }}><kbd>G</kbd><span>{ghostModeEnabled ? "Ghost on" : "Hold Ghost"}</span></button>
         <ReactionPicker room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} disabled={appPaused} />

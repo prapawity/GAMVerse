@@ -286,6 +286,14 @@ export const USER_STATUSES = [
 ] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
+export type MediaActivity = { microphone: boolean; camera: boolean; screenShare: boolean };
+
+export function isValidMediaActivity(value: unknown): value is MediaActivity {
+  if (typeof value !== "object" || value === null) return false;
+  const activity = value as Record<string, unknown>;
+  return typeof activity.microphone === "boolean" && typeof activity.camera === "boolean" && typeof activity.screenShare === "boolean";
+}
+
 export const PlayerState = schema(
   {
     x: t.float32(),
@@ -308,6 +316,9 @@ export const PlayerState = schema(
     weaponId: t.string(),
     status: t.string(),
     presence: t.string(),
+    microphoneEnabled: t.boolean(),
+    cameraEnabled: t.boolean(),
+    screenShareEnabled: t.boolean(),
   },
   "PlayerState",
 );

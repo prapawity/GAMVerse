@@ -5,7 +5,7 @@ import { registerSocialMessages, unregisterSocialMessages, socialPeople } from "
 import { OFFICE_ACCESS_REVOKED_CLOSE_CODE, OFFICE_CLOSED_CLOSE_CODE, Spotlight, spotlightDepartureReason, type SpotlightDeparture } from "./spotlight.js";
 import { defineRoom, Room, type AuthContext, type Client } from "@colyseus/core";
 import { createHash } from "node:crypto";
-import { shouldClearHandRaise, INPUT_MIN_INTERVAL_MS, RECONNECTION_SEAT_TIMEOUT_SECONDS, CAMPUS_WORLD, campusWorldFromConfig, DEFAULT_CHARACTER_ID, isPositionWalkable, isValidJumpInput, isValidMovementInput, JUMP_DURATION_MS, resolvePlayerFacing, type MovementInput, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, movePlayer, OfficeState, PlayerState, parseRoomPropSeatReference, readRoomLayout, ROOM_PROP_CATALOG, roomLayoutZoneAt, roomPropCollisionClearanceRadius, roomPropCollisionFootprint, roomPropSeatAnchors, roomPropSeatReference, USER_STATUSES, WORLD, type KenneyBlasterId, type KenneyCharacterId, type RoomLayout, type RoomLayoutZone, type UserStatus, type WorldConfig } from "@gammyverse/shared";
+import { shouldClearHandRaise, INPUT_MIN_INTERVAL_MS, RECONNECTION_SEAT_TIMEOUT_SECONDS, CAMPUS_WORLD, campusWorldFromConfig, DEFAULT_CHARACTER_ID, isPositionWalkable, isValidJumpInput, isValidMediaActivity, isValidMovementInput, JUMP_DURATION_MS, resolvePlayerFacing, type MovementInput, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, movePlayer, OfficeState, PlayerState, parseRoomPropSeatReference, readRoomLayout, ROOM_PROP_CATALOG, roomLayoutZoneAt, roomPropCollisionClearanceRadius, roomPropCollisionFootprint, roomPropSeatAnchors, roomPropSeatReference, USER_STATUSES, WORLD, type KenneyBlasterId, type KenneyCharacterId, type RoomLayout, type RoomLayoutZone, type UserStatus, type WorldConfig } from "@gammyverse/shared";
 import { getAccountNickname, getSession, markUserActive } from "../auth/service.js";
 import { isCustomCharacterId, userOwnsCharacterModel } from "../auth/characterModels.js";
 import { getOfficeRole, markOfficeActive } from "./repository.js";
@@ -269,6 +269,13 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       // The schema is the durable-in-session source of truth. This event gives
       // clients a lightweight explicit notification for status UI and audio policy.
       this.broadcast("user-status", { sessionId: client.sessionId, status: player.status });
+    });
+    this.onMessage("media-activity", (client: Client, payload: unknown) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || !isValidMediaActivity(payload)) return;
+      player.microphoneEnabled = payload.microphone;
+      player.cameraEnabled = payload.camera;
+      player.screenShareEnabled = payload.screenShare;
     });
     this.onMessage("blaster-shot", (client: Client, payload: unknown) => {
       const shooter = this.state.players.get(client.sessionId);
@@ -687,6 +694,9 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     player.weaponId = "";
     player.status = "available";
     player.presence = "online";
+    player.microphoneEnabled = false;
+    player.cameraEnabled = false;
+    player.screenShareEnabled = false;
     this.state.players.set(client.sessionId, player);
     this.usernamesBySessionId.set(client.sessionId, auth.username);
     this.officeRolesBySessionId.set(client.sessionId, auth.officeRole);

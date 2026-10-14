@@ -86,7 +86,7 @@ const userStatusOptions: Array<{ value: UserStatus; label: string; icon: string;
   { value: "lunch", label: "Lunch", icon: "♨", color: "#e08b22" },
   { value: "coffee-break", label: "Coffee break", icon: "☕", color: "#8a5a35" },
 ];
-type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: "available" | "do-not-disturb" | "in-meeting" | "toilet" | "lunch" | "coffee-break"; presence: "online" | "away"; nearby: boolean; handRaised: boolean };
+type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: "available" | "do-not-disturb" | "in-meeting" | "toilet" | "lunch" | "coffee-break"; presence: "online" | "away"; nearby: boolean; handRaised: boolean; microphoneEnabled: boolean; cameraEnabled: boolean; screenShareEnabled: boolean };
 function voiceRosterAreaKey(position: { x: number; z: number }, layout: RoomLayout, previousZoneId?: string | null): string {
   const mediaZone = roomLayoutZoneAt(position, layout, previousZoneId);
   if (mediaZone) return `zone:${mediaZone.id}`;
@@ -469,7 +469,6 @@ export function OfficeApp() {
   const [privateVoiceBusy, setPrivateVoiceBusy] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
-  const [voiceRosterActivities, setVoiceRosterActivities] = useState<Map<string, VoiceRosterActivity>>(() => new Map());
   const [participantAudioLevels, setParticipantAudioLevels] = useState<Map<string, number>>(readVoiceParticipantAudioLevels);
   if (participantAudioLevelsRef.current.size === 0 && participantAudioLevels.size > 0) participantAudioLevelsRef.current = new Map(participantAudioLevels);
   const [videoTiles, setVideoTiles] = useState<VideoTileItem[]>([]);
@@ -558,6 +557,11 @@ export function OfficeApp() {
   const [error, setError] = useState<string | null>(null);
   const [playerCount, setPlayerCount] = useState(0);
   const [people, setPeople] = useState<Array<[string, PlayerSnapshot]>>([]);
+  const voiceRosterActivities = new Map(people.map(([, player]) => [player.username.toLocaleLowerCase(), {
+    microphone: player.microphoneEnabled,
+    camera: player.cameraEnabled,
+    screenShare: player.screenShareEnabled,
+  }] as const));
   useEffect(() => {
     if (mapPlayerAction && !people.some(([id, player]) => id === mapPlayerAction.sessionId && player.presence === "online")) setMapPlayerAction(null);
   }, [people, mapPlayerAction]);
@@ -918,14 +922,6 @@ export function OfficeApp() {
     rebuildSpeakingUsernames();
   };
 
-  const updateVoiceRosterActivities = (room: LiveKitRoomInstance) => {
-    const next = new Map<string, VoiceRosterActivity>();
-    for (const participant of [room.localParticipant, ...room.remoteParticipants.values()]) {
-      next.set(voiceParticipantUsername(participant), readVoiceRosterActivity(participant));
-    }
-    setVoiceRosterActivities(next);
-  };
-
   const isCurrentVoiceRoom = (room: LiveKitRoomInstance) => [liveKitRoomRef.current, privateLiveKitRoomRef.current, proximityLiveKitRoomRef.current].includes(room);
 
   const reportNoiseReductionResult = (result: NoiseReductionResult) => {
@@ -1205,14 +1201,12 @@ export function OfficeApp() {
       proximityLiveKitRoomRef.current = target?.kind === "proximity" ? room : null;
       setVideoTiles([]); setCameraEnabled(false); setScreenShareEnabled(false);
       remoteAudioTracksRef.current.clear();
-      if (room) updateVoiceRosterActivities(room);
-      else setVoiceRosterActivities(new Map());
+      roomRef.current?.send("media-activity", room ? readVoiceRosterActivity(room.localParticipant) : { microphone: false, camera: false, screenShare: false });
     },
     speakersChanged: updateVoiceRoomSpeakers,
-    participantsChanged: updateVoiceRosterActivities,
     localTracksChanged: (room, publication) => {
       syncLocalVideoTiles(room);
-      updateVoiceRosterActivities(room);
+      roomRef.current?.send("media-activity", readVoiceRosterActivity(room.localParticipant));
       if (publication?.source === VOICE_MICROPHONE_SOURCE && publication.audioTrack) void configureNoiseReductionForTrack(room, publication.audioTrack);
     },
     trackSubscribed: (voiceRoom, track, _publication, participant, target) => {
@@ -2156,6 +2150,9 @@ export function OfficeApp() {
               status: entry.status === "do-not-disturb" || entry.status === "in-meeting" || entry.status === "toilet" || entry.status === "lunch" || entry.status === "coffee-break" ? entry.status : "available",
               presence: entry.presence === "away" ? "away" : "online",
               nearby: Boolean(localPlayer && sessionId !== localSessionIdRef.current && entry.presence === "online" && nearbySessionIdsRef.current.has(sessionId)),
+              microphoneEnabled: Boolean(entry.microphoneEnabled),
+              cameraEnabled: Boolean(entry.cameraEnabled),
+              screenShareEnabled: Boolean(entry.screenShareEnabled),
             });
           }
           playersRef.current = snapshot;
@@ -2174,7 +2171,7 @@ export function OfficeApp() {
             }
           }
           const signature = [...snapshot]
-            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${inRosterProximity.has(id)}:${officeMapLayoutRef.current ? voiceRosterAreaKey(player, officeMapLayoutRef.current, id === localSessionIdRef.current ? meetingZoneIdRef.current ?? privateZoneIdRef.current : null) : "lobby"}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
+            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${inRosterProximity.has(id)}:${officeMapLayoutRef.current ? voiceRosterAreaKey(player, officeMapLayoutRef.current, id === localSessionIdRef.current ? meetingZoneIdRef.current ?? privateZoneIdRef.current : null) : "lobby"}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}:${player.microphoneEnabled}:${player.cameraEnabled}:${player.screenShareEnabled}`)
             .sort()
             .join("|");
           if (signature !== peopleSignatureRef.current) {
@@ -2742,7 +2739,7 @@ export function OfficeApp() {
         people={voiceRosterPeople}
         activities={voiceRosterActivities}
         audioLevels={participantAudioLevels}
-        canMuteAll={voiceRosterActivities.size > 1 && ["owner", "admin", "maintainer"].includes(activeOffice.role)}
+        canMuteAll={voiceRosterPeople.filter((person) => !person.local).length > 1 && ["owner", "admin", "maintainer"].includes(activeOffice.role)}
         canOpenVideo={(username, source) => videoTiles.some((tile) => tile.username === username.toLocaleLowerCase() && tile.source === source)}
         onOpenVideo={openVoiceRosterVideo}
         onSetAudioLevel={setParticipantAudioLevel}

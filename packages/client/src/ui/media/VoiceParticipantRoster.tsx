@@ -49,6 +49,7 @@ function ExpandGlyph() {
 export function VoiceParticipantRoster({
   people,
   activities,
+  localActivity,
   audioLevels,
   canMuteAll,
   canOpenVideo,
@@ -59,6 +60,7 @@ export function VoiceParticipantRoster({
 }: {
   people: VoiceRosterPerson[];
   activities: ReadonlyMap<string, VoiceRosterActivity>;
+  localActivity: VoiceRosterActivity;
   audioLevels: ReadonlyMap<string, number>;
   canMuteAll: boolean;
   canOpenVideo: (username: string, source: VoiceRosterMediaSource) => boolean;
@@ -100,8 +102,8 @@ export function VoiceParticipantRoster({
     </div>
     <ul>
       {people.map((person) => {
-        const activityKnown = activities.has(person.username.toLocaleLowerCase());
-        const activity = activities.get(person.username.toLocaleLowerCase()) ?? { microphone: false, camera: false, screenShare: false };
+        const activityKnown = person.local || activities.has(person.username.toLocaleLowerCase());
+        const activity = person.local ? localActivity : activities.get(person.username.toLocaleLowerCase()) ?? { microphone: false, camera: false, screenShare: false };
         const audioLevel = audioLevels.get(person.username.toLocaleLowerCase()) ?? 1;
         const color = STATUS_COLORS[person.status];
         const style = { "--participant-status-color": color } as CSSProperties;

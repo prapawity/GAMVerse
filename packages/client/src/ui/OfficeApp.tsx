@@ -2741,6 +2741,7 @@ export function OfficeApp() {
       <VoiceParticipantRoster
         people={voiceRosterPeople}
         activities={voiceRosterActivities}
+        localActivity={{ microphone: selectedVoiceConnected && !selectedMicMuted, camera: selectedVoiceConnected && cameraEnabled, screenShare: selectedVoiceConnected && screenShareEnabled }}
         audioLevels={participantAudioLevels}
         canMuteAll={voiceRosterActivities.size > 1 && ["owner", "admin", "maintainer"].includes(activeOffice.role)}
         canOpenVideo={(username, source) => videoTiles.some((tile) => tile.username === username.toLocaleLowerCase() && tile.source === source)}

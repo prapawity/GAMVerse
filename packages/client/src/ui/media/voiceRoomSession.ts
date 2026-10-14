@@ -214,13 +214,14 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     }
   }
   private async resetMedia(room: R, generation: number): Promise<void> {
+    // Joining voice is receive-only by default. A missing or denied microphone
+    // permission must not prevent the participant from hearing the room.
+    this.publish({ muted: true, error: null });
     await room.localParticipant.setMicrophoneEnabled(false);
     if (!this.current(generation, room)) return;
     await room.localParticipant.setCameraEnabled(false);
     if (!this.current(generation, room)) return;
     await room.localParticipant.setScreenShareEnabled(false);
-    if (!this.current(generation, room) || this.state.muted) return;
-    await room.localParticipant.setMicrophoneEnabled(true, VOICE_AUDIO_CAPTURE_OPTIONS);
   }
   private fail(error: Error): void {
     this.invalidate();
@@ -326,7 +327,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.localVideoActive = Boolean(room.localParticipant.isCameraEnabled || room.localParticipant.isScreenShareEnabled);
       this.listener.localTracksChanged?.(room);
     } catch (cause) {
-      if (this.current(control.generation, room)) this.publish({ error: cause instanceof Error ? cause : new Error(VOICE_CONTROL_ERROR_LABEL) });
+      if (this.current(control.generation, room)) this.publish({ ...(control.muted === false ? { muted: true } : {}), error: cause instanceof Error ? cause : new Error(VOICE_CONTROL_ERROR_LABEL) });
     } finally { control.finish(); }
   }
 }

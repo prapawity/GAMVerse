@@ -16,6 +16,7 @@ import { VoiceRoomSession, VOICE_MEDIA_STOPPED_LABEL, type VoiceSessionListener 
 import { resolveVoiceTarget, type VoiceTargetInputs } from "./media/voiceTarget";
 import { fetchVoiceToken } from "./media/voiceToken";
 import { VoiceParticipantRoster, type VoiceRosterActivity, type VoiceRosterMediaSource, type VoiceRosterPerson } from "./media/VoiceParticipantRoster";
+import { readVoiceParticipantAudioLevels, saveVoiceParticipantAudioLevels } from "./media/voiceParticipantPreferences";
 import type { LocalAudioTrack, LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack, Room as LiveKitRoomInstance } from "livekit-client";
 import { CharacterPreview3D } from "../world/CharacterPreview3D";
 import { QUATERNIUS_CHARACTERS } from "../assets/characterAssets";
@@ -458,7 +459,8 @@ export function OfficeApp() {
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
   const [voiceRosterActivities, setVoiceRosterActivities] = useState<Map<string, VoiceRosterActivity>>(() => new Map());
-  const [participantAudioLevels, setParticipantAudioLevels] = useState<Map<string, number>>(() => new Map());
+  const [participantAudioLevels, setParticipantAudioLevels] = useState<Map<string, number>>(readVoiceParticipantAudioLevels);
+  if (participantAudioLevelsRef.current.size === 0 && participantAudioLevels.size > 0) participantAudioLevelsRef.current = new Map(participantAudioLevels);
   const [videoTiles, setVideoTiles] = useState<VideoTileItem[]>([]);
   const [focusedVideoKey, setFocusedVideoKey] = useState<string | null>(null);
   const [videoPopupOpen, setVideoPopupOpen] = useState(false);
@@ -1005,12 +1007,12 @@ export function OfficeApp() {
     }
   };
 
-  const adjustParticipantAudio = (username: string, change: "down" | "mute" | "up") => {
+  const setParticipantAudioLevel = (username: string, requestedLevel: number) => {
     const key = username.toLocaleLowerCase();
-    const current = participantAudioLevelsRef.current.get(key) ?? 1;
-    const next = change === "mute" ? current > 0 ? 0 : 1 : Math.max(0, Math.min(1, Math.round((current + (change === "up" ? 0.2 : -0.2)) * 100) / 100));
+    const next = Math.max(0, Math.min(1, requestedLevel));
     participantAudioLevelsRef.current.set(key, next);
     setParticipantAudioLevels(new Map(participantAudioLevelsRef.current));
+    saveVoiceParticipantAudioLevels(participantAudioLevelsRef.current);
     for (const [identity, entry] of remoteAudioTracksRef.current) {
       if (entry.username !== key) continue;
       const isProximity = proximityAudioTracksRef.current.get(identity)?.track === entry.track;
@@ -2695,11 +2697,10 @@ export function OfficeApp() {
         people={voiceRosterPeople}
         activities={voiceRosterActivities}
         audioLevels={participantAudioLevels}
-        canAdjustAudio={(username) => [...remoteAudioTracksRef.current.values()].some((entry) => entry.username === username.toLocaleLowerCase())}
         canMuteAll={voiceRosterActivities.size > 1 && ["owner", "admin", "maintainer"].includes(activeOffice.role)}
         canOpenVideo={(username, source) => videoTiles.some((tile) => tile.username === username.toLocaleLowerCase() && tile.source === source)}
         onOpenVideo={openVoiceRosterVideo}
-        onAdjustAudio={adjustParticipantAudio}
+        onSetAudioLevel={setParticipantAudioLevel}
         onModeratePerson={(username, source) => void moderateVoiceMedia(source, username)}
         onMuteAll={(source) => void moderateVoiceMedia(source)}
       />

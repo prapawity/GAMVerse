@@ -775,6 +775,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
   const idleAnimationsEnabledRef = useRef(idleAnimationsEnabled);
   idleAnimationsEnabledRef.current = idleAnimationsEnabled;
   const [activeFloatingGroup, setActiveFloatingGroup] = useState<"edit" | "view" | "zoom" | null>(null);
+  const worldControlDockRef = useRef<HTMLDivElement>(null);
   const [tppTransitionDistanceM, setTppTransitionDistanceM] = useState<number>(CAMERA.maxZoom);
   const tppTransitionDistanceMRef = useRef<number>(CAMERA.maxZoom);
   const [selectedBlasterId, setSelectedBlasterId] = useState<KenneyBlasterId>(KENNEY_BLASTER_IDS[0]);
@@ -784,6 +785,16 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
   weaponInventoryOpenRef.current = weaponInventoryOpen;
   firstPersonViewRef.current = firstPersonView;
   useEffect(() => () => { firstPersonViewRef.current = false; }, [firstPersonViewRef]);
+  useEffect(() => {
+    if (!activeFloatingGroup) return;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !worldControlDockRef.current?.contains(event.target)) {
+        setActiveFloatingGroup(null);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointerDown, true);
+  }, [activeFloatingGroup]);
   const previousRoomKeyRef = useRef(cameraRoomKey);
   const previousWorldKeyRef = useRef(activeRoomKey);
   const cameraStateRef = useRef(createCameraState(activeRoomKey === "lobby"));
@@ -3541,7 +3552,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         <kbd style={{ minWidth: 23, padding: "3px 6px", border: "1px solid rgba(255,255,255,.35)", borderRadius: 6, background: "rgba(255,255,255,.12)", font: "inherit", textAlign: "center" }}>E</kbd>
         {isDriving ? "Exit vehicle" : "Drive vehicle"}
       </div>}
-      {campusOverview && !mapEditMode && !buildMode && <div className="world-control-dock" aria-label="Map controls">
+      {campusOverview && !mapEditMode && !buildMode && <div ref={worldControlDockRef} className="world-control-dock" aria-label="Map controls">
         <button type="button" className="world-control-trigger" aria-label="Toggle 2D / 3D view (M)" title="2D / 3D · M" onClick={toggleMap2d}>2D / 3D</button>
         <div className="world-control-group" role="group" aria-label="Character actions">
           <button data-tutorial-target="office-focus-character" type="button" className="world-control-trigger" aria-label="Focus character" title="Focus character" onClick={() => { setActiveFloatingGroup(null); dispatchCamera({ type: "focus-character" }); }}>

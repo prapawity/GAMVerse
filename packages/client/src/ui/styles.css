@@ -428,6 +428,7 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .dock-button:hover:not(:disabled) { background: rgba(255,255,255,.1); }
 .dock-button.active { color: #d9f3e3; background: rgba(75, 157, 107, .35); }
 .dock-button:disabled { opacity: .48; cursor: not-allowed; }
+.voice-reconnect-indicator { color: #ffb4a8; background: rgba(201, 76, 62, .14); cursor: default; }
 .dock-button.ghost-mode-button { display: flex; flex: 0 0 auto; width: auto; min-width: 62px; gap: 5px; padding: 0 8px; font-size: 11px; font-weight: 700; }
 .ghost-mode-button kbd { display: grid; place-items: center; width: 17px; height: 18px; border: 1px solid rgba(255,255,255,.35); border-radius: 5px; color: inherit; font: inherit; }
 .voice-zone-label { padding: 0 11px; color: #c3d2c8; font-size: 9px; font-weight: 700; white-space: nowrap; }

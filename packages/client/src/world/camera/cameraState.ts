@@ -30,6 +30,7 @@ export type CameraEvent =
   | { type: "set-view"; view: "3d" | "2d" }
   | { type: "map2d-scale"; pxPerM: number }
   | { type: "focus-character" }
+  | { type: "camera-lock"; locked: boolean }
   | { type: "manual-drag" }
   | { type: "manual-rotate" }
   | { type: "walk-input" }
@@ -84,6 +85,7 @@ export function cameraReducer(state: CameraState, event: CameraEvent): CameraSta
     case "map2d-scale": return { ...state, map2dScalePxPerM: clampMap2dScale(event.pxPerM) };
     case "toggle-fpp": return toggleFirstPerson(state);
     case "focus-character": return focusCharacter(state);
+    case "camera-lock": return resolveMode({ ...state, following: event.locked ? true : state.following, followFacing: event.locked });
     case "manual-drag": return state.mode === "fpp" ? state : resolveMode({ ...state, following: false });
     case "manual-rotate": return state.mode === "fpp" ? state : { ...state, followFacing: false };
     case "walk-input": return (state.mode === "free" || state.mode === "map2d") && !state.editing && !state.following ? resolveMode({ ...state, following: true }) : state;

@@ -641,6 +641,7 @@ export function OfficeApp() {
         if (!context) {
           context = new window.AudioContext();
           remoteAudioContextRef.current = context;
+          void context.resume().catch(() => undefined);
           const selectedOutput = audioDevicePreferencesRef.current.outputDeviceId;
           const setSinkId = (context as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }).setSinkId;
           if (selectedOutput && setSinkId) void setSinkId.call(context, selectedOutput).catch((cause) => console.warn("Could not select the saved speaker.", cause));
@@ -1013,6 +1014,7 @@ export function OfficeApp() {
     if (!context && window.AudioContext) {
       context = new window.AudioContext();
       remoteAudioContextRef.current = context;
+      void context.resume().catch(() => undefined);
     }
     const setSinkId = context as (AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }) | null;
     const previousSinkId = previous.outputDeviceId;

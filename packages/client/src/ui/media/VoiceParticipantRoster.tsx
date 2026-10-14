@@ -111,7 +111,7 @@ export function VoiceParticipantRoster({
           <span className="voice-participant-status-dot" aria-hidden="true" />
           <span className="voice-participant-copy">
             <strong>{person.local ? "You" : person.displayName}</strong>
-            <small>{person.presence === "away" ? "Away" : STATUS_LABELS[person.status]}</small>
+          {(person.presence === "away" || person.status !== "available") && <small>{person.presence === "away" ? "Away" : STATUS_LABELS[person.status]}</small>}
           </span>
           <span className="voice-participant-activity" aria-label="Media activity">
             <button type="button" className={`voice-participant-media ${!activityKnown ? "is-unknown" : activity.microphone ? "is-on" : "is-off"}`} aria-pressed={activityKnown && activity.microphone} disabled={!activityKnown || !activity.microphone} title={!activityKnown ? "Microphone status unavailable while voice is disconnected" : activity.microphone ? `Turn off ${person.displayName}'s microphone` : `${person.displayName}'s microphone is off; they can turn it on themselves`} aria-label={`${person.displayName}'s microphone ${!activityKnown ? "status unavailable" : activity.microphone ? "on, click to turn off" : "off"}`} onClick={() => { if (activityKnown && activity.microphone) onModeratePerson(person.username, "microphone"); }}><MediaGlyph source="microphone" off={activityKnown && !activity.microphone} /></button>

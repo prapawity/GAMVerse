@@ -2702,10 +2702,10 @@ export function OfficeApp() {
   const localRosterRangePlayers = new Set(people.filter(([sessionId, player]) => sessionId !== localSessionIdRef.current && localRosterPlayer && Math.hypot(localRosterPlayer.x - player.x, localRosterPlayer.z - player.z) <= CAMPUS_WORLD.proximityRadius).map(([sessionId]) => sessionId));
   const rosterParticipantSessionIds = new Set(people.flatMap(([sessionId, player]) => {
     if (sessionId === localSessionIdRef.current) return [];
-    const username = player.username.toLocaleLowerCase();
     const playerAreaKey = officeMapLayout ? voiceRosterAreaKey(player, officeMapLayout) : "lobby";
     const sharesZoneWithLocal = Boolean(localRosterAreaKey && playerAreaKey === localRosterAreaKey);
-    if (player.nearby || localRosterRangePlayers.has(sessionId) || sharesZoneWithLocal || voiceRosterActivities.has(username)) return [sessionId];
+    const nearbyInSameOpenArea = localRosterAreaKey === "lobby" && playerAreaKey === "lobby" && (player.nearby || localRosterRangePlayers.has(sessionId));
+    if (sharesZoneWithLocal || nearbyInSameOpenArea) return [sessionId];
     return [];
   }));
   const voiceRosterPeople: VoiceRosterPerson[] = rosterParticipantSessionIds.size === 0 ? [] : people.flatMap(([sessionId, player]) => {

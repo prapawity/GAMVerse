@@ -3026,7 +3026,7 @@ export function OfficeApp() {
         {activeDeskZone && !activeDeskZone.ownerUsername && !userOwnsAnotherDesk && <button type="button" disabled={deskClaimBusy} onClick={() => void claimDeskZone(activeDeskZone.id)}>{deskClaimBusy && deskClaimingZoneId === activeDeskZone.id ? "Claiming…" : "Claim desk"}</button>}
         {activeDeskZone && !activeDeskZone.ownerUsername && userOwnsAnotherDesk && <small className="desk-claim-limit">You already own a desk.</small>}
         {zoneLockTargetId && <button type="button" className={`zone-lock-button${lockedZoneIds.includes(zoneLockTargetId) ? " is-locked" : ""}`} aria-label={lockedZoneIds.includes(zoneLockTargetId) ? "Unlock room" : "Lock room"} aria-pressed={lockedZoneIds.includes(zoneLockTargetId)} title={lockedZoneIds.includes(zoneLockTargetId) ? "Unlock room" : "Lock room"} onClick={() => roomRef.current?.send("zone-lock", { zoneId: zoneLockTargetId, locked: !lockedZoneIds.includes(zoneLockTargetId) })}>
-          <FeatherIcon name={lockedZoneIds.includes(zoneLockTargetId) ? "unlock" : "lock"} size={24} />
+          <FeatherIcon name={lockedZoneIds.includes(zoneLockTargetId) ? "lock" : "unlock"} size={24} />
         </button>}
         {canManageCurrentDesk && activeDeskZone && <button type="button" disabled={deskClaimBusy} onClick={() => void unclaimDeskZone(activeDeskZone.id)}>{deskClaimBusy && deskClaimingZoneId === activeDeskZone.id ? "Unclaiming…" : "Unclaim"}</button>}
         {activeDeskZone && deskClaimError && <small className="desk-claim-error" role="alert">{deskClaimError}</small>}

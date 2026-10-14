@@ -2703,8 +2703,8 @@ export function OfficeApp() {
   const rosterParticipantSessionIds = new Set(people.flatMap(([sessionId, player]) => {
     if (sessionId === localSessionIdRef.current) return [];
     const playerAreaKey = officeMapLayout ? voiceRosterAreaKey(player, officeMapLayout) : "lobby";
-    const sharesZoneWithLocal = Boolean(localRosterAreaKey && playerAreaKey === localRosterAreaKey);
-    const nearbyInSameOpenArea = localRosterAreaKey === "lobby" && playerAreaKey === "lobby" && localRosterRangePlayers.has(sessionId);
+    const sharesZoneWithLocal = Boolean(localRosterAreaKey && localRosterAreaKey !== "lobby" && playerAreaKey === localRosterAreaKey);
+    const nearbyInSameOpenArea = localRosterRangePlayers.has(sessionId);
     if (player.presence === "online" && (sharesZoneWithLocal || nearbyInSameOpenArea)) return [sessionId];
     return [];
   }));
@@ -2712,7 +2712,7 @@ export function OfficeApp() {
     if (sessionId !== localSessionIdRef.current && !rosterParticipantSessionIds.has(sessionId)) return [];
     const local = sessionId === localSessionIdRef.current;
     const username = player.username.toLocaleLowerCase();
-    return [{ sessionId, username, displayName: player.displayName, status: player.status, presence: player.presence, local, nearby: player.nearby || localRosterRangePlayers.has(sessionId) }];
+    return [{ sessionId, username, displayName: player.displayName, status: player.status, presence: player.presence, local, nearby: localRosterRangePlayers.has(sessionId) }];
   });
   const openVoiceRosterVideo = (username: string, source: VoiceRosterMediaSource) => {
     const tile = videoTiles.find((candidate) => candidate.username === username.toLocaleLowerCase() && candidate.source === source);

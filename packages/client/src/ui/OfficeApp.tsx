@@ -2701,17 +2701,20 @@ export function OfficeApp() {
   const localRosterAreaKey = localRosterPlayer
     ? officeMapLayout ? voiceRosterAreaKey(localRosterPlayer, officeMapLayout, meetingZoneId ?? privateZoneId) : "lobby"
     : null;
-  const localRosterRangePlayers = new Set(people.filter(([sessionId, player]) => sessionId !== localSessionIdRef.current && player.presence === "online" && localRosterPlayer && Math.hypot(localRosterPlayer.x - player.x, localRosterPlayer.z - player.z) <= CAMPUS_WORLD.proximityRadius).map(([sessionId]) => sessionId));
-  const nearbyPeoplePresent = people.some(([id, player]) => id !== localSessionIdRef.current && player.presence === "online" && (player.nearby || localRosterRangePlayers.has(id)));
-  const voiceRosterPeople: VoiceRosterPerson[] = people.flatMap(([sessionId, player]) => {
-    if (player.presence !== "online") return [];
+  const localRosterRangePlayers = new Set(people.filter(([sessionId, player]) => sessionId !== localSessionIdRef.current && localRosterPlayer && Math.hypot(localRosterPlayer.x - player.x, localRosterPlayer.z - player.z) <= CAMPUS_WORLD.proximityRadius).map(([sessionId]) => sessionId));
+  const rosterParticipantSessionIds = new Set(people.flatMap(([sessionId, player]) => {
+    if (sessionId === localSessionIdRef.current) return [];
     const username = player.username.toLocaleLowerCase();
-    const local = sessionId === localSessionIdRef.current;
     const playerAreaKey = officeMapLayout ? voiceRosterAreaKey(player, officeMapLayout) : "lobby";
     const sharesZoneWithLocal = Boolean(localRosterAreaKey && playerAreaKey === localRosterAreaKey);
-    const nearby = player.nearby || localRosterRangePlayers.has(sessionId);
-    if (!nearby && !sharesZoneWithLocal && !(local && nearbyPeoplePresent)) return [];
-    return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby }];
+    if (player.nearby || localRosterRangePlayers.has(sessionId) || sharesZoneWithLocal || voiceRosterActivities.has(username)) return [sessionId];
+    return [];
+  }));
+  const voiceRosterPeople: VoiceRosterPerson[] = rosterParticipantSessionIds.size === 0 ? [] : people.flatMap(([sessionId, player]) => {
+    if (sessionId !== localSessionIdRef.current && !rosterParticipantSessionIds.has(sessionId)) return [];
+    const local = sessionId === localSessionIdRef.current;
+    const username = player.username.toLocaleLowerCase();
+    return [{ sessionId, username, displayName: player.displayName, status: player.status, presence: player.presence, local, nearby: player.nearby || localRosterRangePlayers.has(sessionId) }];
   });
   const openVoiceRosterVideo = (username: string, source: VoiceRosterMediaSource) => {
     const tile = videoTiles.find((candidate) => candidate.username === username.toLocaleLowerCase() && candidate.source === source);

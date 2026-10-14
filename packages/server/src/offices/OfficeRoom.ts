@@ -1059,6 +1059,39 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     return null;
   }
 
+  static getVoiceRoomForModeration(officeId: string, actorUsername: string, actorIdentity: string, targetUsername?: string) {
+    const membershipFor = (room: OfficeRoom, sessionId: string) => {
+      const zone = room.mediaZoneBySessionId.get(sessionId);
+      if (room.meetingMembersBySessionId.has(sessionId) && zone?.kind === "meeting") return { kind: "meeting" as const, id: zone.id };
+      const privateZoneId = room.privateZoneIdBySessionId.get(sessionId);
+      if (privateZoneId) return { kind: "private" as const, id: privateZoneId };
+      const proximityGroupId = room.proximityGroupBySessionId.get(sessionId);
+      if (proximityGroupId) return { kind: "proximity" as const, id: proximityGroupId };
+      return null;
+    };
+
+    for (const room of OfficeRoom.roomsByOffice.get(officeId) ?? []) {
+      const actorSessionId = [...room.usernamesBySessionId].find(([sessionId, username]) =>
+        username === actorUsername && room.mediaIdentityBySessionId.get(sessionId) === actorIdentity && room.state.players.get(sessionId)?.presence === "online",
+      )?.[0];
+      if (!actorSessionId) continue;
+      const actorMembership = membershipFor(room, actorSessionId);
+      if (!actorMembership) continue;
+      const participantIdentities = [...room.usernamesBySessionId]
+        .filter(([sessionId, username]) => {
+          if (targetUsername && username !== targetUsername) return false;
+          if ((targetUsername && sessionId === actorSessionId) || room.state.players.get(sessionId)?.presence !== "online") return false;
+          const identity = room.mediaIdentityBySessionId.get(sessionId);
+          const membership = membershipFor(room, sessionId);
+          return Boolean(identity && membership?.kind === actorMembership.kind && membership.id === actorMembership.id);
+        })
+        .map(([sessionId]) => room.mediaIdentityBySessionId.get(sessionId))
+        .filter((identity): identity is string => Boolean(identity));
+      return { ...actorMembership, participantIdentities };
+    }
+    return null;
+  }
+
   private updatePrivateMembership() {
     const roomTransitions: MediaZoneTransition[] = [];
     for (const [sessionId, player] of this.state.players) {

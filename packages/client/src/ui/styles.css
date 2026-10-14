@@ -132,6 +132,30 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .invite-link-box small { grid-column: 1 / -1; color: #849188; font-size: 9px; }
 .world-canvas { position: absolute; inset: 0; }
 .world-canvas canvas { display: block; width: 100%; height: 100%; outline: none; cursor: grab; }
+.voice-participant-roster { position: fixed; z-index: 20; top: 82px; left: 50%; display: grid; justify-items: center; gap: 6px; width: max-content; max-width: min(780px, calc(100vw - 24px)); padding: 7px 9px 9px; border: 1px solid rgba(255,255,255,.78); border-radius: 15px; background: rgba(239,248,249,.88); box-shadow: 0 8px 28px rgba(2,48,71,.16); transform: translateX(-50%); backdrop-filter: blur(14px); pointer-events: auto; }
+.voice-participant-roster-heading { color: #748b8f; font: 750 8px/1 "DM Sans", sans-serif; letter-spacing: .14em; }
+.voice-participant-roster-header { display: flex; align-items: center; justify-content: center; gap: 9px; max-width: 100%; }
+.voice-participant-mute-all { display: flex; align-items: center; gap: 3px; }
+.voice-participant-mute-all button { display: flex; align-items: center; gap: 4px; min-height: 23px; padding: 0 6px; border: 1px solid rgba(163,77,66,.2); border-radius: 7px; background: #fff7f5; color: #98483f; font: 700 8px "DM Sans", sans-serif; cursor: pointer; white-space: nowrap; }
+.voice-participant-mute-all button:hover { background: #ffe9e5; }
+.voice-participant-mute-all svg { width: 12px; height: 12px; }
+.voice-participant-roster ul { display: flex; justify-content: center; gap: 6px; width: 100%; margin: 0; padding: 0; overflow-x: auto; list-style: none; scrollbar-width: thin; }
+.voice-participant-roster li { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 150px; max-width: 220px; padding: 7px 9px; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
+.voice-participant-status-dot { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--participant-status-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--participant-status-color) 15%, transparent); }
+.voice-participant-copy { display: grid; flex: 1 1 auto; min-width: 0; gap: 2px; }
+.voice-participant-copy strong { overflow: hidden; color: #123247; font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.voice-participant-copy small { overflow: hidden; color: #71838a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.voice-participant-activity { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.voice-participant-media { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #93a1a5; }
+.voice-participant-media svg { width: 15px; height: 15px; }
+.voice-participant-media.is-on { background: #e6f5eb; color: #25834f; }
+.voice-participant-source-actions { display: inline-flex; align-items: center; gap: 1px; }
+.voice-participant-mute-media { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: #fff0ed; color: #a83e34; font: 800 12px/1 "DM Sans", sans-serif; cursor: pointer; }
+.voice-participant-mute-media:hover { background: #ffdcd5; }
+.voice-participant-volume { display: flex; align-items: center; border: 1px solid rgba(2,48,71,.1); border-radius: 7px; overflow: hidden; }
+.voice-participant-volume button { display: grid; place-items: center; width: 19px; height: 21px; padding: 0; border: 0; background: transparent; color: #365761; font: 700 11px/1 "DM Sans", sans-serif; cursor: pointer; }
+.voice-participant-volume button:hover:not(:disabled) { background: #e9f2f2; }
+.voice-participant-volume button:disabled { color: #b4c0c3; cursor: default; }
 .prop-action-menu { position: fixed; z-index: 13010; display: flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; pointer-events: auto; visibility: hidden; }
 .prop-action-menu button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border: 1px solid rgba(255,255,255,.95); border-radius: 10px; padding: 0 11px; color: #023047; background: rgba(244,251,253,.98); box-shadow: 0 5px 16px rgba(2,31,47,.2); text-align: center; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap; }
 .prop-action-menu button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -487,6 +511,13 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 }
 
 @media (max-width: 760px) {
+  .voice-participant-roster { top: 76px; width: calc(100vw - 16px); max-width: calc(100vw - 16px); padding: 6px; }
+  .voice-participant-roster-header { justify-content: space-between; width: 100%; gap: 4px; }
+  .voice-participant-mute-all button { padding: 0 4px; font-size: 7px; }
+  .voice-participant-mute-all button span { display: none; }
+  .voice-participant-roster ul { justify-content: flex-start; }
+  .voice-participant-roster li { min-width: 142px; max-width: 178px; gap: 5px; padding: 5px 6px; }
+  .voice-participant-volume button { width: 17px; }
   .focus-character-control { right: 14px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }
   .camera-view-control { right: 14px; bottom: calc(212px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }
   .weapon-inventory-control { right: 14px; bottom: calc(264px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }

@@ -33,6 +33,7 @@ export interface VoiceSessionListener<R extends VoiceRoom> {
   stateChanged(state: VoiceSessionState): void;
   roomChanged?(room: R | null, target: VoiceTarget | null): void;
   speakersChanged?(room: R): void;
+  participantsChanged?(room: R): void;
   localTracksChanged?(room: R, publication?: LocalTrackPublication): void;
   trackSubscribed?(room: R, track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant, target: VoiceTarget): void;
   trackUnsubscribed?(room: R, track: RemoteTrack, participant: RemoteParticipant): void;
@@ -201,6 +202,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       if (!this.current(generation, room)) return;
       this.retries = 0;
       this.listener.speakersChanged?.(room);
+      this.listener.participantsChanged?.(room);
       this.publish({ connected: true, busy: false, error: null });
       void this.drainControls();
     } catch (cause) {
@@ -267,11 +269,27 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     });
     bind(events.LocalTrackUnpublished, () => { if (this.current(generation, room)) this.listener.localTracksChanged?.(room); });
     bind(events.TrackSubscribed, (track, publication, participant) => {
-      if (this.current(generation, room)) this.listener.trackSubscribed?.(room, track, publication, participant, target);
+      if (this.current(generation, room)) {
+        this.listener.trackSubscribed?.(room, track, publication, participant, target);
+        this.listener.participantsChanged?.(room);
+      }
     });
     bind(events.TrackUnsubscribed, (track, _publication, participant) => {
-      if (this.current(generation, room)) this.listener.trackUnsubscribed?.(room, track, participant);
+      if (this.current(generation, room)) {
+        this.listener.trackUnsubscribed?.(room, track, participant);
+        this.listener.participantsChanged?.(room);
+      }
     });
+    for (const event of [events.ParticipantConnected, events.ParticipantDisconnected, events.TrackPublished, events.TrackUnpublished]) {
+      bind(event, () => { if (this.current(generation, room)) this.listener.participantsChanged?.(room); });
+    }
+    for (const event of [events.TrackMuted, events.TrackUnmuted]) {
+      bind(event, () => {
+        if (!this.current(generation, room)) return;
+        this.listener.participantsChanged?.(room);
+        this.listener.localTracksChanged?.(room);
+      });
+    }
   }
   control(run: (room: R) => Promise<unknown>): Promise<void> {
     return this.enqueueControl(run);

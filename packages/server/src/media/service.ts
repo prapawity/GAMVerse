@@ -96,6 +96,30 @@ export async function revokeProximityParticipants(officeId: string, groupId: str
   ));
 }
 
+export function voiceRoomNameForModeration(officeId: string, kind: "meeting" | "private" | "proximity", id: string) {
+  if (kind === "meeting") return meetingRoomName(officeId, id);
+  if (kind === "private") return privateVoiceRoomName(officeId, id);
+  return proximityRoomName(officeId, id);
+}
+
+export async function muteVoiceParticipantTracks(roomName: string, identities: string[], source: "microphone" | "camera" | "screen_share") {
+  if (identities.length === 0) return 0;
+  const sourceValue = source === "microphone" ? TrackSource.MICROPHONE : source === "camera" ? TrackSource.CAMERA : TrackSource.SCREEN_SHARE;
+  const service = getRoomService();
+  const rooms = await service.listRooms([roomName]);
+  if (rooms.length === 0) return 0;
+  const identitySet = new Set(identities);
+  const participants = (await service.listParticipants(roomName)).filter((participant) => identitySet.has(participant.identity));
+  let mutedCount = 0;
+  for (const participant of participants) {
+    for (const track of participant.tracks.filter((item) => item.source === sourceValue && !item.muted)) {
+      await service.mutePublishedTrack(roomName, participant.identity, track.sid, true);
+      mutedCount += 1;
+    }
+  }
+  return mutedCount;
+}
+
 const SPOTLIGHT_TOKEN_TTL_SECONDS = 60;
 const TOKEN_TIMESTAMP_DIVISOR_MS = 1000;
 export async function createSpotlightToken(username: string, identity: string, roomName: string, publish: boolean) {

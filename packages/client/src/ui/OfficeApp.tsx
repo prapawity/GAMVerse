@@ -87,6 +87,12 @@ const userStatusOptions: Array<{ value: UserStatus; label: string; icon: string;
   { value: "coffee-break", label: "Coffee break", icon: "☕", color: "#8a5a35" },
 ];
 type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: "available" | "do-not-disturb" | "in-meeting" | "toilet" | "lunch" | "coffee-break"; presence: "online" | "away"; nearby: boolean; handRaised: boolean };
+function voiceRosterAreaKey(position: { x: number; z: number }, layout: RoomLayout, previousZoneId?: string | null): string {
+  const mediaZone = roomLayoutZoneAt(position, layout, previousZoneId);
+  if (mediaZone) return `zone:${mediaZone.id}`;
+  const restroom = layout.zones.find((zone) => zone.kind === "restroom" && Math.abs(position.x - zone.x) <= zone.width / 2 && Math.abs(position.z - zone.z) <= zone.depth / 2);
+  return restroom ? `restroom:${restroom.id}` : "lobby";
+}
 
 type FollowAlert = { followerSessionId: string; followerName: string };
 type WaveAlert = { senderSessionId: string; senderName: string };
@@ -339,6 +345,7 @@ export function OfficeApp() {
   const nearbySessionIdsRef = useRef(new Set<string>());
   const proximityGroupIdRef = useRef<string | null>(null);
   const meetingZoneActiveRef = useRef(false);
+  const meetingZoneIdRef = useRef<string | null>(null);
   const privateZoneIdRef = useRef<string | null>(null);
   const reconnectingRef = useRef(false);
   const intentionalLeaveRef = useRef(false);
@@ -2166,7 +2173,7 @@ export function OfficeApp() {
             }
           }
           const signature = [...snapshot]
-            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${inRosterProximity.has(id)}:${officeMapLayoutRef.current ? roomLayoutZoneAt(player, officeMapLayoutRef.current)?.id ?? "" : ""}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
+            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${inRosterProximity.has(id)}:${officeMapLayoutRef.current ? voiceRosterAreaKey(player, officeMapLayoutRef.current, id === localSessionIdRef.current ? meetingZoneIdRef.current ?? privateZoneIdRef.current : null) : "lobby"}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
             .sort()
             .join("|");
           if (signature !== peopleSignatureRef.current) {
@@ -2295,6 +2302,7 @@ export function OfficeApp() {
           const kind = "kind" in payload && payload.kind === "meeting" ? "meeting" : "private";
           const name = "name" in payload && typeof payload.name === "string" ? payload.name : null;
           meetingZoneActiveRef.current = Boolean(zoneId && kind === "meeting");
+          meetingZoneIdRef.current = zoneId && kind === "meeting" ? zoneId : null;
           privateZoneIdRef.current = zoneId && kind === "private" ? zoneId : null;
           setMeetingZoneActive(Boolean(zoneId && kind === "meeting"));
           setActiveCameraRoomKey(zoneId ?? "lobby");
@@ -2376,6 +2384,7 @@ export function OfficeApp() {
           if (disposed) return;
           reconnectingRef.current = true;
           meetingZoneActiveRef.current = false;
+          meetingZoneIdRef.current = null;
           privateZoneIdRef.current = null;
           setPrivateZoneId(null);
           voiceTargetInputsRef.current = { ...voiceTargetInputsRef.current, paused: true };
@@ -2403,6 +2412,7 @@ export function OfficeApp() {
           const shouldRejoin = shouldFreshJoin(code, reconnectingRef.current) && !intentionalLeaveRef.current;
           reconnectingRef.current = false;
           meetingZoneActiveRef.current = false;
+          meetingZoneIdRef.current = null;
           privateZoneIdRef.current = null;
           setPrivateZoneId(null);
           autoRejoiningRef.current = shouldRejoin;
@@ -2686,8 +2696,8 @@ export function OfficeApp() {
   const canClaimAnyDesk = !authUser || !officeMapLayout?.zones.some((zone) => zone.kind === "private" && zone.ownerUsername === authUser.username);
   const focusedVideoTile = videoTiles.find((tile) => tile.key === focusedVideoKey) ?? videoTiles[0] ?? null;
   const localRosterPlayer = playersRef.current.get(localSessionIdRef.current ?? "");
-  const localRosterZoneId = localRosterPlayer && officeMapLayout
-    ? roomLayoutZoneAt(localRosterPlayer, officeMapLayout, meetingZoneId ?? privateZoneId)?.id ?? null
+  const localRosterAreaKey = localRosterPlayer
+    ? officeMapLayout ? voiceRosterAreaKey(localRosterPlayer, officeMapLayout, meetingZoneId ?? privateZoneId) : "lobby"
     : null;
   const localRosterRangePlayers = new Set(people.filter(([sessionId, player]) => sessionId !== localSessionIdRef.current && player.presence === "online" && localRosterPlayer && Math.hypot(localRosterPlayer.x - player.x, localRosterPlayer.z - player.z) <= CAMPUS_WORLD.proximityRadius).map(([sessionId]) => sessionId));
   const nearbyPeoplePresent = people.some(([id, player]) => id !== localSessionIdRef.current && player.presence === "online" && (player.nearby || localRosterRangePlayers.has(id)));
@@ -2695,8 +2705,8 @@ export function OfficeApp() {
     if (player.presence !== "online") return [];
     const username = player.username.toLocaleLowerCase();
     const local = sessionId === localSessionIdRef.current;
-    const playerZoneId = officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? null : null;
-    const sharesZoneWithLocal = Boolean(localRosterZoneId && playerZoneId === localRosterZoneId);
+    const playerAreaKey = officeMapLayout ? voiceRosterAreaKey(player, officeMapLayout) : "lobby";
+    const sharesZoneWithLocal = Boolean(localRosterAreaKey && playerAreaKey === localRosterAreaKey);
     const nearby = player.nearby || localRosterRangePlayers.has(sessionId);
     if (!nearby && !sharesZoneWithLocal && !(local && nearbyPeoplePresent)) return [];
     return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby }];

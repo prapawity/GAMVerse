@@ -139,7 +139,13 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .voice-participant-mute-all button { display: flex; align-items: center; gap: 4px; min-height: 23px; padding: 0 6px; border: 1px solid rgba(163,77,66,.2); border-radius: 7px; background: #fff7f5; color: #98483f; font: 700 8px "DM Sans", sans-serif; cursor: pointer; white-space: nowrap; }
 .voice-participant-mute-all button:hover { background: #ffe9e5; }
 .voice-participant-mute-all svg { width: 12px; height: 12px; }
-.voice-participant-roster ul { display: flex; justify-content: center; gap: 6px; width: 100%; margin: 0; padding: 0; overflow-x: auto; list-style: none; scrollbar-width: thin; }
+.voice-participant-list-wrap { position: relative; width: 100%; min-width: 0; }
+.voice-participant-roster ul { display: flex; justify-content: center; gap: 6px; width: 100%; margin: 0; padding: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-behavior: smooth; list-style: none; scrollbar-width: thin; }
+.voice-participant-scroll { position: absolute; z-index: 1; top: 50%; display: grid; width: 24px; height: 24px; padding: 0; place-items: center; transform: translateY(-50%); border: 1px solid rgba(255,255,255,.9); border-radius: 50%; background: rgba(2,48,71,.86); color: #fff; box-shadow: 0 2px 8px rgba(2,48,71,.2); cursor: pointer; }
+.voice-participant-scroll.is-left { left: -4px; }
+.voice-participant-scroll.is-right { right: -4px; }
+.voice-participant-scroll svg { width: 14px; height: 14px; }
+.voice-participant-scroll:hover { background: #126782; }
 .voice-participant-roster li { display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; min-width: 122px; max-width: 138px; padding: 7px 8px; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
 .voice-participant-status-dot { grid-area: dot; width: 9px; height: 9px; border-radius: 50%; background: var(--participant-status-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--participant-status-color) 15%, transparent); }
 .voice-participant-copy { grid-area: copy; display: grid; min-width: 0; gap: 2px; }

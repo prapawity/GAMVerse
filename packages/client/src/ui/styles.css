@@ -359,6 +359,14 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .settings-section-content { padding: 20px; }
 .settings-section-content h3 { margin: 6px 0; color: #34463b; font: 700 17px "Manrope", sans-serif; }
 .settings-intro { margin: 0 0 15px; color: #819087; font-size: 11px; line-height: 1.5; }
+.sound-device-field { display: grid; gap: 6px; margin: 0 0 13px; color: #44564b; font-size: 10px; font-weight: 700; }
+.sound-device-field select { width: 100%; min-width: 0; min-height: 38px; padding: 0 10px; border: 1px solid #d7e2dc; border-radius: 9px; background: rgba(255,255,255,.86); color: #34463b; font: 500 11px "DM Sans", sans-serif; }
+.sound-device-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.sound-device-actions .lobby-button { min-height: 32px; padding: 0 10px; font-size: 10px; }
+.sound-device-note,.sound-device-error { margin: 8px 0; font-size: 10px; line-height: 1.45; }
+.sound-device-note { color: #72868d; }
+.sound-device-error { color: #a34d42; }
+.sound-noise-row { margin-top: 15px; }
 .permission-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #e8eee9; }
 .permission-row > div { display: grid; min-width: 0; gap: 4px; }
 .permission-row strong { color: #44564b; font-size: 11px; }

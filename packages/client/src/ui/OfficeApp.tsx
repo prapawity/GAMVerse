@@ -16,6 +16,8 @@ import { VoiceRoomSession, VOICE_MEDIA_STOPPED_LABEL, type VoiceSessionListener 
 import { resolveVoiceTarget, type VoiceTargetInputs } from "./media/voiceTarget";
 import { fetchVoiceToken } from "./media/voiceToken";
 import { VoiceParticipantRoster, type VoiceRosterActivity, type VoiceRosterMediaSource, type VoiceRosterPerson } from "./media/VoiceParticipantRoster";
+import { SoundSettings } from "./media/SoundSettings";
+import { applyAudioInputPreference, readAudioDevicePreferences, saveAudioInputDevice, saveAudioOutputDevice, type AudioDevicePreferences } from "./media/audioDevicePreferences";
 import { readVoiceParticipantAudioLevels, saveVoiceParticipantAudioLevels } from "./media/voiceParticipantPreferences";
 import type { LocalAudioTrack, LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack, Room as LiveKitRoomInstance } from "livekit-client";
 import { CharacterPreview3D } from "../world/CharacterPreview3D";
@@ -53,7 +55,7 @@ const VOICE_VIDEO_KIND = "video";
 type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
 type CharacterSelectionId = KenneyCharacterId | `custom-${string}`;
 type PersonalAvatarModel = { id: `custom-${string}`; label: string; modelUrl: string };
-type SettingsSection = "general" | "permissions" | "security";
+type SettingsSection = "general" | "sound" | "permissions" | "security";
 type BrowserPermissionValue = "granted" | "denied" | "prompt" | "unknown";
 type OfficeActivityType = "office.join" | "office.leave" | "meeting.enter" | "meeting.leave" | "private.enter" | "private.leave" | "bubble.enter" | "bubble.leave" | "vehicle.enter" | "vehicle.leave";
 type OfficeActivity = { id: string; actorUsername: string; activityType: OfficeActivityType; locationName: string | null; occurredAt: string };
@@ -514,6 +516,9 @@ export function OfficeApp() {
   const noiseReductionEnabledRef = useRef(noiseReductionEnabled);
   const [noiseReductionStatus, setNoiseReductionStatus] = useState<"unknown" | "checking" | "enabled" | "fallback" | "disabled">("unknown");
   const [noiseReductionDetails, setNoiseReductionDetails] = useState("");
+  const [audioDevicePreferences, setAudioDevicePreferences] = useState<AudioDevicePreferences>(() => readAudioDevicePreferences());
+  const audioDevicePreferencesRef = useRef(audioDevicePreferences);
+  audioDevicePreferencesRef.current = audioDevicePreferences;
   const updateNoiseReductionPreference = (enabled: boolean) => {
     noiseReductionEnabledRef.current = enabled;
     setNoiseReductionEnabled(enabled);
@@ -632,7 +637,14 @@ export function OfficeApp() {
   const attachRemoteAudio = (track: RemoteAudioTrack) => {
     if (typeof window !== "undefined" && window.AudioContext) {
       try {
-        const context = remoteAudioContextRef.current ?? (remoteAudioContextRef.current = new window.AudioContext());
+        let context = remoteAudioContextRef.current;
+        if (!context) {
+          context = new window.AudioContext();
+          remoteAudioContextRef.current = context;
+          const selectedOutput = audioDevicePreferencesRef.current.outputDeviceId;
+          const setSinkId = (context as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }).setSinkId;
+          if (selectedOutput && setSinkId) void setSinkId.call(context, selectedOutput).catch((cause) => console.warn("Could not select the saved speaker.", cause));
+        }
         track.setAudioContext(context);
       } catch (cause) {
         console.warn("Could not enable per-person audio gain; using browser volume controls.", cause);
@@ -976,6 +988,52 @@ export function OfficeApp() {
     else setNoiseReductionStatus("checking");
   };
 
+  const switchMicrophoneDevice = async (deviceId: string) => {
+    const previous = audioDevicePreferencesRef.current;
+    const next = { ...previous, inputDeviceId: deviceId };
+    audioDevicePreferencesRef.current = next;
+    setAudioDevicePreferences(next);
+    saveAudioInputDevice(deviceId);
+    const rooms = [liveKitRoomRef.current, privateLiveKitRoomRef.current, proximityLiveKitRoomRef.current].filter((room): room is LiveKitRoomInstance => Boolean(room));
+    try {
+      await Promise.all(rooms.map((room) => room.switchActiveDevice("audioinput", deviceId || "default")));
+    } catch (cause) {
+      await Promise.allSettled(rooms.map((room) => room.switchActiveDevice("audioinput", previous.inputDeviceId || "default")));
+      audioDevicePreferencesRef.current = previous;
+      setAudioDevicePreferences(previous);
+      saveAudioInputDevice(previous.inputDeviceId);
+      throw cause;
+    }
+  };
+
+  const switchSpeakerDevice = async (deviceId: string) => {
+    const previous = audioDevicePreferencesRef.current;
+    const next = { ...previous, outputDeviceId: deviceId };
+    let context = remoteAudioContextRef.current;
+    if (!context && window.AudioContext) {
+      context = new window.AudioContext();
+      remoteAudioContextRef.current = context;
+    }
+    const setSinkId = context as (AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }) | null;
+    const previousSinkId = previous.outputDeviceId;
+    const rooms = [liveKitRoomRef.current, privateLiveKitRoomRef.current, proximityLiveKitRoomRef.current].filter((room): room is LiveKitRoomInstance => Boolean(room));
+    audioDevicePreferencesRef.current = next;
+    setAudioDevicePreferences(next);
+    saveAudioOutputDevice(deviceId);
+    try {
+      if (setSinkId?.setSinkId) await setSinkId.setSinkId(deviceId);
+      else if (context && (deviceId || previousSinkId)) throw new Error("This browser cannot switch speakers while voice audio is playing.");
+      else await Promise.all(rooms.map((room) => room.switchActiveDevice("audiooutput", deviceId || "default")));
+    } catch (cause) {
+      if (!setSinkId?.setSinkId && !context) await Promise.allSettled(rooms.map((room) => room.switchActiveDevice("audiooutput", previousSinkId || "default")));
+      audioDevicePreferencesRef.current = previous;
+      setAudioDevicePreferences(previous);
+      saveAudioOutputDevice(previous.outputDeviceId);
+      if (setSinkId?.setSinkId) await setSinkId.setSinkId(previousSinkId).catch(() => undefined);
+      throw cause;
+    }
+  };
+
   const syncLocalVideoTiles = (room: LiveKitRoomInstance) => {
     const activePublications = [...room.localParticipant.videoTrackPublications.values()].filter((publication) => publication.track && !publication.isMuted);
     const localTiles: VideoTileItem[] = activePublications.map((publication) => {
@@ -1195,6 +1253,12 @@ export function OfficeApp() {
       liveKitRoomRef.current = target?.kind === "meeting" ? room : null;
       privateLiveKitRoomRef.current = target?.kind === "private" ? room : null;
       proximityLiveKitRoomRef.current = target?.kind === "proximity" ? room : null;
+      if (room) {
+        void applyAudioInputPreference(room, audioDevicePreferencesRef.current).catch((cause) => console.warn("Could not apply the saved microphone.", cause));
+        if (!remoteAudioContextRef.current && audioDevicePreferencesRef.current.outputDeviceId) {
+          void room.switchActiveDevice("audiooutput", audioDevicePreferencesRef.current.outputDeviceId).catch((cause) => console.warn("Could not apply the saved speaker.", cause));
+        }
+      }
       setVideoTiles([]); setCameraEnabled(false); setScreenShareEnabled(false);
       remoteAudioTracksRef.current.clear();
       roomRef.current?.send("media-activity", room ? readVoiceRosterActivity(room.localParticipant) : { microphone: false, camera: false, screenShare: false });
@@ -2866,13 +2930,18 @@ export function OfficeApp() {
 
       {settingsOpen && <div className="profile-dialog-backdrop settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}><section className="profile-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
         <header className="profile-dialog-header"><div><span className="eyebrow">USER SETTINGS</span><h2 id="settings-dialog-title">Settings</h2></div><button type="button" className="icon-button" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><FeatherIcon name="close" size={17} /></button></header>
-        <div className="settings-dialog-body"><nav className="settings-section-nav" aria-label="Settings topics"><button type="button" className={settingsSection === "general" ? "active" : ""} aria-current={settingsSection === "general" ? "page" : undefined} onClick={() => setSettingsSection("general")}>General</button><button type="button" className={settingsSection === "permissions" ? "active" : ""} aria-current={settingsSection === "permissions" ? "page" : undefined} onClick={() => setSettingsSection("permissions")}>Permission</button><button type="button" className={settingsSection === "security" ? "active" : ""} aria-current={settingsSection === "security" ? "page" : undefined} onClick={() => setSettingsSection("security")}>Security</button></nav>
-          <div className="settings-section-content">{settingsSection === "general" ? <section aria-labelledby="general-settings-title"><span className="eyebrow">PREFERENCES</span><h3 id="general-settings-title">General</h3><p className="settings-intro">Adjust client-side preferences.</p><div className="permission-row settings-general-row"><div><strong>Idle animations</strong><small>Turn off idle movement for characters and pets</small></div><label className="settings-toggle-control"><span className="sr-only">Idle animations</span><input type="checkbox" role="switch" checked={idleAnimationsEnabled} onChange={(event) => updateIdleAnimationsEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div><div className="permission-row settings-general-row"><div><strong>Noise reduction</strong><small>Reduce background noise locally with RNNoise</small><small className={`noise-reduction-status ${noiseReductionStatus}`} role="status">{noiseReductionStatus === "checking" ? "Loading local noise filter…" : noiseReductionStatus === "enabled" ? "RNNoise noise reduction is active" : noiseReductionStatus === "fallback" ? `RNNoise unavailable: ${noiseReductionDetails || "browser noise reduction remains active"}` : noiseReductionStatus === "disabled" ? "Using browser noise reduction" : "Applies when you join voice"}</small></div><label className="settings-toggle-control"><span className="sr-only">Noise reduction</span><input type="checkbox" role="switch" checked={noiseReductionEnabled} onChange={(event) => updateNoiseReductionPreference(event.target.checked)} /><span aria-hidden="true" /></label></div></section> : settingsSection === "permissions" ? <section aria-labelledby="permissions-title"><span className="eyebrow">DEVICE ACCESS</span><h3 id="permissions-title">Permissions</h3><p className="settings-intro">Allow GAMVerse to use your microphone, camera, or screen when you choose those controls.</p>
+        <div className="settings-dialog-body"><nav className="settings-section-nav" aria-label="Settings topics"><button type="button" className={settingsSection === "general" ? "active" : ""} aria-current={settingsSection === "general" ? "page" : undefined} onClick={() => setSettingsSection("general")}>General</button><button type="button" className={settingsSection === "sound" ? "active" : ""} aria-current={settingsSection === "sound" ? "page" : undefined} onClick={() => setSettingsSection("sound")}>Sound</button><button type="button" className={settingsSection === "permissions" ? "active" : ""} aria-current={settingsSection === "permissions" ? "page" : undefined} onClick={() => setSettingsSection("permissions")}>Permission</button><button type="button" className={settingsSection === "security" ? "active" : ""} aria-current={settingsSection === "security" ? "page" : undefined} onClick={() => setSettingsSection("security")}>Security</button></nav>
+          <div className="settings-section-content">
+            {settingsSection === "general" && <section aria-labelledby="general-settings-title"><span className="eyebrow">PREFERENCES</span><h3 id="general-settings-title">General</h3><p className="settings-intro">Adjust client-side preferences.</p><div className="permission-row settings-general-row"><div><strong>Idle animations</strong><small>Turn off idle movement for characters and pets</small></div><label className="settings-toggle-control"><span className="sr-only">Idle animations</span><input type="checkbox" role="switch" checked={idleAnimationsEnabled} onChange={(event) => updateIdleAnimationsEnabled(event.target.checked)} /><span aria-hidden="true" /></label></div></section>}
+            {settingsSection === "sound" && <SoundSettings inputDeviceId={audioDevicePreferences.inputDeviceId} outputDeviceId={audioDevicePreferences.outputDeviceId} onInputDeviceChange={switchMicrophoneDevice} onOutputDeviceChange={switchSpeakerDevice} noiseReductionEnabled={noiseReductionEnabled} noiseReductionStatus={noiseReductionStatus} noiseReductionDetails={noiseReductionDetails} onNoiseReductionChange={updateNoiseReductionPreference} />}
+            {settingsSection === "permissions" && <section aria-labelledby="permissions-title"><span className="eyebrow">DEVICE ACCESS</span><h3 id="permissions-title">Permissions</h3><p className="settings-intro">Allow GAMVerse to use your microphone, camera, or screen when you choose those controls.</p>
             {(["microphone", "camera"] as const).map((kind) => <div className="permission-row" key={kind}><div><strong>{kind === "microphone" ? "Microphone" : "Camera"}</strong><small className={`permission-state ${browserPermissions[kind]}`}>{browserPermissions[kind] === "unknown" ? "Status unavailable" : browserPermissions[kind]}</small></div><button type="button" className="lobby-button" disabled={permissionBusy !== null} onClick={() => void requestBrowserPermission(kind)}>{permissionBusy === kind ? "Checking…" : browserPermissions[kind] === "denied" ? "Check again" : "Allow access"}</button></div>)}
             <div className="permission-row"><div><strong>Screen sharing</strong><small>Browser asks each time you share</small></div><button type="button" className="lobby-button" disabled={permissionBusy !== null} onClick={() => void requestBrowserPermission("screen")}>{permissionBusy === "screen" ? "Checking…" : "Check sharing"}</button></div>
             {permissionMessage && <p className="permission-message" role="status">{permissionMessage}</p>}{screenPermissionResult && <p className="permission-message" role="status">{screenPermissionResult}</p>}
             {(browserPermissions.microphone === "denied" || browserPermissions.camera === "denied") && <p className="permission-help">If access is blocked, open this site’s permissions from the browser address bar, allow the device, then select Check again.</p>}
-          </section> : <section aria-labelledby="security-title"><span className="eyebrow">ACCOUNT SECURITY</span><h3 id="security-title">Security</h3><p className="settings-intro">Update the password you use to sign in to GAMVerse.</p><button type="button" className="settings-menu-row security-password-action" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Choose a new sign-in password</small></span><span aria-hidden="true">›</span></button></section>}</div>
+          </section>}
+            {settingsSection === "security" && <section aria-labelledby="security-title"><span className="eyebrow">ACCOUNT SECURITY</span><h3 id="security-title">Security</h3><p className="settings-intro">Update the password you use to sign in to GAMVerse.</p><button type="button" className="settings-menu-row security-password-action" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Choose a new sign-in password</small></span><span aria-hidden="true">›</span></button></section>}
+          </div>
         </div>
       </section></div>}
 

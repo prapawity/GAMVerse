@@ -2698,7 +2698,7 @@ export function OfficeApp() {
     const playerZoneId = officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? null : null;
     const sharesZoneWithLocal = Boolean(localRosterZoneId && playerZoneId === localRosterZoneId);
     const nearby = player.nearby || localRosterRangePlayers.has(sessionId);
-    if (!nearby && !sharesZoneWithLocal && !voiceRosterActivities.has(username) && !(local && nearbyPeoplePresent)) return [];
+    if (!nearby && !sharesZoneWithLocal && !(local && nearbyPeoplePresent)) return [];
     return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby }];
   });
   const openVoiceRosterVideo = (username: string, source: VoiceRosterMediaSource) => {

@@ -6,7 +6,7 @@ export function readVoiceParticipantAudioLevels(): Map<string, number> {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return new Map();
     return new Map(Object.entries(value).flatMap(([username, level]) =>
       typeof level === "number" && Number.isFinite(level) && username.length > 0
-        ? [[username.toLocaleLowerCase(), Math.max(0, Math.min(1, level))]]
+        ? [[username.toLocaleLowerCase(), Math.max(0, Math.min(1.5, level))]]
         : [],
     ));
   } catch {

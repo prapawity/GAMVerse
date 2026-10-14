@@ -316,6 +316,7 @@ export function OfficeApp() {
   const [zoneAudioUsernames, setZoneAudioUsernames] = useState<Set<string>>(new Set());
   const proximityAudioTracksRef = useRef(new Map<string, ProximityAudioTrack>());
   const remoteAudioTracksRef = useRef(new Map<string, { track: RemoteAudioTrack; username: string }>());
+  const remoteAudioContextRef = useRef<AudioContext | null>(null);
   const participantAudioLevelsRef = useRef(new Map<string, number>());
   const speakingUsernamesRef = useRef(new Set<string>());
   const speakingByVoiceRoomRef = useRef(new Map<LiveKitRoomInstance, Set<string>>());
@@ -378,6 +379,8 @@ export function OfficeApp() {
   const [mapEditorUsername, setMapEditorUsername] = useState<string | null>(null);
   const [mapEditLockRequestPending, setMapEditLockRequestPending] = useState(false);
   const [officeMapLayout, setOfficeMapLayout] = useState<RoomLayout | null>(null);
+  const officeMapLayoutRef = useRef<RoomLayout | null>(null);
+  officeMapLayoutRef.current = officeMapLayout;
   const [mapEditBaseline, setMapEditBaseline] = useState<RoomLayout | null>(null);
   const mapDimensions = officeMapLayout?.dimensions ?? { width: CAMPUS_WORLD.width, depth: CAMPUS_WORLD.depth };
   const [mapConfigVersion, setMapConfigVersion] = useState(1);
@@ -618,6 +621,14 @@ export function OfficeApp() {
     selectUserStatus(mutedByStatus ? "available" : "do-not-disturb");
   };
   const attachRemoteAudio = (track: RemoteAudioTrack) => {
+    if (typeof window !== "undefined" && window.AudioContext) {
+      try {
+        const context = remoteAudioContextRef.current ?? (remoteAudioContextRef.current = new window.AudioContext());
+        track.setAudioContext(context);
+      } catch (cause) {
+        console.warn("Could not enable per-person audio gain; using browser volume controls.", cause);
+      }
+    }
     const element = track.attach();
     element.autoplay = true;
     element.muted = inboundAudioMutedRef.current;
@@ -627,6 +638,7 @@ export function OfficeApp() {
   useEffect(() => {
     const unlockAudio = () => {
       unlockSocialNotificationAudio();
+      if (remoteAudioContextRef.current?.state === "suspended") void remoteAudioContextRef.current.resume().catch(() => {});
       window.removeEventListener("pointerdown", unlockAudio, true);
       window.removeEventListener("keydown", unlockAudio, true);
       window.removeEventListener("touchstart", unlockAudio, true);
@@ -1009,7 +1021,7 @@ export function OfficeApp() {
 
   const setParticipantAudioLevel = (username: string, requestedLevel: number) => {
     const key = username.toLocaleLowerCase();
-    const next = Math.max(0, Math.min(1, requestedLevel));
+    const next = Math.max(0, Math.min(1.5, requestedLevel));
     participantAudioLevelsRef.current.set(key, next);
     setParticipantAudioLevels(new Map(participantAudioLevelsRef.current));
     saveVoiceParticipantAudioLevels(participantAudioLevelsRef.current);
@@ -2144,8 +2156,17 @@ export function OfficeApp() {
           setUserStatus(localSnapshot?.status ?? "available");
           setActivePetId(localSnapshot?.petId ?? "");
           updateProximityAudioVolumes();
+          const rosterLocal = localSessionIdRef.current ? snapshot.get(localSessionIdRef.current) : undefined;
+          const inRosterProximity = new Set<string>();
+          if (rosterLocal) {
+            for (const [sessionId, player] of snapshot) {
+              if (sessionId !== localSessionIdRef.current && player.presence === "online" && Math.hypot(rosterLocal.x - player.x, rosterLocal.z - player.z) <= CAMPUS_WORLD.proximityRadius) {
+                inRosterProximity.add(sessionId);
+              }
+            }
+          }
           const signature = [...snapshot]
-            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? "" : ""}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
+            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${inRosterProximity.has(id)}:${officeMapLayoutRef.current ? roomLayoutZoneAt(player, officeMapLayoutRef.current)?.id ?? "" : ""}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
             .sort()
             .join("|");
           if (signature !== peopleSignatureRef.current) {
@@ -2668,15 +2689,17 @@ export function OfficeApp() {
   const localRosterZoneId = localRosterPlayer && officeMapLayout
     ? roomLayoutZoneAt(localRosterPlayer, officeMapLayout, meetingZoneId ?? privateZoneId)?.id ?? null
     : null;
-  const nearbyPeoplePresent = people.some(([id, player]) => id !== localSessionIdRef.current && player.presence === "online" && player.nearby);
+  const localRosterRangePlayers = new Set(people.filter(([sessionId, player]) => sessionId !== localSessionIdRef.current && player.presence === "online" && localRosterPlayer && Math.hypot(localRosterPlayer.x - player.x, localRosterPlayer.z - player.z) <= CAMPUS_WORLD.proximityRadius).map(([sessionId]) => sessionId));
+  const nearbyPeoplePresent = people.some(([id, player]) => id !== localSessionIdRef.current && player.presence === "online" && (player.nearby || localRosterRangePlayers.has(id)));
   const voiceRosterPeople: VoiceRosterPerson[] = people.flatMap(([sessionId, player]) => {
     if (player.presence !== "online") return [];
     const username = player.username.toLocaleLowerCase();
     const local = sessionId === localSessionIdRef.current;
     const playerZoneId = officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? null : null;
     const sharesZoneWithLocal = Boolean(localRosterZoneId && playerZoneId === localRosterZoneId);
-    if (!player.nearby && !sharesZoneWithLocal && !voiceRosterActivities.has(username) && !(local && nearbyPeoplePresent)) return [];
-    return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby: player.nearby }];
+    const nearby = player.nearby || localRosterRangePlayers.has(sessionId);
+    if (!nearby && !sharesZoneWithLocal && !voiceRosterActivities.has(username) && !(local && nearbyPeoplePresent)) return [];
+    return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby }];
   });
   const openVoiceRosterVideo = (username: string, source: VoiceRosterMediaSource) => {
     const tile = videoTiles.find((candidate) => candidate.username === username.toLocaleLowerCase() && candidate.source === source);

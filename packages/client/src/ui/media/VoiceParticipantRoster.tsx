@@ -121,7 +121,7 @@ export function VoiceParticipantRoster({
           }}><MoreGlyph /></button>}
           {isOpen && settingsPosition && createPortal(<div ref={settingsRef} id={`voice-participant-settings-${person.sessionId}`} className="voice-participant-settings" role="dialog" aria-label={`Local audio settings for ${person.local ? "you" : person.displayName}`} style={settingsPosition}>
             <strong>Audio on this device</strong>
-            <label><span>Volume <output>{Math.round(audioLevel * 100)}%</output></span><input type="range" min="0" max="100" step="5" value={Math.round(audioLevel * 100)} onChange={(event) => onSetAudioLevel(person.username, Number(event.target.value) / 100)} /></label>
+            <label><span>Volume <output>{Math.round(audioLevel * 100)}%</output></span><input type="range" min="0" max="150" step="5" value={Math.round(audioLevel * 100)} onChange={(event) => onSetAudioLevel(person.username, Number(event.target.value) / 100)} /></label>
             <button type="button" className="voice-participant-local-mute" aria-pressed={audioLevel === 0} onClick={() => onSetAudioLevel(person.username, audioLevel === 0 ? 1 : 0)}>{audioLevel === 0 ? "Unmute audio here" : "Mute audio here"}</button>
             <small>Saved only in this browser.</small>
           </div>, document.body)}

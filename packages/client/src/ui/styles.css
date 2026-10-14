@@ -152,7 +152,7 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .voice-participant-media { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #93a1a5; }
 .voice-participant-media svg { width: 15px; height: 15px; }
 .voice-participant-media.is-on { background: #e6f5eb; color: #25834f; }
-.voice-participant-media.is-off { background: #f1f5f6; color: #a6b2b5; }
+.voice-participant-media.is-off { background: #fff0ed; color: #c43d32; }
 .voice-participant-media.is-unknown { background: #f7f7f4; color: #a6a59b; }
 .voice-participant-media:disabled { cursor: default; opacity: .9; }
 .voice-participant-expand { width: 19px; height: 22px; }

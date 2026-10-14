@@ -41,6 +41,10 @@ function MoreGlyph() {
   return <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg>;
 }
 
+function ExpandGlyph() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4M3 7l5-5m9 5-5-5M3 13l5 5m9-5-5 5"/></svg>;
+}
+
 export function VoiceParticipantRoster({
   people,
   activities,
@@ -95,6 +99,7 @@ export function VoiceParticipantRoster({
     </div>
     <ul>
       {people.map((person) => {
+        const activityKnown = activities.has(person.username.toLocaleLowerCase());
         const activity = activities.get(person.username.toLocaleLowerCase()) ?? { microphone: false, camera: false, screenShare: false };
         const audioLevel = audioLevels.get(person.username.toLocaleLowerCase()) ?? 1;
         const color = STATUS_COLORS[person.status];
@@ -107,11 +112,15 @@ export function VoiceParticipantRoster({
             <small>{STATUS_LABELS[person.status]}</small>
           </span>
           <span className="voice-participant-activity" aria-label="Media activity">
-            {activity.microphone && (person.local
-              ? <span className="voice-participant-media is-on" title="Your microphone is on" aria-label="Your microphone is on"><MediaGlyph source="microphone" /></span>
-              : <button type="button" className="voice-participant-media is-on" title={`Mute ${person.displayName}'s microphone in this zone`} aria-label={`Mute ${person.displayName}'s microphone`} onClick={() => onModeratePerson(person.username, "microphone")}><MediaGlyph source="microphone" /></button>)}
-            {activity.camera && <span className="voice-participant-source-actions"><button type="button" className="voice-participant-media is-on" disabled={!canOpenVideo(person.username, "camera")} title="Open camera full screen" aria-label={`Open ${person.displayName}'s camera full screen`} onClick={() => onOpenVideo(person.username, "camera")}><MediaGlyph source="camera" /></button>{!person.local && <button type="button" className="voice-participant-mute-media" title={`Stop ${person.displayName}'s camera in this zone`} aria-label={`Stop ${person.displayName}'s camera`} onClick={() => onModeratePerson(person.username, "camera")}>×</button>}</span>}
-            {activity.screenShare && <span className="voice-participant-source-actions"><button type="button" className="voice-participant-media is-on" disabled={!canOpenVideo(person.username, "screen")} title="Open screen share full screen" aria-label={`Open ${person.displayName}'s screen share full screen`} onClick={() => onOpenVideo(person.username, "screen")}><MediaGlyph source="screen" /></button>{!person.local && <button type="button" className="voice-participant-mute-media" title={`Stop ${person.displayName}'s screen share in this zone`} aria-label={`Stop ${person.displayName}'s screen share`} onClick={() => onModeratePerson(person.username, "screen_share")}>×</button>}</span>}
+            <button type="button" className={`voice-participant-media ${!activityKnown ? "is-unknown" : activity.microphone ? "is-on" : "is-off"}`} aria-pressed={activityKnown && activity.microphone} disabled={person.local || !activityKnown || !activity.microphone} title={!activityKnown ? "Microphone status unavailable while voice is disconnected" : activity.microphone ? `Turn off ${person.displayName}'s microphone` : `${person.displayName}'s microphone is off; they can turn it on themselves`} aria-label={`${person.displayName}'s microphone ${!activityKnown ? "status unavailable" : activity.microphone ? "on, click to turn off" : "off"}`} onClick={() => { if (!person.local && activityKnown && activity.microphone) onModeratePerson(person.username, "microphone"); }}><MediaGlyph source="microphone" /></button>
+            <span className="voice-participant-source-actions">
+              <button type="button" className={`voice-participant-media ${!activityKnown ? "is-unknown" : activity.camera ? "is-on" : "is-off"}`} aria-pressed={activityKnown && activity.camera} disabled={person.local || !activityKnown || !activity.camera} title={!activityKnown ? "Camera status unavailable while voice is disconnected" : activity.camera ? `Turn off ${person.displayName}'s camera` : `${person.displayName}'s camera is off; they can turn it on themselves`} aria-label={`${person.displayName}'s camera ${!activityKnown ? "status unavailable" : activity.camera ? "on, click to turn off" : "off"}`} onClick={() => { if (!person.local && activityKnown && activity.camera) onModeratePerson(person.username, "camera"); }}><MediaGlyph source="camera" /></button>
+              {activity.camera && <button type="button" className="voice-participant-media voice-participant-expand" disabled={!canOpenVideo(person.username, "camera")} title={`Open ${person.displayName}'s camera full screen`} aria-label={`Open ${person.displayName}'s camera full screen`} onClick={() => onOpenVideo(person.username, "camera")}><ExpandGlyph /></button>}
+            </span>
+            <span className="voice-participant-source-actions">
+              <button type="button" className={`voice-participant-media ${!activityKnown ? "is-unknown" : activity.screenShare ? "is-on" : "is-off"}`} aria-pressed={activityKnown && activity.screenShare} disabled={person.local || !activityKnown || !activity.screenShare} title={!activityKnown ? "Screen share status unavailable while voice is disconnected" : activity.screenShare ? `Stop ${person.displayName}'s screen share` : `${person.displayName} is not sharing a screen`} aria-label={`${person.displayName}'s screen share ${!activityKnown ? "status unavailable" : activity.screenShare ? "on, click to stop" : "off"}`} onClick={() => { if (!person.local && activityKnown && activity.screenShare) onModeratePerson(person.username, "screen_share"); }}><MediaGlyph source="screen" /></button>
+              {activity.screenShare && <button type="button" className="voice-participant-media voice-participant-expand" disabled={!canOpenVideo(person.username, "screen")} title={`Open ${person.displayName}'s screen share full screen`} aria-label={`Open ${person.displayName}'s screen share full screen`} onClick={() => onOpenVideo(person.username, "screen")}><ExpandGlyph /></button>}
+            </span>
           </span>
           {!person.local && <button type="button" className={`voice-participant-settings-trigger${isOpen ? " is-open" : ""}`} aria-label={`Settings for ${person.displayName}`} title="Participant settings" aria-haspopup="dialog" aria-expanded={isOpen} aria-controls={isOpen ? `voice-participant-settings-${person.sessionId}` : undefined} onClick={(event) => {
             if (isOpen) { setSettingsPersonId(null); setSettingsPosition(null); return; }
@@ -122,7 +131,6 @@ export function VoiceParticipantRoster({
           {isOpen && settingsPosition && createPortal(<div ref={settingsRef} id={`voice-participant-settings-${person.sessionId}`} className="voice-participant-settings" role="dialog" aria-label={`Local audio settings for ${person.local ? "you" : person.displayName}`} style={settingsPosition}>
             <strong>Audio on this device</strong>
             <label><span>Volume <output>{Math.round(audioLevel * 100)}%</output></span><input type="range" min="0" max="150" step="5" value={Math.round(audioLevel * 100)} onChange={(event) => onSetAudioLevel(person.username, Number(event.target.value) / 100)} /></label>
-            <button type="button" className="voice-participant-local-mute" aria-pressed={audioLevel === 0} onClick={() => onSetAudioLevel(person.username, audioLevel === 0 ? 1 : 0)}>{audioLevel === 0 ? "Unmute audio here" : "Mute audio here"}</button>
             <small>Saved only in this browser.</small>
           </div>, document.body)}
         </li>;

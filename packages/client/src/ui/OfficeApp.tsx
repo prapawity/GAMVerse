@@ -1044,7 +1044,7 @@ export function OfficeApp() {
     if (!activeOffice) return;
     const targetLabel = targetUsername ?? "all participants in this voice zone";
     const sourceLabel = source === "microphone" ? "microphone" : source === "camera" ? "camera" : "screen share";
-    if (!window.confirm(`Mute ${sourceLabel} for ${targetLabel}? They may be able to turn it on again.`)) return;
+    if (!targetUsername && !window.confirm(`Mute ${sourceLabel} for ${targetLabel}? They may be able to turn it on again.`)) return;
     setVoiceMediaNotice(null);
     try {
       const response = await fetch(`${endpoint}/media/moderate`, {

@@ -7,7 +7,7 @@ import { OfficeSocialOverlay } from "./social/OfficeSocialOverlay";
 import { ReactionPicker } from "./social/ReactionPicker";
 import "./social/social.css";
 import { Client, type Room } from "@colyseus/sdk";
-import { INPUT_HEARTBEAT_INTERVAL_MS, InputSendGate, type MovementInput, CAMPUS_WORLD, DEFAULT_CAMERA_YAW, DEFAULT_CHARACTER_ID, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, OfficeState, campusWorldFromConfig, generateCampusMap, isPositionWalkable, isValidJumpEvent, readRoomLayout, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type KenneyBlasterId, type KenneyCharacterId, type KenneyPetId, type KenneyVehicleId, type OfficeState as OfficeStateType, type PlayerState, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "@gammyverse/shared";
+import { INPUT_HEARTBEAT_INTERVAL_MS, InputSendGate, type MovementInput, CAMPUS_WORLD, DEFAULT_CAMERA_YAW, DEFAULT_CHARACTER_ID, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, OfficeState, campusWorldFromConfig, generateCampusMap, isPositionWalkable, isValidJumpEvent, readRoomLayout, roomLayoutZoneAt, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type KenneyBlasterId, type KenneyCharacterId, type KenneyPetId, type KenneyVehicleId, type OfficeState as OfficeStateType, type PlayerState, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "@gammyverse/shared";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -2145,7 +2145,7 @@ export function OfficeApp() {
           setActivePetId(localSnapshot?.petId ?? "");
           updateProximityAudioVolumes();
           const signature = [...snapshot]
-            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
+            .map(([id, player]) => `${id}:${player.presence}:${player.nearby}:${officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? "" : ""}:${player.displayName}:${player.characterId}:${player.petId}:${player.weaponId}:${player.vehicleId}:${player.vehicleMode}:${player.vehiclePropId}:${player.vehiclePropX}:${player.vehiclePropZ}:${player.vehiclePropRotation}:${player.sittingPropId}:${player.status}:${player.handRaised}`)
             .sort()
             .join("|");
           if (signature !== peopleSignatureRef.current) {
@@ -2664,12 +2664,18 @@ export function OfficeApp() {
   const userOwnsAnotherDesk = Boolean(activeDeskZone && authUser && officeMapLayout?.zones.some((zone) => zone.kind === "private" && zone.ownerUsername === authUser.username && zone.id !== activeDeskZone.id));
   const canClaimAnyDesk = !authUser || !officeMapLayout?.zones.some((zone) => zone.kind === "private" && zone.ownerUsername === authUser.username);
   const focusedVideoTile = videoTiles.find((tile) => tile.key === focusedVideoKey) ?? videoTiles[0] ?? null;
+  const localRosterPlayer = playersRef.current.get(localSessionIdRef.current ?? "");
+  const localRosterZoneId = localRosterPlayer && officeMapLayout
+    ? roomLayoutZoneAt(localRosterPlayer, officeMapLayout, meetingZoneId ?? privateZoneId)?.id ?? null
+    : null;
   const nearbyPeoplePresent = people.some(([id, player]) => id !== localSessionIdRef.current && player.presence === "online" && player.nearby);
   const voiceRosterPeople: VoiceRosterPerson[] = people.flatMap(([sessionId, player]) => {
     if (player.presence !== "online") return [];
     const username = player.username.toLocaleLowerCase();
     const local = sessionId === localSessionIdRef.current;
-    if (!player.nearby && !voiceRosterActivities.has(username) && !(local && nearbyPeoplePresent)) return [];
+    const playerZoneId = officeMapLayout ? roomLayoutZoneAt(player, officeMapLayout)?.id ?? null : null;
+    const sharesZoneWithLocal = Boolean(localRosterZoneId && playerZoneId === localRosterZoneId);
+    if (!player.nearby && !sharesZoneWithLocal && !voiceRosterActivities.has(username) && !(local && nearbyPeoplePresent)) return [];
     return [{ sessionId, username, displayName: player.displayName, status: player.status, local, nearby: player.nearby }];
   });
   const openVoiceRosterVideo = (username: string, source: VoiceRosterMediaSource) => {

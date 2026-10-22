@@ -1,3 +1,12 @@
+import { FeatherIcon } from "./FeatherIcon";
+import { MicrophoneControl } from "./media/MicrophoneControl";
+import { voicePlaybackVolume } from "./media/voicePlaybackVolume";
+import { attachVoiceAudio } from "./media/attachVoiceAudio";
+import { TouchMoveButton } from "./workspace/TouchMoveButton";
+import { usePanelPresence } from "./workspace/usePanelPresence";
+import { officeActivityLabels, officeActivityLocation, type OfficeActivity } from "./workspace/officeActivityPresentation";
+import { CharacterPicker, PersonalAvatarPicker } from "./workspace/CharacterPickers";
+import { characterDetails, type CharacterSelectionId, type PersonalAvatarModel } from "./workspace/characterPresentation";
 import { VoiceMediaWorkspace } from "./media/VoiceMediaWorkspace";
 import { useRemoteMediaViewer } from "./media/useRemoteMediaViewer";
 import { readVoiceRosterActivity } from "./media/voiceRosterActivity";
@@ -26,8 +35,8 @@ import { clearLastOfficePositions, readLastOfficePosition, saveLastOfficePositio
 import { useWorkspacePanelFocus } from "./workspace/useWorkspacePanelFocus";
 import { useTravelFeedback } from "./workspace/useTravelFeedback";
 import { AvailabilityDialog } from "./workspace/AvailabilityDialog";
-import { AvailabilityMenu } from "./workspace/AvailabilityMenu";
-import { AVAILABILITY_OPTIONS as userStatusOptions, customStatusFromFields } from "./workspace/AvailabilityPresentation";
+import { AvailabilityControl } from "./workspace/AvailabilityControl";
+import { customStatusFromFields } from "./workspace/AvailabilityPresentation";
 import { useAvailabilityStatus } from "./workspace/useAvailabilityStatus";
 import { useOfficeDesks } from "./workspace/useOfficeDesks";
 import { SHARE_OFFICE_LABEL } from "./workspace/officeShareLinks";
@@ -43,9 +52,9 @@ import { availabilityPolicy, USER_STATUSES, type UserStatus, type CustomStatus }
 import type { PersonActionCallbacks, PersonActionContext } from "./workspace/personActions";
 import "./social/social.css";
 import { Client, type Room } from "@colyseus/sdk";
-import { INPUT_HEARTBEAT_INTERVAL_MS, InputSendGate, type MovementInput, CAMPUS_WORLD, DEFAULT_CAMERA_YAW, DEFAULT_CHARACTER_ID, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, OfficeState, campusWorldFromConfig, isPositionWalkable, isValidJumpEvent, readRoomLayout, roomLayoutZoneAt, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type KenneyBlasterId, type KenneyCharacterId, type KenneyPetId, type KenneyVehicleId, type OfficeState as OfficeStateType, type PlayerState, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "@gammyverse/shared";
+import { INPUT_HEARTBEAT_INTERVAL_MS, InputSendGate, type MovementInput, CAMPUS_WORLD, DEFAULT_CAMERA_YAW, DEFAULT_CHARACTER_ID, KENNEY_BLASTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, OfficeState, campusWorldFromConfig, isPositionWalkable, isValidJumpEvent, readRoomLayout, roomLayoutZoneAt, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type KenneyBlasterId, type KenneyPetId, type KenneyVehicleId, type OfficeState as OfficeStateType, type PlayerState, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "@gammyverse/shared";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { createVoiceRoom } from "./media/voiceRoomSdk";
 import { CameraSettings } from "./media/CameraSettings";
@@ -67,7 +76,7 @@ import { applyConversationMediaIntent, ConversationAdmissionIntent } from "./med
 import type { LocalAudioTrack, LocalVideoTrack, RemoteAudioTrack, Room as LiveKitRoomInstance, RoomEvent } from "livekit-client";
 import { CharacterPreview3D } from "../world/CharacterPreview3D";
 import { PetThumbnail } from "./PetThumbnail";
-import { gobkitPet, kaykitCharacter, petModelUrl, petPreviewUrl, polygonalMindCharacter, QUATERNIUS_CHARACTERS, quaterniusPet } from "../assets/characterAssets";
+import { gobkitPet, petModelUrl, petPreviewUrl, quaterniusPet } from "../assets/characterAssets";
 import { CHARACTER_SAVE_TIMEOUT_MS, characterSaveError } from "./characterSaveError";
 import { getRealtimeEndpoint } from "../realtimeEndpoint";
 import { Minimap } from "./Minimap";
@@ -101,32 +110,8 @@ const VOICE_MICROPHONE_SOURCE = "microphone";
 const VOICE_AUDIO_KIND = "audio";
 
 type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
-type CharacterSelectionId = KenneyCharacterId | `custom-${string}`;
-type PersonalAvatarModel = { id: `custom-${string}`; label: string; modelUrl: string };
 type SettingsSection = "general" | "sound" | "camera" | "permissions" | "security" | "theme";
 type BrowserPermissionValue = "granted" | "denied" | "prompt" | "unknown";
-type OfficeActivityType = "office.join" | "office.leave" | "meeting.enter" | "meeting.leave" | "private.enter" | "private.leave" | "bubble.enter" | "bubble.leave" | "vehicle.enter" | "vehicle.leave";
-type OfficeActivity = { id: string; actorUsername: string; activityType: OfficeActivityType; locationName: string | null; occurredAt: string };
-const officeActivityLabels: Record<OfficeActivityType, string> = {
-  "office.join": "Entered the office",
-  "office.leave": "Left the office",
-  "meeting.enter": "Entered the meeting area",
-  "meeting.leave": "Left the meeting area",
-  "private.enter": "Entered a private desk",
-  "private.leave": "Left a private desk",
-  "bubble.enter": "Joined a voice bubble",
-  "bubble.leave": "Left a voice bubble",
-  "vehicle.enter": "Started driving",
-  "vehicle.leave": "Stopped driving",
-};
-const officeActivityLocation = (activity: OfficeActivity) => {
-  const value = activity.locationName;
-  if (!value || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)) return "";
-  const vehicleName = value.replace(/^campus-car-/, "").replace(/^(vehicle|car)-/, "");
-  return vehicleName !== value || /^(vehicle|car)-/.test(value)
-    ? vehicleName.replaceAll("-", " ").replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
-    : value;
-};
 type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer: boolean; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: UserStatus; customStatusText: string; customStatusEmoji: string; customStatusExpiresAtMs: number; presence: "online" | "away"; nearby: boolean; handRaised: boolean; microphoneEnabled: boolean; cameraEnabled: boolean; screenShareEnabled: boolean };
 
 type FollowAlert = { followerSessionId: string; followerName: string };
@@ -146,167 +131,11 @@ const MEDIA_MAX_FRAMERATE_FPS = 30;
 const MEDIA_DEGRADATION_PREFERENCE = "maintain-resolution";
 const RECONNECT_VOICE_LABEL = "Reconnect voice";
 
-function usePanelPresence(isOpen: boolean, exitDuration = 260) {
-  const [isMounted, setIsMounted] = useState(isOpen);
-
-  useEffect(() => {
-    if (isOpen) {
-      setIsMounted(true);
-      return;
-    }
-    if (!isMounted) return;
-
-    const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : exitDuration;
-    const timeout = window.setTimeout(() => setIsMounted(false), duration);
-    return () => window.clearTimeout(timeout);
-  }, [isOpen, isMounted, exitDuration]);
-
-  return isMounted;
-}
-
-function CharacterPicker({ value, currentCharacterId, onChange }: { value: CharacterSelectionId | null; currentCharacterId: CharacterSelectionId | null; onChange: (id: KenneyCharacterId) => void }) {
-  return <div className="character-picker" role="radiogroup" aria-label="Choose a character">
-    {KENNEY_CHARACTER_IDS.map((id, index) => {
-      const blocky = id.startsWith("character-blocky-");
-      const suffix = blocky ? id.slice("character-blocky-".length) : id.replace("character-", "");
-      const quaternius = QUATERNIUS_CHARACTERS[id as keyof typeof QUATERNIUS_CHARACTERS];
-      const polygonalMind = polygonalMindCharacter(id);
-      const kaykit = kaykitCharacter(id);
-      const label = quaternius?.label ?? polygonalMind?.label ?? kaykit?.label ?? (blocky
-        ? `Blocky ${suffix.toUpperCase()}`
-        : suffix.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()));
-      const preview = quaternius?.preview ?? polygonalMind?.preview ?? kaykit?.preview ?? (blocky
-        ? `/assets/kenney/blocky-characters/Previews/character-${suffix}.png`
-        : `/assets/kenney/mini-characters/Previews/${id}.png`);
-      return <button type="button" className={`character-option${value === id ? " selected" : ""}`} key={id} role="radio" aria-checked={value === id} onClick={() => onChange(id)}>
-        {preview ? <img src={preview} alt="" loading="lazy" /> : <span className={`character-option-avatar-placeholder tone-${index % 6}`} aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="19" r="12" /><path d="M13 58c1-14 8-23 19-23s18 9 19 23H13Z" /></svg></span>}
-        <span>{label}</span>
-        {currentCharacterId === id && <small className="character-current-badge">Current</small>}
-      </button>;
-    })}
-  </div>;
-}
-
-function PersonalAvatarPicker({ models, value, currentCharacterId, onChange, onRemove }: { models: PersonalAvatarModel[]; value: CharacterSelectionId | null; currentCharacterId: CharacterSelectionId | null; onChange: (id: PersonalAvatarModel["id"]) => void; onRemove: (model: PersonalAvatarModel) => void }) {
-  if (models.length === 0) return null;
-  return <div className="character-picker" role="radiogroup" aria-label="Your uploaded characters">
-    {models.map((model) => <div className={`character-option personal-avatar-option${value === model.id ? " selected" : ""}`} key={model.id}>
-      <button type="button" className="personal-avatar-select" role="radio" aria-checked={value === model.id} aria-label={`Use ${model.label}`} onClick={() => onChange(model.id)}>
-        <span className="personal-avatar-preview" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M13 10h22v8h5v12h-5v8H13v-8H8V18h5v-8Z" fill="currentColor" opacity=".18"/><path d="M17 15h14v18H17zM11 21h6v8h-6zm20 0h6v8h-6z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="M20 22h2m4 0h2M20 28h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg></span>
-        <span>{model.label}</span>
-      </button>
-      {currentCharacterId === model.id && <small className="character-current-badge">Current</small>}
-      <button type="button" className="personal-avatar-remove" aria-label={`Remove ${model.label}`} title={value === model.id || currentCharacterId === model.id ? "Choose and save another character before removing this model" : `Remove ${model.label}`} disabled={value === model.id || currentCharacterId === model.id} onClick={() => onRemove(model)}>×</button>
-    </div>)}
-  </div>;
-}
-
-function characterDetails(characterId: CharacterSelectionId, models: PersonalAvatarModel[]) {
-  if (characterId.startsWith("custom-")) {
-    const customModel = models.find((model) => model.id === characterId);
-    return { label: customModel?.label ?? "Uploaded model", source: "Your uploaded model", preview: null };
-  }
-  const blocky = characterId.startsWith("character-blocky-");
-  const quaternius = QUATERNIUS_CHARACTERS[characterId as keyof typeof QUATERNIUS_CHARACTERS];
-  const polygonalMind = polygonalMindCharacter(characterId);
-  const kaykit = kaykitCharacter(characterId);
-  const suffix = blocky ? characterId.slice("character-blocky-".length) : characterId.replace("character-", "");
-  return {
-    label: quaternius?.label ?? polygonalMind?.label ?? kaykit?.label ?? (blocky ? `Blocky ${suffix.toUpperCase()}` : suffix.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())),
-    source: quaternius?.source ?? polygonalMind?.source ?? kaykit?.source ?? (blocky ? "Kenney Blocky Characters" : "Kenney Mini Characters"),
-    preview: quaternius?.preview ?? polygonalMind?.preview ?? kaykit?.preview ?? (blocky ? `/assets/kenney/blocky-characters/Previews/character-${suffix}.png` : `/assets/kenney/mini-characters/Previews/${characterId}.png`),
-  };
-}
-
 const petLabel = (id: KenneyPetId) => gobkitPet(id)?.label ?? quaterniusPet(id)?.label ?? id.replace("animal-", "").replace(/(^|-)([a-z])/g, (_match, dash: string, letter: string) => `${dash ? " " : ""}${letter.toUpperCase()}`);
 const vehicleLabel = (id: KenneyVehicleId) => ({
   "vehicle-speedster": "Speedster", "vehicle-racer": "Racer", "vehicle-suv": "Toy SUV", "vehicle-monster-truck": "Monster Truck", "vehicle-truck": "Toy Truck",
   "car-sedan": "Sedan", "car-hatchback-sports": "Sports Hatchback", "car-taxi": "Taxi", "car-kart-oopi": "Kart",
 })[id];
-function TouchMoveButton({
-  label,
-  code,
-  heldKeysRef,
-  onInputChange,
-  disabled = false,
-  children,
-}: {
-  label: string;
-  code: string;
-  heldKeysRef: MutableRefObject<Set<string>>;
-  onInputChange?: () => void;
-  disabled?: boolean;
-  children: string;
-}) {
-  const hold = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    event.preventDefault();
-    heldKeysRef.current.add(code);
-    onInputChange?.();
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-  const release = (event?: ReactPointerEvent<HTMLButtonElement> | ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event && "preventDefault" in event) event.preventDefault();
-    heldKeysRef.current.delete(code);
-    onInputChange?.();
-  };
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (disabled) return;
-    if (event.code === "Enter" || event.code === "Space") {
-      event.preventDefault();
-      heldKeysRef.current.add(code);
-      if (!event.repeat) onInputChange?.();
-    }
-  };
-  const onKeyUp = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.code === "Enter" || event.code === "Space") release(event);
-  };
-
-  return (
-    <button
-      type="button"
-      className="touch-move-button"
-      aria-label={label}
-      disabled={disabled}
-      onPointerDown={hold}
-      onPointerUp={release}
-      onPointerCancel={release}
-      onLostPointerCapture={release}
-      onKeyDown={onKeyDown}
-      onKeyUp={onKeyUp}
-      onBlur={() => { heldKeysRef.current.delete(code); onInputChange?.(); }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FeatherIcon({ name, size = 18 }: { name: "mic" | "micOff" | "video" | "videoOff" | "screen" | "screenOff" | "headphones" | "headphonesOff" | "close" | "maximize" | "exit" | "car" | "lock" | "unlock" | "refresh" | "office" | "chat" | "people" | "clock"; size?: number }) {
-  const shared = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  const drawings = {
-    mic: <><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></>,
-    micOff: <><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9V5a3 3 0 0 0-5.83-1M5 10v2a7 7 0 0 0 11.4 5.45M19 10v2c0 .6-.08 1.17-.22 1.71M12 19v3m-4 0h8M2 2l20 20"/></>,
-    video: <><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></>,
-    videoOff: <><path d="m3 3 18 18M10.6 5H14a2 2 0 0 1 2 2v2l5-3v10l-5-3v2a2 2 0 0 1-.59 1.41M3 7v10a2 2 0 0 0 2 2h9"/></>,
-    screen: <><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4m-3-9 2-2 2 2 3-4"/></>,
-    screenOff: <><path d="m3 3 18 18M10 3h10a2 2 0 0 1 2 2v10M2 8V5a2 2 0 0 1 2-2h1m-1 7v7a2 2 0 0 0 2 2h11M8 21h8m-4-4v4"/></>,
-    headphones: <><path d="M3 14v-3a9 9 0 0 1 18 0v3"/><path d="M5 13h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Zm12 0h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z"/></>,
-    headphonesOff: <><path d="M3 14v-3a9 9 0 0 1 15.4-6.4M21 11v3M5 13h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Zm12 0h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1M2 2l20 20"/></>,
-    close: <><path d="m18 6-12 12M6 6l12 12"/></>,
-    maximize: <><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/></>,
-    exit: <><path d="M10 17l5-5-5-5m5 5H3"/><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></>,
-    car: <><path d="m5 11 1.5-5h11L19 11l2 2v5h-2m-14 0H3v-5l2-2Z"/><path d="M5 11h14M7 18h10"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></>,
-    lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/></>,
-    unlock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2m-3.5 9v3"/></>,
-    refresh: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9A7 7 0 0 1 17.4 6.4L20 9M4 15l2.6 2.6A7 7 0 0 0 18.4 15"/></>,
-    office: <><path d="M3 21h18M5 21V5l7-3 7 3v16M9 9h.01M15 9h.01M9 13h.01M15 13h.01M10 21v-4h4v4"/></>,
-    chat: <><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></>,
-    people: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
-    clock: <><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></>,
-  };
-  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" {...shared}>{drawings[name]}</svg>;
-}
-
 const endpoint = getRealtimeEndpoint();
 const CAMERA_CAPTURE_720P30 = { resolution: { width: 1280, height: 720, frameRate: 30 }, frameRate: { ideal: 30, max: 30 } };
 const SCREEN_CAPTURE_1080P30 = { resolution: { width: 1920, height: 1080, frameRate: 30 }, contentHint: "detail" as const };
@@ -350,6 +179,7 @@ export function OfficeApp() {
   const speakingByVoiceRoomRef = useRef(new Map<LiveKitRoomInstance, Set<string>>());
   const audioOutputRef = useRef<HTMLDivElement>(null);
   const inboundAudioMutedRef = useRef(false);
+  const [inboundAudioMuted, setInboundAudioMutedState] = useState(false);
   const appPausedRef = useRef(false);
   const workspaceInputBlockedRef = useRef(false);
   const [workspaceOverlayOpen, setWorkspaceOverlayOpen] = useState(false);
@@ -489,13 +319,12 @@ export function OfficeApp() {
   const [mediaZoneName, setMediaZoneName] = useState<string | null>(null);
   const [lockedZoneIds, setLockedZoneIds] = useState<string[]>([]);
   const [voiceConnected, setVoiceConnected] = useState(false);
-  const [voiceMuted, setVoiceMuted] = useState(true);
+  const [desiredMicMuted, setDesiredMicMuted] = useState(true);
+  const [actualMicMuted, setActualMicMuted] = useState(true);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [proximityGroupId, setProximityGroupId] = useState<string | null>(null);
   const [proximityVoiceConnected, setProximityVoiceConnected] = useState(false);
-  const [proximityVoiceMuted, setProximityVoiceMuted] = useState(true);
   const [privateVoiceConnected, setPrivateVoiceConnected] = useState(false);
-  const [privateVoiceMuted, setPrivateVoiceMuted] = useState(true);
   const remoteMediaViewer = useRemoteMediaViewer();
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
@@ -611,7 +440,7 @@ export function OfficeApp() {
   refreshDesksRef.current = officeDesks.refresh;
   useEffect(() => { if (status !== "connected") travel.reset(); }, [status, travel.reset]);
   const [statusTravelError, setStatusTravelError] = useState<string | null>(null);
-  const mediaSuppressed = availabilityPolicy(userStatus).suppressAutomaticMedia;
+  const interruptionsSuppressed = availabilityPolicy(userStatus).suppressInterruptions;
   const accessZones = useMemo(() => conversationAccessZones(officeMapLayout), [officeMapLayout]);
   const zonePrivacyTargetId = selectedDeskZoneId ?? meetingZoneId ?? privateZoneId;
   const officeConversations = useOfficeConversations({ room: status === "connected" ? roomRef.current : null,
@@ -624,7 +453,6 @@ export function OfficeApp() {
   voiceTargetRef.current = conversationTarget;
   const social = useOfficeSocial({ officeId: activeOffice?.id ?? null, room: status === "connected" ? roomRef.current as unknown as ChatTransport : null, playersRef, localSessionId: localSessionIdRef.current, layout: officeMapLayout, heldKeys: heldKeysRef.current, paused: mapEditMode || modifyPropsOpen });
   appPausedRef.current = Boolean(social.interaction) || conversationsOpen || deskManagerOpen;
-  const [userStatusMenuOpen, setUserStatusMenuOpen] = useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   const workspacePanelMounted = usePanelPresence(workspacePanelOpen);
   const characterPanelMounted = usePanelPresence(characterPanelOpen);
@@ -642,12 +470,16 @@ export function OfficeApp() {
   const setInboundAudioMuted = (muted: boolean) => {
     if (inboundAudioMutedRef.current === muted) return;
     inboundAudioMutedRef.current = muted;
-    audioOutputRef.current?.querySelectorAll("audio").forEach((element) => { element.muted = muted; });
+    setInboundAudioMutedState(muted);
+    for (const [identity, entry] of remoteAudioTracksRef.current) {
+      const level = participantAudioLevelsRef.current.get(entry.username) ?? 1;
+      const proximityGain = proximityAudioTracksRef.current.get(identity)?.track === entry.track ? getProximityAudioFade(entry.username) : 1;
+      entry.track.setVolume(voicePlaybackVolume(level, muted, proximityGain));
+    }
   };
   const selectUserStatus = async (nextStatus: UserStatus, customStatus?: CustomStatus | null) => {
     const previousStatus = userStatus;
     if (!await availability.save(nextStatus, customStatus)) return false;
-    setUserStatusMenuOpen(false);
     if (nextStatus === "toilet" && previousStatus !== "toilet") {
       setStatusTravelError(null);
       const localSessionId = localSessionIdRef.current;
@@ -676,8 +508,7 @@ export function OfficeApp() {
     return true;
   };
   const toggleHeadphones = () => {
-    const mutedByStatus = availabilityPolicy(userStatus).suppressAutomaticMedia;
-    void selectUserStatus(mutedByStatus ? "available" : "do-not-disturb");
+    setInboundAudioMuted(!inboundAudioMutedRef.current);
   };
   const attachRemoteAudio = (track: RemoteAudioTrack) => {
     if (window.AudioContext) {
@@ -696,9 +527,8 @@ export function OfficeApp() {
         console.warn("Could not enable per-person audio gain; using browser volume controls.", cause);
       }
     }
-    const element = track.attach();
+    const element = attachVoiceAudio(track, track.getVolume());
     element.autoplay = true;
-    element.muted = inboundAudioMutedRef.current;
     audioOutputRef.current?.appendChild(element);
   };
 
@@ -1150,7 +980,7 @@ export function OfficeApp() {
   const updateProximityAudioVolumes = () => {
     for (const { track, username } of proximityAudioTracksRef.current.values()) {
       const level = participantAudioLevelsRef.current.get(username.toLocaleLowerCase()) ?? 1;
-      track.setVolume(getProximityAudioFade(username) * level);
+      track.setVolume(voicePlaybackVolume(level, inboundAudioMutedRef.current, getProximityAudioFade(username)));
     }
   };
 
@@ -1163,7 +993,7 @@ export function OfficeApp() {
     for (const [identity, entry] of remoteAudioTracksRef.current) {
       if (entry.username !== key) continue;
       const proximityTrack = proximityAudioTracksRef.current.get(identity)?.track === entry.track;
-      entry.track.setVolume(next * (proximityTrack ? getProximityAudioFade(entry.username) : 1));
+      entry.track.setVolume(voicePlaybackVolume(next, inboundAudioMutedRef.current, proximityTrack ? getProximityAudioFade(entry.username) : 1));
     }
   };
 
@@ -1305,7 +1135,12 @@ export function OfficeApp() {
     return () => { cancelled = true; };
   }, [authUser?.username, activeOffice?.id]);
 
-  const toggleMicrophone = () => voiceSessionRef.current?.setMuted(!selectedMicMuted);
+  const toggleMicrophone = () => {
+    const muted = !voiceMutedIntentRef.current;
+    voiceMutedIntentRef.current = muted;
+    setDesiredMicMuted(muted);
+    return voiceSessionRef.current?.setMuted(muted);
+  };
   const toggleCamera = () => voiceSessionRef.current?.control(async (room) => {
     const enable = !cameraEnabled;
     await room.localParticipant.setCameraEnabled(enable, CAMERA_CAPTURE_720P30, {
@@ -1339,11 +1174,12 @@ export function OfficeApp() {
 
   const voiceListener: VoiceSessionListener<LiveKitRoomInstance> = {
     stateChanged: (state) => {
-      voiceMutedIntentRef.current = state.muted;
+      voiceMutedIntentRef.current = state.desiredMuted;
+      setDesiredMicMuted(state.desiredMuted);
       setVoiceConnected(state.connected && state.target?.kind === "meeting");
       setPrivateVoiceConnected(state.connected && state.target?.kind === "private");
       setProximityVoiceConnected(state.connected && state.target?.kind === "proximity");
-      setVoiceMuted(state.muted); setPrivateVoiceMuted(state.muted); setProximityVoiceMuted(state.muted);
+      setActualMicMuted(state.muted);
       if (!state.target) { setCameraEnabled(false); setScreenShareEnabled(false); }
       setVoiceError(state.error?.message ?? null);
       setVoiceRetryExhausted(state.retryExhausted);
@@ -1393,7 +1229,7 @@ export function OfficeApp() {
         if (target.kind === "proximity") {
           proximityAudioTracksRef.current.set(participant.identity, { track: audioTrack, username });
           updateProximityAudioVolumes();
-        } else audioTrack.setVolume(participantAudioLevelsRef.current.get(username) ?? 1);
+        } else audioTrack.setVolume(voicePlaybackVolume(participantAudioLevelsRef.current.get(username) ?? 1, inboundAudioMutedRef.current));
         attachRemoteAudio(audioTrack);
       }
     },
@@ -1409,7 +1245,7 @@ export function OfficeApp() {
   useEffect(() => {
     if (!activeOffice || !authUser) return;
     const session = createOfficeMediaSession({
-      initialMuted: availabilityPolicy(userStatusRef.current).suppressAutomaticMedia || voiceMutedIntentRef.current, previousTeardown: voiceTeardownRef.current,
+      initialMuted: voiceMutedIntentRef.current, previousTeardown: voiceTeardownRef.current,
       createRoom: createVoiceRoom,
       fetchToken: (target, signal) => fetchVoiceToken(endpoint, target, signal),
     }, voiceListener);
@@ -1434,16 +1270,18 @@ export function OfficeApp() {
   }, [activeOffice?.id, authUser?.username, voiceRealtimeSessionKey]);
 
   useEffect(() => {
-    if (mediaSuppressed) {
-      voiceMutedIntentRef.current = true;
+    if (interruptionsSuppressed) {
       setWaveAlerts([]);
       setFollowAlerts([]);
     }
+  }, [interruptionsSuppressed]);
+
+  useEffect(() => {
     const admission = conversationAdmissionIntentRef.current.receive(conversation, voiceRealtimeSessionKey);
-    applyConversationMediaIntent(voiceSessionRef.current, conversationTarget, listening.effectiveMode, admission, mediaSuppressed);
+    applyConversationMediaIntent(voiceSessionRef.current, conversationTarget, listening.effectiveMode, admission);
   }, [conversationTarget?.officeId, conversationTarget?.sessionKey, conversationTarget?.kind, conversationTarget?.id,
     conversationTarget?.conversationId, conversationTarget?.conversationGeneration, conversationTarget?.roomIncarnationId, conversationTarget?.mode,
-    mediaSuppressed, listening.effectiveMode, conversationAdmitted, conversationKnown, conversation?.admissionLeaseId, voiceRealtimeSessionKey]);
+    listening.effectiveMode, conversationAdmitted, conversationKnown, conversation?.admissionLeaseId, voiceRealtimeSessionKey]);
 
   const officeShare = useOfficeShareLinks(endpoint, window.location.origin, authUser?.username ?? null);
   const signOut = useSignOutConfirmation(endpoint, authUser?.username ?? null, () => returnToSignIn(null));
@@ -1452,6 +1290,10 @@ export function OfficeApp() {
     positionStorageEpochRef.current += 1;
     clearLastOfficePositions();
     voiceSessionRef.current?.dispose();
+    voiceMutedIntentRef.current = true;
+    setDesiredMicMuted(true);
+    setActualMicMuted(true);
+    setInboundAudioMuted(false);
     privateZoneIdRef.current = null; setPrivateZoneId(null);
     proximityGroupIdRef.current = null;
     setProximityGroupId(null);
@@ -2322,7 +2164,6 @@ export function OfficeApp() {
             saveLastOfficePosition(connectionUsername, connectionOfficeId, { x: localSnapshot.x, z: localSnapshot.z });
             lastPositionSavedAtRef.current = now;
           }
-          setInboundAudioMuted(availabilityPolicy(localSnapshot?.status ?? "available").suppressAutomaticMedia);
           userStatusRef.current = localSnapshot?.status ?? "available";
           setUserStatus(userStatusRef.current);
           const storedPet = window.localStorage.getItem(`gammyverse.pet.${connectionUsername}`) ?? "";
@@ -2827,7 +2668,6 @@ export function OfficeApp() {
       ? "Reconnect to see who's here."
       : "You're the first one here.";
   const selectedVoiceConnected = meetingZoneActive ? voiceConnected : privateZoneId ? privateVoiceConnected : proximityVoiceConnected;
-  const selectedMicMuted = meetingZoneActive ? voiceMuted : privateZoneId ? privateVoiceMuted : proximityVoiceMuted;
   const activeDeskZoneId = privateZoneId ?? selectedDeskZoneId;
   const selectedMapZone = selectedMapZoneId ? officeMapLayout?.zones.find((zone) => zone.id === selectedMapZoneId) ?? null : null;
   const mapDraftDirty = Boolean(mapEditMode && officeMapLayout && mapEditBaseline && JSON.stringify(officeMapLayout) !== JSON.stringify(mapEditBaseline));
@@ -2908,7 +2748,7 @@ export function OfficeApp() {
       <PageTutorial page={meetingEntry ? "meeting" : "office"} username={authUser.username} />
       {profileDialog}
       <WorldCanvas activeRoomKey="lobby" cameraRoomKey={activeCameraRoomKey} playersRef={playersRef} localSessionIdRef={localSessionIdRef} localPetIdRef={localPetIdRef} map2dToggleRef={map2dToggleRef} onMapViewChange={setMap2dViewActive} speakingUsernamesRef={speakingUsernamesRef} heldKeysRef={heldKeysRef} cameraYawRef={cameraYawRef} cameraBehindCharacterRef={cameraBehindCharacterRef} firstPersonViewRef={firstPersonViewRef} map2dDecorationsRef={social.decorationsRef} map2dViewRef={map2dViewRef} locateRequestRef={locateRequestRef} travelFeedback={travel.feedback} travelRequesting={travel.requesting} onCancelTravel={() => roomRef.current?.send("auto-move-cancel", {})} propsConfigVersion={modifyPropsOpen ? modifyPropsVersion : mapPropsConfigVersion} roomLayout={displayedOfficeMapLayout} personalDeskZone={personalDeskZone} onReturnToDesk={returnToDesk} deskClaimingZoneId={deskClaimingZoneId} currentPrivateZoneId={privateZoneId} inboundAudioMuted={inboundAudioMutedRef.current} appPaused={deskManagerOpen || conversationsOpen || Boolean(social.interaction) || workspaceOverlayOpen} idleAnimationsEnabled={idleAnimationsEnabled} ghostSessionIds={ghostSessionIds} mapEditMode={mapEditMode} selectedMapZoneId={selectedMapZoneId} buildMode={modifyPropsOpen || mapBuildingPickerOpen} selectedAsset={mapBuildingPickerOpen ? selectedMapBuildingAsset : selectedModifyPropAsset} selectedMapItemId={selectedModifyPropId} onPlaceProp={(asset, position) => mapEditMode ? placeMapBuilding(asset, position) : placeOfficeProp(asset, position)} onPlacementComplete={() => { if (!mapEditMode) setSelectedModifyPropAsset(null); else if (ROOM_PROP_CATALOG.find((item) => item.asset === selectedMapBuildingAsset)?.editorRole !== "map-component") setSelectedMapBuildingAsset(null); }} onMoveProp={(id, position) => mapEditMode ? moveMapBuilding(id, position) : moveOfficeProp(id, position)} onRotateProp={(id) => mapEditMode ? rotateMapBuilding(id) : rotateOfficeProp(id)} onDeleteProp={(id) => mapEditMode ? deleteMapBuilding(id) : deleteOfficeProp(id)} onSelectMapItem={setSelectedModifyPropId} onModifyProps={() => void enterModifyPropsMode()} spawnPlacementMode={spawnPlacementMode} onMoveSpawnPoint={(position) => void saveMapSpawnPoint(position)} zoneDrawing={mapZoneDrawing} onZoneAreaDrawn={(area) => { setMapZoneArea(area); setMapZoneDrawing(false); setMapZoneName(""); setLobbyError(null); }} onSelectDeskZone={(zoneId) => setSelectedDeskZoneId(zoneId)} onSelectMapZone={(zoneId) => setSelectedMapZoneId(zoneId)} onClaimDeskZone={(zoneId) => void claimDeskZone(zoneId)} canClaimDesk={canClaimAnyDesk} canEditMap={authUser?.role === "maintainer" || activeOffice.role === "owner" || activeOffice.role === "admin"} mapEditorUsername={mapEditorUsername} mapEditLockPending={mapEditLockRequestPending} onEditMap={() => enterMapEditMode(activeOffice)} blasterEventsRef={blasterEventsRef} jumpStartedAtRef={jumpStartedAtRef} onJump={() => roomRef.current?.send("jump", true)} onBlasterShot={(shot) => { if (!appPausedRef.current) roomRef.current?.send("blaster-shot", shot); }} onWeaponEquip={(weaponId) => { if (!appPausedRef.current) roomRef.current?.send("weapon-equip", weaponId); }} onVehicleInteract={(vehicleId, propId) => { if (!appPausedRef.current) roomRef.current?.send("vehicle-interact", vehicleId ? { vehicleId, propId } : ""); }} onAutoMove={(destination) => { if (appPausedRef.current) return; if (!travel.expectDestination(destination)) return; heldKeysRef.current.clear(); lockedMovementRef.current = null; roomRef.current?.send("auto-move", { ...destination, randomVehicle: true }); }} onSelectPlayer={(sessionId) => { const player = playersRef.current.get(sessionId); if (player?.presence === "online") setMapPlayerAction({ sessionId }); }} onGhostModeChange={setGhostMode} />
-      <OfficeSocialOverlay social={social} room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} endpoint={endpoint} officeId={activeOffice.id} username={authUser.username} sessionKey={localSessionIdRef.current} chatTarget={chatTarget} chatTargetRevision={chatTargetRevision} chatContainer={chatContainer} chatVisible={activeLeftTab === "chat" && workspacePanelOpen} onUnread={setChatUnread} doNotDisturb={mediaSuppressed} zoneUsernames={zoneAudioUsernames} />
+      <OfficeSocialOverlay social={social} room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} endpoint={endpoint} officeId={activeOffice.id} username={authUser.username} sessionKey={localSessionIdRef.current} chatTarget={chatTarget} chatTargetRevision={chatTargetRevision} chatContainer={chatContainer} chatVisible={activeLeftTab === "chat" && workspacePanelOpen} onUnread={setChatUnread} inboundAudioMuted={inboundAudioMuted} zoneUsernames={zoneAudioUsernames} />
       <Minimap layout={displayedOfficeMapLayout} configVersion={mapPropsConfigVersion} playersRef={playersRef} localSessionIdRef={localSessionIdRef} cameraYawRef={cameraYawRef} hidden={mapEditMode || modifyPropsOpen} />
       <VoiceMediaWorkspace viewer={remoteMediaViewer} people={voiceRosterPeople} speakingUsernames={speakingUsernames} activities={voiceRosterActivities}
         audioLevels={participantAudioLevels} canMuteAll={voiceRosterPeople.filter(person => !person.local).length > 1 && ["owner", "admin"].includes(activeOffice.role)}
@@ -3092,21 +2932,18 @@ export function OfficeApp() {
       </OfficeContextOverlay>
 
       <div className="bottom-dock" data-tutorial-target="office-toolbar" aria-label="Office controls">
-        {voiceRetryExhausted && !mediaSuppressed ? <button type="button" className="dock-button" aria-label={RECONNECT_VOICE_LABEL} title={RECONNECT_VOICE_LABEL} onClick={() => voiceSessionRef.current?.reconnect()}><span aria-hidden="true">↻</span></button> :
-        <button data-tutorial-target="office-microphone" type="button" className={`dock-button ${selectedVoiceConnected && !selectedMicMuted ? "active" : ""}`} disabled={!selectedVoiceConnected || !canPublishConversation} title={publishingDisabledReason ? publishingDisabledReason : selectedVoiceConnected ? (selectedMicMuted ? "Turn microphone on" : "Turn microphone off") : "Voice connects automatically when you enter a voice zone"} aria-label={selectedMicMuted ? "Turn microphone on" : "Turn microphone off"} onClick={() => void toggleMicrophone()}><FeatherIcon name={selectedMicMuted ? "micOff" : "mic"} /></button>}
+        <MicrophoneControl desiredMuted={desiredMicMuted} actualMuted={actualMicMuted} connected={selectedVoiceConnected}
+          publishAllowed={canPublishConversation} unavailableReason={publishingDisabledReason} error={voiceError}
+          onToggle={() => void toggleMicrophone()} />
+        {voiceRetryExhausted && <button type="button" className="dock-button" aria-label={RECONNECT_VOICE_LABEL} title={RECONNECT_VOICE_LABEL} onClick={() => voiceSessionRef.current?.reconnect()}><span aria-hidden="true">↻</span></button>}
         <button type="button" className={`dock-button ${cameraEnabled ? "active" : ""}`} aria-pressed={cameraEnabled} disabled={!selectedVoiceConnected || !canPublishConversation} title={publishingDisabledReason ? publishingDisabledReason : cameraEnabled ? "Turn camera off" : "Turn camera on"} aria-label={cameraEnabled ? "Turn camera off" : "Turn camera on"} onClick={() => void toggleCamera()}><FeatherIcon name={cameraEnabled ? "video" : "videoOff"} /></button>
         <button type="button" className={`dock-button ${screenShareEnabled ? "active" : ""}`} aria-pressed={screenShareEnabled} disabled={!selectedVoiceConnected || !canPublishConversation} title={publishingDisabledReason ? publishingDisabledReason : screenShareEnabled ? "Stop sharing screen" : "Share screen"} aria-label={screenShareEnabled ? "Stop sharing screen" : "Share screen"} onClick={() => void toggleScreenShare()}><FeatherIcon name={screenShareEnabled ? "screen" : "screenOff"} /></button>
-        <button type="button" className={`dock-button ${mediaSuppressed ? "active" : ""}`} aria-pressed={mediaSuppressed} title={mediaSuppressed ? "Headphones off · click to set Available" : "Headphones on · click to turn on Do not disturb"} aria-label={mediaSuppressed ? "Turn headphones on" : "Turn headphones off"} onClick={toggleHeadphones}><FeatherIcon name={mediaSuppressed ? "headphonesOff" : "headphones"} /></button>
+        <button type="button" className={`dock-button ${inboundAudioMuted ? "active" : ""}`} aria-pressed={inboundAudioMuted} title={inboundAudioMuted ? "Headphones off · click to hear voice" : "Headphones on · click to mute incoming voice"} aria-label={inboundAudioMuted ? "Turn headphones on" : "Turn headphones off"} onClick={toggleHeadphones}><FeatherIcon name={inboundAudioMuted ? "headphonesOff" : "headphones"} /></button>
         <ReactionPicker room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} disabled={status !== "connected"} />
         <HandRaiseButton room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} raised={playersRef.current.get(localSessionIdRef.current ?? "")?.handRaised ?? false} disabled={status !== "connected"} />
         <span className="dock-separator" />
-        <div className="user-status-dock-control">
-          <button type="button" className={`dock-button user-status-trigger${userStatusMenuOpen ? " active" : ""}`} aria-label={`Your status: ${userStatusOptions.find((item) => item.value === userStatus)?.label ?? "Available"}`} title={`Status · ${userStatusOptions.find((item) => item.value === userStatus)?.label ?? "Available"}`} aria-haspopup="menu" aria-expanded={userStatusMenuOpen} onClick={() => setUserStatusMenuOpen((open) => !open)}>
-            <span className={`user-status-dot status-${userStatus}`} aria-hidden="true">{userStatusOptions.find((item) => item.value === userStatus)?.icon ?? "✓"}</span>
-          </button>
-          {userStatusMenuOpen && <div className="user-status-menu"><AvailabilityMenu status={userStatus} disabled={availability.pending || status !== "connected"}
-            onStatusChange={next => { void selectUserStatus(next); }} onEditCustomStatus={() => { setUserStatusMenuOpen(false); setAvailabilityEditorOpen(true); }} /></div>}
-        </div>
+        <AvailabilityControl status={userStatus} disabled={availability.pending || status !== "connected"}
+          onStatusChange={selectUserStatus} onEditCustomStatus={() => setAvailabilityEditorOpen(true)} />
         <span className="dock-separator" />
           <button type="button" className="leave-button" title="Leave office" aria-label="Leave office" onClick={() => {
             intentionalLeaveRef.current = true;

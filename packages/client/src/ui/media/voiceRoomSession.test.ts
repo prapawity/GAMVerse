@@ -10,6 +10,7 @@ const FLUSH_MICROTASK_COUNT = 40;
 const EXPECTED_RETRY_MULTIPLIER = 2;
 const HTTP_FORBIDDEN_STATUS = 403;
 const HTTP_UNAUTHORIZED_STATUS = 401;
+const MICROPHONE_NATIVE_CAPTURE_ERROR_NAMES = ["AbortError", "SecurityError"] as const;
 const target: VoiceTarget = { kind: "meeting", id: "A", officeId: "office", sessionKey: "session" };
 function deferred() {
   let resolve!: () => void;
@@ -25,6 +26,7 @@ class FakeRoom implements VoiceRoom {
   disconnectStopTracks: boolean[] = [];
   teardown: Promise<void> = Promise.resolve();
   microphone: boolean[] = [];
+  microphoneError: Error | null = null;
   publishedTracks: unknown[] = [];
   localParticipant: any = {
     audioTrackPublications: new Map(),
@@ -36,7 +38,7 @@ class FakeRoom implements VoiceRoom {
       }
       return undefined;
     },
-    setMicrophoneEnabled: async (enabled: boolean) => { this.microphone.push(enabled); await this.reset.promise; return undefined; },
+    setMicrophoneEnabled: async (enabled: boolean) => { this.microphone.push(enabled); await this.reset.promise; if (enabled && this.microphoneError) throw this.microphoneError; return undefined; },
     isCameraEnabled: false,
     isScreenShareEnabled: false,
     setCameraEnabled: async () => { this.localParticipant.isCameraEnabled = false; return undefined; },
@@ -44,9 +46,16 @@ class FakeRoom implements VoiceRoom {
   };
   on<E extends keyof RoomEventCallbacks>(event: E, listener: RoomEventCallbacks[E]): this { this.handlers.set(event, listener); return this; }
   off<E extends keyof RoomEventCallbacks>(event: E, listener: RoomEventCallbacks[E]): this { if (this.handlers.get(event) === listener) this.handlers.delete(event); return this; }
+  mutedHandler() { return this.handlers.get(RoomEvent.TrackMuted) as RoomEventCallbacks[RoomEvent.TrackMuted]; }
   disconnectedHandler() { return this.handlers.get(RoomEvent.Disconnected) as RoomEventCallbacks[RoomEvent.Disconnected]; }
   emitDisconnected(reason = DisconnectReason.UNKNOWN_REASON) { (this.handlers.get(RoomEvent.Disconnected) as RoomEventCallbacks[RoomEvent.Disconnected])?.(reason); }
   emitLocalTrackUnpublished(publication: any) { (this.handlers.get(RoomEvent.LocalTrackUnpublished) as RoomEventCallbacks[RoomEvent.LocalTrackUnpublished])?.(publication, this.localParticipant); }
+  emitTrackMuted(publication: unknown, participant: unknown = this.localParticipant) {
+    (this.handlers.get(RoomEvent.TrackMuted) as ((publication: unknown, participant: unknown) => void) | undefined)?.(publication, participant);
+  }
+  emitTrackUnmuted(publication: unknown, participant: unknown = this.localParticipant) {
+    (this.handlers.get(RoomEvent.TrackUnmuted) as ((publication: unknown, participant: unknown) => void) | undefined)?.(publication, participant);
+  }
   emitReconnecting() { (this.handlers.get(RoomEvent.Reconnecting) as RoomEventCallbacks[RoomEvent.Reconnecting])?.(); }
   connect = async () => this.connection.promise;
   disconnect = async (stopTracks = true) => { this.disconnectCount++; this.disconnectStopTracks.push(stopTracks); this.connection.reject(ConnectionError.cancelled("SDK cancellation")); await this.teardown; };
@@ -191,7 +200,10 @@ test("serial teardown prevents overlapping rooms even across multiple targets", 
 });
 test("stale control completion never changes mute intent of a newer generation", async () => {
   const f = fixture(); await join(f); const control = deferred(); f.rooms[0]!.reset = control;
-  const muting = f.session.setMuted(false); await flush(); f.session.setTarget({ ...target, id: "B" }); await flush(); f.rooms[1]!.ready(); await flush(); control.resolve(); await muting; await flush();
+  const muting = f.session.setMuted(false); await flush();
+  const explicitOff = f.session.setMuted(true);
+  f.session.setTarget({ ...target, id: "B" }); await flush(); f.rooms[1]!.ready(); await flush(); control.resolve(); await muting; await explicitOff; await flush();
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
   assert.equal(f.states.at(-1)?.muted, true); assert.equal(f.rooms[1]!.microphone.at(-1), false);
 });
 
@@ -393,23 +405,26 @@ test("office media sessions isolate zone target changes from spotlight teardown"
   await spotlight.session.dispose();
 });
 
-test("availability suppression clears microphone intent synchronously without an active target", async () => {
+test("stopping media without a target preserves chosen intent until the user changes it", async () => {
   const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
   f.session.suppressMedia();
   assert.equal(f.states.at(-1)?.muted, true);
   await join(f);
-  assert.deepEqual(f.rooms[0]!.microphone, [false]);
+  assert.deepEqual(f.rooms[0]!.microphone, [true]);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  await f.session.setMuted(true);
   f.session.reconnect();
   await flush();
   f.rooms[1]!.ready();
   await flush();
   assert.deepEqual(f.rooms[1]!.microphone, [false]);
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
   await f.session.setMuted(false);
   assert.equal(f.rooms[1]!.microphone.at(-1), true);
   await f.session.dispose();
 });
 
-test("availability suppression leaves active media and cancels queued microphone intent", async () => {
+test("stopping media cancels old room controls while preserving manual intent for an authorized return", async () => {
   const f = fixture();
   await join(f);
   await f.session.setMuted(false);
@@ -423,7 +438,8 @@ test("availability suppression leaves active media and cancels queued microphone
   await flush();
   f.rooms.at(-1)!.ready();
   await flush();
-  assert.deepEqual(f.rooms.at(-1)!.microphone, [false]);
+  assert.deepEqual(f.rooms.at(-1)!.microphone, [true]);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
   await f.session.dispose();
 });
 
@@ -455,5 +471,305 @@ test("media control permission guidance distinguishes camera from screen recordi
   const otherFailure = new Error("Device disconnected");
   await f.session.control(async () => { throw otherFailure; }, "camera");
   assert.equal(f.states.at(-1)?.error, otherFailure);
+  await f.session.dispose();
+});
+
+
+test("initial microphone capture denial keeps the authorized room connected for listening and manual retry", async () => {
+  const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
+  f.session.setTarget(target); await flush();
+  const room = f.rooms[0]!;
+  const denied = new DOMException("Permission denied", "NotAllowedError");
+  room.microphoneError = denied;
+  room.ready(); await flush();
+  assert.equal(f.states.at(-1)?.connected, true);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(room.disconnectCount, 0);
+  assert.equal(f.timers.length, 0);
+  assert.match(f.states.at(-1)?.error?.message ?? "", /microphone.*browser permissions/i);
+  assert.equal(f.states.at(-1)?.error?.cause, denied);
+  room.microphoneError = null;
+  await f.session.setMuted(false);
+  assert.equal(f.states.at(-1)?.muted, false);
+  assert.equal(f.states.at(-1)?.error, null);
+  assert.equal(f.rooms.length, 1);
+  await f.session.dispose();
+});
+
+test("microphone device failure on handoff or reconnect leaves listening connected and controls retryable", async () => {
+  for (const recovery of ["handoff", "reconnect"] as const) {
+    const f = fixture(); await join(f); await f.session.setMuted(false);
+    if (recovery === "handoff") f.session.setTarget({ ...target, id: "B" });
+    else f.session.reconnect();
+    await flush();
+    const room = f.rooms[1]!;
+    room.microphoneError = new DOMException("Device unavailable", "NotReadableError");
+    room.ready(); await flush();
+    assert.equal(f.states.at(-1)?.connected, true, recovery);
+    assert.equal(f.states.at(-1)?.muted, true, recovery);
+    assert.equal(room.disconnectCount, 0, recovery);
+    assert.equal(f.timers.length, 0, recovery);
+    assert.match(f.states.at(-1)?.error?.message ?? "", /microphone.*device/i);
+    room.microphoneError = null;
+    await f.session.setMuted(false);
+    assert.equal(f.states.at(-1)?.muted, false, recovery);
+    assert.equal(f.states.at(-1)?.error, null, recovery);
+    assert.equal(f.rooms.length, 2, recovery);
+    await f.session.dispose();
+  }
+});
+
+test("stale microphone capture rejection cannot mute a newer authorized room", async () => {
+  const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
+  f.session.setTarget(target); await flush();
+  const oldRoom = f.rooms[0]!;
+  oldRoom.connection.resolve(); await flush();
+  f.session.setTarget({ ...target, id: "B" }); await flush();
+  f.rooms[1]!.ready(); await flush();
+  oldRoom.microphoneError = new DOMException("Old capture denied", "NotAllowedError");
+  oldRoom.reset.resolve(); await flush();
+  assert.equal(f.states.at(-1)?.connected, true);
+  assert.equal(f.states.at(-1)?.muted, false);
+  assert.equal(f.states.at(-1)?.error, null);
+  assert.equal(f.states.at(-1)?.target?.id, "B");
+  assert.equal(f.timers.length, 0);
+  await f.session.dispose();
+});
+
+test("microphone publish authorization failure retains the transport authorization boundary", async () => {
+  const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
+  f.session.setTarget(target); await flush();
+  const denied = new VoiceTokenError("Publish denied", HTTP_FORBIDDEN_STATUS);
+  f.rooms[0]!.microphoneError = denied;
+  f.rooms[0]!.ready(); await flush();
+  assert.equal(f.states.at(-1)?.connected, false);
+  assert.equal(f.states.at(-1)?.error, denied);
+  assert.equal(f.timers.length, 0);
+  await f.session.dispose();
+});
+
+test("device-caused local microphone mute updates dock intent so the next click enables it", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  const room = f.rooms[0]!;
+  room.emitTrackMuted({ source: "microphone", isMuted: true });
+  assert.equal(f.states.at(-1)?.muted, true);
+  await f.session.setMuted(!f.states.at(-1)!.muted);
+  assert.equal(room.microphone.at(-1), true);
+  room.emitTrackUnmuted({ source: "microphone", isMuted: false });
+  assert.equal(f.states.at(-1)?.muted, false);
+  room.emitLocalTrackUnpublished({ source: "microphone", isMuted: false });
+  assert.equal(f.states.at(-1)?.muted, true);
+  await f.session.dispose();
+});
+
+test("remote and non-microphone mute events do not change local microphone intent", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  const room = f.rooms[0]!;
+  room.emitTrackMuted({ source: "microphone", isMuted: true }, {});
+  room.emitTrackMuted({ source: "camera", isMuted: true });
+  room.emitTrackUnmuted({ source: "screen_share", isMuted: false });
+  assert.equal(f.states.at(-1)?.muted, false);
+  await f.session.dispose();
+});
+
+
+test("a detached room's local microphone event cannot change the replacement room's intent", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  const oldRoom = f.rooms[0]!;
+  const staleMute = oldRoom.mutedHandler();
+  f.session.setTarget({ ...target, id: "B" }); await flush();
+  f.rooms[1]!.ready(); await flush();
+  staleMute({ source: "microphone", isMuted: true } as Parameters<typeof staleMute>[0], oldRoom.localParticipant);
+  assert.equal(f.states.at(-1)?.connected, true);
+  assert.equal(f.states.at(-1)?.muted, false);
+  assert.equal(f.states.at(-1)?.target?.id, "B");
+  await f.session.dispose();
+});
+
+test("microphone intent queued during reset can retry a failed initial capture without reconnecting", async () => {
+  const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
+  f.session.setTarget(target); await flush();
+  const room = f.rooms[0]!;
+  room.microphoneError = new DOMException("Device unavailable", "NotFoundError");
+  const queuedUnmute = f.session.setMuted(false);
+  room.ready(); await queuedUnmute; await flush();
+  assert.equal(f.states.at(-1)?.connected, true);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.match(f.states.at(-1)?.error?.message ?? "", /microphone.*device/i);
+  assert.equal(room.disconnectCount, 0);
+  assert.equal(f.timers.length, 0);
+  assert.deepEqual(room.microphone, [true, true]);
+  room.microphoneError = null;
+  await f.session.setMuted(false);
+  assert.equal(f.states.at(-1)?.muted, false);
+  assert.equal(f.rooms.length, 1);
+  await f.session.dispose();
+});
+
+
+test("a live microphone retained during proximity rotation preserves publishing intent", async () => {
+  const f = fixture();
+  const proximityTarget: VoiceTarget = { ...target, kind: "proximity", id: "group-a" };
+  f.session.setTarget(proximityTarget); await flush(); f.rooms[0]!.ready(); await flush();
+  await f.session.setMuted(false);
+  const track = { kind: "audio", mediaStreamTrack: { readyState: "live" }, stop() { throw new Error("Live retained microphone was stopped"); } };
+  f.rooms[0]!.emitLocalTrackUnpublished({ source: "microphone", isMuted: false, track });
+  assert.equal(f.states.at(-1)?.muted, false);
+  f.session.setTarget({ ...proximityTarget, id: "group-b" }); await flush();
+  f.rooms[1]!.ready(); await flush();
+  assert.equal(f.states.at(-1)?.muted, false);
+  assert.deepEqual(f.rooms[1]!.publishedTracks, [track]);
+  await f.session.dispose();
+});
+
+
+for (const errorName of MICROPHONE_NATIVE_CAPTURE_ERROR_NAMES) {
+  test(`native microphone ${errorName} capture rejection keeps listening connected and retryable`, async () => {
+    const f = fixture((dependencies, listener) => new VoiceRoomSession({ ...dependencies, initialMuted: false }, listener));
+    f.session.setTarget(target); await flush();
+    const room = f.rooms[0]!;
+    const captureError = new DOMException("Native microphone capture rejected", errorName);
+    room.microphoneError = captureError;
+    room.ready(); await flush();
+    assert.equal(f.states.at(-1)?.connected, true);
+    assert.equal(f.states.at(-1)?.muted, true);
+    assert.equal(room.disconnectCount, 0);
+    assert.equal(f.timers.length, 0);
+    assert.equal(f.states.at(-1)?.error?.cause, captureError);
+    assert.match(f.states.at(-1)?.error?.message ?? "", /microphone/i);
+    room.microphoneError = null;
+    await f.session.setMuted(false);
+    assert.equal(f.states.at(-1)?.muted, false);
+    assert.equal(f.states.at(-1)?.error, null);
+    assert.equal(f.rooms.length, 1);
+    await f.session.dispose();
+  });
+}
+
+
+test("manual microphone choice made without a target is applied only after authorization", async () => {
+  const f = fixture();
+  await f.session.setMuted(false);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  assert.equal(f.rooms.length, 0);
+  await join(f);
+  assert.equal(f.rooms[0]!.microphone.at(-1), true);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  assert.equal(f.states.at(-1)?.muted, false);
+  await f.session.dispose();
+});
+
+test("only explicit microphone choices change desired intent across session gaps and local mute events", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  f.rooms[0]!.emitTrackMuted({ source: "microphone", isMuted: true });
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  f.session.setTarget(null); await flush();
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  assert.equal(f.states.at(-1)?.muted, true);
+  f.session.setTarget({ ...target, id: "B" }); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.equal(f.rooms[1]!.microphone.at(-1), true);
+  f.session.suspend(); await flush();
+  await f.session.setMuted(true);
+  f.session.resume(target); await flush(); f.rooms[2]!.ready(); await flush();
+  assert.equal(f.rooms[2]!.microphone.at(-1), false);
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
+  await f.session.dispose();
+});
+
+test("capture failure leaves actual mic off without erasing manual on intent for recovery", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  f.session.reconnect(); await flush();
+  f.rooms[1]!.microphoneError = new DOMException("Temporarily unavailable", "NotReadableError");
+  f.rooms[1]!.ready(); await flush();
+  assert.equal(f.states.at(-1)?.connected, true);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  f.session.reconnect(); await flush(); f.rooms[2]!.ready(); await flush();
+  assert.equal(f.rooms[2]!.microphone.at(-1), true);
+  assert.equal(f.states.at(-1)?.muted, false);
+  await f.session.dispose();
+});
+
+test("a listen-only target cannot capture or republish media despite manual on intent", async () => {
+  const f = fixture();
+  await f.session.setMuted(false);
+  f.session.setTarget({ ...target, kind: "proximity", mode: "listen" }); await flush(); f.rooms[0]!.ready(); await flush();
+  assert.deepEqual(f.rooms[0]!.microphone, [false]);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  await f.session.setMuted(false);
+  let published = false;
+  await f.session.control(async () => { published = true; }, "camera");
+  assert.equal(published, false);
+  assert.deepEqual(f.rooms[0]!.microphone, [false]);
+  f.session.setTarget({ ...target, kind: "proximity", mode: "join" }); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.equal(f.rooms[1]!.microphone.at(-1), true);
+  const track = { kind: "audio", source: "microphone", mediaStreamTrack: { readyState: "live" }, stop() {} };
+  f.rooms[1]!.localParticipant.audioTrackPublications.set("mic", { source: "microphone", isMuted: false, track });
+  f.session.setTarget({ ...target, kind: "proximity", mode: "listen" }); await flush(); f.rooms[2]!.ready(); await flush();
+  assert.deepEqual(f.rooms[1]!.disconnectStopTracks, [true]);
+  assert.deepEqual(f.rooms[2]!.publishedTracks, []);
+  assert.equal(f.rooms[2]!.microphone.at(-1), false);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  await f.session.dispose();
+});
+
+test("an explicit off choice during join wins over earlier on intent", async () => {
+  const f = fixture();
+  await f.session.setMuted(false);
+  f.session.setTarget(target); await flush();
+  const off = f.session.setMuted(true);
+  f.rooms[0]!.ready(); await off; await flush();
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.rooms[0]!.microphone.includes(true), false);
+  f.session.reconnect(); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.equal(f.rooms[1]!.microphone.includes(true), false);
+  await f.session.dispose();
+});
+
+
+test("obsolete queued on commands never enable capture after the user chooses off during connect", async () => {
+  const f = fixture();
+  f.session.setTarget(target); await flush();
+  const on = f.session.setMuted(false);
+  const off = f.session.setMuted(true);
+  f.rooms[0]!.ready(); await on; await off; await flush();
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.rooms[0]!.microphone.includes(true), false);
+  await f.session.dispose();
+});
+
+
+test("leaving and disposing stop actual media without changing the user's within-login choice", async () => {
+  const f = fixture(); await join(f); await f.session.setMuted(false);
+  f.session.leave(); await flush();
+  assert.equal(f.rooms[0]!.disconnectCount, 1);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+  f.session.setTarget({ ...target, id: "B" }); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.equal(f.rooms[1]!.microphone.at(-1), true);
+  await f.session.dispose();
+  assert.equal(f.rooms[1]!.disconnectCount, 1);
+  assert.equal(f.states.at(-1)?.muted, true);
+  assert.equal(f.states.at(-1)?.desiredMuted, false);
+});
+
+test("choosing off while a retained microphone waits for the next room stops that capture", async () => {
+  const f = fixture();
+  const nearby: VoiceTarget = { ...target, kind: "proximity", id: "group-a" };
+  f.session.setTarget(nearby); await flush(); f.rooms[0]!.ready(); await flush();
+  await f.session.setMuted(false);
+  let stopCount = 0;
+  const track = { kind: "audio", source: "microphone", mediaStreamTrack: { readyState: "live" }, stop() { stopCount++; } };
+  f.rooms[0]!.localParticipant.audioTrackPublications.set("mic", { source: "microphone", isMuted: false, track });
+  f.session.setTarget({ ...nearby, id: "group-b" }); await flush();
+  const off = f.session.setMuted(true);
+  assert.equal(stopCount, 1);
+  f.rooms[1]!.ready(); await off; await flush();
+  assert.deepEqual(f.rooms[1]!.publishedTracks, []);
+  assert.equal(f.rooms[1]!.microphone.includes(true), false);
+  assert.equal(f.states.at(-1)?.desiredMuted, true);
   await f.session.dispose();
 });

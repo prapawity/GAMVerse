@@ -82,6 +82,14 @@ export async function deleteSpatialMediaRoom(roomName: string, service: Pick<Roo
   catch (error) { if (!(error instanceof ServerError) || error.code !== "not_found") throw error; }
 }
 
+/** Removes people from a zone media room without deleting it, so everyone else stays connected. */
+export async function removeZoneParticipants(roomName: string, identities: readonly string[]) {
+  const service = getZoneRoomService();
+  await Promise.all(identities.map(identity => service.removeParticipant(roomName, identity).catch(error => {
+    if (!(error instanceof ServerError) || error.code !== "not_found") throw error;
+  })));
+}
+
 export async function revokePrivateVoiceParticipant(officeId: string, zoneId: string, identity: string) {
   await getRoomService().removeParticipant(privateVoiceRoomName(officeId, zoneId), identity, { revokeTokenTs: BigInt(Math.floor(Date.now() / 1000)) });
 }

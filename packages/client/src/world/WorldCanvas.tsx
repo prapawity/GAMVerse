@@ -1,7 +1,7 @@
 import { StaticSceneGroup } from "./staticSceneGroup";
 import { OfficeMapSceneLayers } from "./officeMapSceneLayers";
 import { playerName } from "../identity/playerName";
-import { isRoomPropBed } from "@gammyverse/shared";
+import { isRoomPropBed, zoneAtWithExitMargin } from "@gammyverse/shared";
 import { applyLyingCharacterPose } from "./lyingCharacterPose";
 import { CAMPUS_LAYOUT, CAMPUS_WORLD, CAMERA, lerpAngle, DEFAULT_CHARACTER_ID, JUMP_DURATION_MS, jumpHeightAt, KENNEY_BLASTER_IDS, KENNEY_VEHICLE_IDS, WORLD, ROOM_PROP_CATALOG, TEMPLATE_PRIVATE_WALL_ASSETS, templatePrivateWallAsset, parseRoomPropSeatReference, roomPropCollisionFootprint, roomWallSolidSegments, roomBoundaryWalls, roomPropPlacementSupport, roomPropSeatAnchors, campusPropPlacements, type CampusRoom, type KenneyBlasterId, type KenneyCharacterId, type KenneyVehicleId, type RoomLayout, type RoomLayoutProp, type RoomLayoutZone, type UserStatus } from "@gammyverse/shared";
 import type { MutableRefObject } from "react";
@@ -3031,8 +3031,10 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       let sharedDomes: DomeEntry[] = [];
       if (!mapEditModeRef.current && localId && players.has(localId)) {
         const onlinePoints = new Map<string, { x: number; z: number }>();
-        for (const [id, player] of players) if (id === localId || player.presence === "online") onlinePoints.set(id, player);
-        sharedDomes = smoothProximityDomes(proximityDomeEntries(localId, onlinePoints, mapWorld.proximityRadius, Boolean(proximityGroupIdRef?.current)), performance.now());
+        // The server leaves anyone inside a private/meeting zone out of proximity chat, so no dome there.
+        const zones = roomLayout?.zones ?? [];
+        for (const [id, player] of players) if (player.presence === "online" && !zoneAtWithExitMargin(player, zones)) onlinePoints.set(id, player);
+        sharedDomes = smoothProximityDomes(proximityDomeEntries(localId, onlinePoints, mapWorld.proximityRadius, Boolean(proximityGroupIdRef?.current) && onlinePoints.has(localId)), performance.now());
       } else smoothProximityDomes([], performance.now());
       proximityDomes.update(sharedDomes, campusOverviewRef.current ? { x: mapWorld.width / 2, z: mapWorld.depth / 2 } : { x: 0, z: 0 });
       // Proximity based opening is client side, so doors animate without any

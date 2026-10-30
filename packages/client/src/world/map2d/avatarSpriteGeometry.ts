@@ -1,12 +1,15 @@
 import type { Map2dAvatarVisual } from "./map2dAvatarVisual";
+import { CHARACTER_MAX_HEIGHT_M, CHARACTER_MAX_WIDTH_M } from "../characterModelFit";
 
 export const AVATAR_SPRITE_TILE_WIDTH_PX = 64;
 export const AVATAR_SPRITE_TILE_HEIGHT_PX = 80;
 export const AVATAR_SPRITE_WIDTH_PX = 44;
 export const AVATAR_SPRITE_HEIGHT_PX = 56;
-export const AVATAR_SPRITE_ABOVE_ANCHOR_PX = 48;
-// The snapshot frame contains a 1.6 m model plus its transparent framing margin.
-export const AVATAR_SPRITE_FRAME_HEIGHT_M = 2.1;
+const AVATAR_SPRITE_FRAME_MARGIN_M = 0.5;
+export const AVATAR_SPRITE_TARGET_HEIGHT_M = CHARACTER_MAX_HEIGHT_M / 2;
+export const AVATAR_SPRITE_FRAME_HEIGHT_M = Math.hypot(CHARACTER_MAX_HEIGHT_M, CHARACTER_MAX_WIDTH_M)
+  * AVATAR_SPRITE_TILE_HEIGHT_PX / AVATAR_SPRITE_TILE_WIDTH_PX + AVATAR_SPRITE_FRAME_MARGIN_M;
+export const AVATAR_SPRITE_ABOVE_ANCHOR_PX = AVATAR_SPRITE_HEIGHT_PX * (0.5 + AVATAR_SPRITE_TARGET_HEIGHT_M / AVATAR_SPRITE_FRAME_HEIGHT_M);
 export function avatarSpriteScale(pxPerM: number): number {
   return AVATAR_SPRITE_FRAME_HEIGHT_M * pxPerM / AVATAR_SPRITE_HEIGHT_PX;
 }

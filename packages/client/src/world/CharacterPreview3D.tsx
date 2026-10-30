@@ -5,6 +5,7 @@ import { loadCharacterAsset } from "../assets/characterAssets";
 import { loadGltfAsset } from "../assets/loaders";
 import { hasLargeSkinnedMeshScale } from "./petModelCompatibility";
 import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
+import { CHARACTER_MAX_HEIGHT_M, fitCharacterModel } from "./characterModelFit";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 
 type CharacterPreview3DProps = {
@@ -14,6 +15,9 @@ type CharacterPreview3DProps = {
   label: string;
   fallbackImage?: string | null;
 };
+
+const PREVIEW_CAMERA_DISTANCE_HEIGHT_RATIO = 2.5;
+const PREVIEW_CAMERA_TARGET_HEIGHT_M = CHARACTER_MAX_HEIGHT_M / 2;
 
 export function CharacterPreview3D({ characterId, modelUrl, endpoint, label, fallbackImage }: CharacterPreview3DProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -36,8 +40,8 @@ export function CharacterPreview3D({ characterId, modelUrl, endpoint, label, fal
     const clock = new THREE.Clock();
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 40);
-    camera.position.set(0, 1.05, 4.4);
-    camera.lookAt(0, 0.82, 0);
+    camera.position.set(0, PREVIEW_CAMERA_TARGET_HEIGHT_M, CHARACTER_MAX_HEIGHT_M * PREVIEW_CAMERA_DISTANCE_HEIGHT_RATIO);
+    camera.lookAt(0, PREVIEW_CAMERA_TARGET_HEIGHT_M, 0);
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -112,14 +116,9 @@ export function CharacterPreview3D({ characterId, modelUrl, endpoint, label, fal
       if (disposed) return;
       const isolatedRig = modelUrl ? hasLargeSkinnedMeshScale(asset.scene) : false;
       model = (isolatedRig ? asset.scene : SkeletonUtils.clone(asset.scene)) as THREE.Group;
-      const bounds = new THREE.Box3().setFromObject(model);
-      const size = bounds.getSize(new THREE.Vector3());
-      const center = bounds.getCenter(new THREE.Vector3());
-      const scale = 1.55 / Math.max(size.y, 0.001);
-      model.scale.setScalar(scale);
-      model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
-      const clips = pickCharacterClips(asset.animations);
-      proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model) : null;
+      fitCharacterModel(model);
+      const clips = pickCharacterClips(asset.animations, characterId.startsWith("custom-"));
+      proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) : null;
       if (proceduralRig) updateProceduralHumanoidRig(proceduralRig, 0, false, false, false);
       scene.add(model);
 

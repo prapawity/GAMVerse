@@ -21,6 +21,7 @@ import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
 import { shouldShowNameTag } from "./nameTagVisibility";
 import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
+import { fitCharacterModel } from "./characterModelFit";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type ProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 import { createWorldDestinationBeacon } from "./destinationBeacon";
 import { createProximityDomeSet } from "./proximityDome";
@@ -69,6 +70,7 @@ const MAP_GESTURE_THRESHOLD_PX = 10;
 const ROAD_SURFACE_COLOR = "#45484a";
 const ROAD_JOIN_OVERLAP_M = 0.08;
 const CHARACTER_NAME_TAG_HEIGHT_M = 1.85;
+const CHARACTER_NAME_TAG_CLEARANCE_M = 0.3;
 const VEHICLE_NAME_TAG_HEIGHT_M = 2.8;
 const PLAYER_STATUS_COLORS: Record<PlayerStatus, string> = {
   available: "#2f9e62",
@@ -437,7 +439,7 @@ function makeNameTag(name: string, color = "#123247") {
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
   sprite.scale.set(1.8, 0.45, 1);
-  sprite.position.y = 1.85;
+  sprite.position.y = CHARACTER_NAME_TAG_HEIGHT_M;
   return sprite;
 }
 
@@ -3188,12 +3190,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           void getCharacterModel(characterId).then((gltf) => {
             if (disposed || avatars.get(id) !== avatarRoot) return;
             const model = SkeletonUtils.clone(gltf.scene) as THREE.Group;
-            const bounds = new THREE.Box3().setFromObject(model);
-            const size = bounds.getSize(new THREE.Vector3());
-            const center = bounds.getCenter(new THREE.Vector3());
-            const scale = 1.55 / Math.max(size.y, 0.001);
-            model.scale.setScalar(scale);
-            model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
+            fitCharacterModel(model);
             model.traverse((child) => {
               if (child instanceof THREE.Mesh) {
                 child.castShadow = true;
@@ -3206,8 +3203,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             avatarRoot.add(model);
             fallbackRig.visible = false;
 
-            const clips = pickCharacterClips(gltf.animations);
-            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model) ?? undefined : undefined;
+            const clips = pickCharacterClips(gltf.animations, characterId.startsWith("custom-"));
+            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) ?? undefined : undefined;
             // The procedural rig owns these models' idle and movement poses.
             // Starting an asset clip as well can put the arms back in T-pose.
             const mixer = proceduralRig ? undefined : new THREE.AnimationMixer(model);
@@ -3791,7 +3788,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
         const isDriving = Boolean(player.vehicleId);
         const nameAnchor = isDriving ? vehiclePositions.get(id) : avatars.get(id)?.position;
-        const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : CHARACTER_NAME_TAG_HEIGHT_M;
+        const characterHeightM = avatarAnimations.get(id)?.model.userData.characterHeightM as number | undefined;
+        const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : characterHeightM === undefined ? CHARACTER_NAME_TAG_HEIGHT_M : characterHeightM + CHARACTER_NAME_TAG_CLEARANCE_M;
         const showNameTag = nameAnchor !== undefined && shouldShowNameTag({
           isLocal: id === localId, map2d: showMap2d, firstPerson: firstPersonViewRef.current,
           covered: campusOverviewRef.current && isCoveredPosition(player, roofZones), distanceToCameraM: nameAnchor.distanceTo(camera.position),

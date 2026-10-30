@@ -21,13 +21,14 @@ function find<T extends NamedClip>(clips: readonly T[], kind: keyof typeof CLIP_
   return clips.find(clip => CLIP_PATTERNS[kind].test(normalised(clip.name)));
 }
 
-export function pickCharacterClips<T extends NamedClip>(clips: readonly T[]): CharacterClips<T> {
+export function pickCharacterClips<T extends NamedClip>(clips: readonly T[], fallbackToFirst = false): CharacterClips<T> {
   const walk = find(clips, "walk");
   const sit = find(clips, "sit");
   const run = find(clips.filter(clip => clip !== walk), "run");
   // "Sitting Idle" is a sitting pose, not the standing idle.
   const idle = find(clips.filter(clip => clip !== sit), "idle");
-  return { idle, walk, run, sit, dance: find(clips, "dance") };
+  const fallback = fallbackToFirst && !idle && !walk ? clips[0] : undefined;
+  return { idle: idle ?? fallback, walk: walk ?? fallback, run, sit, dance: find(clips, "dance") };
 }
 
 /**

@@ -214,8 +214,8 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .voice-participant-mute-all button:hover { background: #ffe9e5; }
 .voice-participant-mute-all svg { width: 12px; height: 12px; }
 .voice-participant-list-wrap { position: relative; width: 100%; min-width: 0; }
-.voice-participant-roster ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: 100%; max-height: min(52dvh, 340px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
-.voice-participant-roster li { position: relative; isolation: isolate; display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; width: clamp(200px, 22vw, 216px); min-width: clamp(200px, 22vw, 216px); max-width: clamp(200px, 22vw, 216px); min-height: 120px; aspect-ratio: 1.72; padding: 9px 10px; overflow: hidden; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
+.voice-participant-roster ul { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 6px; width: 100%; max-height: min(52dvh, 340px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
+.voice-participant-roster li { position: relative; isolation: isolate; display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; width: clamp(200px, 22vw, 216px); min-width: clamp(200px, 22vw, 216px); max-width: clamp(200px, 22vw, 216px); min-height: 0; aspect-ratio: 16 / 9; padding: 9px 10px; overflow: hidden; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
 .voice-participant-roster li.has-camera-background { color: #fff; border-color: rgba(255,255,255,.7); background: #18313b; }
 .voice-participant-camera-background { position: absolute; z-index: -1; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; opacity: .62; }
 .voice-participant-roster li.has-camera-background::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(180deg,rgba(4,22,31,.24),rgba(4,22,31,.72)); content: ""; }
@@ -223,8 +223,7 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .voice-participant-roster li.has-camera-background .voice-participant-settings-trigger { color: #fff; }
 .voice-participant-roster.is-compact { max-width: min(960px, calc(100vw - 32px)); }
 .voice-participant-roster.is-compact ul { flex-wrap: nowrap; justify-content: flex-start; overflow: auto hidden; overscroll-behavior-x: contain; }
-.voice-participant-roster.is-compact li { flex: 0 0 clamp(210px, 22vw, 260px); grid-template-columns: 9px minmax(0,1fr) auto 20px; grid-template-areas: "dot copy activity menu"; min-height: 48px; aspect-ratio: auto; padding: 7px 8px; width: auto; min-width: 0; max-width: none; }
-.voice-participant-roster.is-compact .voice-participant-activity { justify-self: end; }
+.voice-participant-roster.is-compact li { flex: 0 0 clamp(210px, 22vw, 260px); padding: 7px 8px; width: auto; min-width: 0; max-width: none; }
 .voice-participant-roster.is-compact .voice-participant-media { width: 22px; height: 22px; }
 .voice-participant-roster.is-compact .voice-participant-media svg { width: 13px; height: 13px; }
 .voice-participant-status-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--participant-status-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--participant-status-color) 15%, transparent); }
@@ -612,9 +611,8 @@ button.voice-participant-media:disabled { opacity: .45; cursor: default; }
   .voice-participant-mute-all button span { display: none; }
   .voice-participant-roster ul { flex-wrap: nowrap; justify-content: flex-start; max-height: none; overflow: auto hidden; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; }
   /* One person per view with the next one peeking in; swipe to scroll. */
-  .voice-participant-roster.is-compact li, .voice-participant-roster li { flex: 0 0 calc(100% - 28px); grid-template-columns: 9px minmax(0,1fr) auto 20px; grid-template-areas: "dot copy activity menu"; width: auto; min-width: 0; max-width: none; min-height: 48px; aspect-ratio: auto; gap: 6px; padding: 7px 8px; scroll-snap-align: start; }
+  .voice-participant-roster.is-compact li, .voice-participant-roster li { flex: 0 0 calc(100% - 28px); width: auto; min-width: 0; max-width: none; gap: 6px; padding: 7px 8px; scroll-snap-align: start; }
   .voice-participant-roster li:only-child { flex-basis: 100%; }
-  .voice-participant-roster.is-compact .voice-participant-activity, .voice-participant-roster .voice-participant-activity { justify-self: end; }
   .voice-participant-roster .voice-participant-media { width: 22px; height: 22px; }
   .focus-character-control { right: 14px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }
   .camera-view-control { right: 14px; bottom: calc(212px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }

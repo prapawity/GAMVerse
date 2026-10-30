@@ -1,3 +1,4 @@
+import { AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_ABOVE_ANCHOR_PX } from "./avatarSpriteGeometry";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MAP2D_MIN_SCALE_PX_PER_M, MAP2D_MAX_SCALE_PX_PER_M } from "./constants";
@@ -104,7 +105,7 @@ test("selected characters grow and shrink proportionally with map zoom independe
     for (const [index, args] of draws.entries()) {
       assert.equal(args[0], image);
       const pxPerM = [MAP2D_MIN_SCALE_PX_PER_M, 12, MAP2D_MAX_SCALE_PX_PER_M][index];
-      assert.ok(Math.abs(Number(args[8]) - 2.1 * pxPerM) < 0.000001);
+      assert.ok(Math.abs(Number(args[8]) - AVATAR_SPRITE_FRAME_HEIGHT_M * pxPerM) < 0.000001);
       assert.ok(Math.abs(Number(args[7]) / Number(args[8]) - 44 / 56) < 0.000001);
       assert.equal(args.length, 9, "crop a directional full-body frame rather than a head portrait");
     }
@@ -134,7 +135,7 @@ test("name clearance and foreground indicators track the scaled character at bot
     const rings = drawing.calls.filter(call => call.method === "arc" && call.args[0] === 400 && Number(call.args[2]) > markerRadiusPx);
     assert.deepEqual(rings.map(call => call.args[2]), [markerRadiusPx + 4 * scale, markerRadiusPx + 8 * scale]);
     const label = drawing.calls.filter(call => call.method === "roundRect").at(-1)!;
-    const characterTopPx = 300 - 48 * scale;
+    const characterTopPx = 300 - AVATAR_SPRITE_ABOVE_ANCHOR_PX * scale;
     assert.ok(Number(label.args[1]) + Number(label.args[3]) < characterTopPx, "name stays above the scaled full body");
   }
 });

@@ -31,6 +31,14 @@ test("unrelated or opaque clip names match nothing", () => {
   assert.equal(picked.sit, undefined);
 });
 
+test("custom models use an opaque first clip for idle and movement", () => {
+  const [clip] = clips("Take 001");
+  const picked = pickCharacterClips([clip], true);
+  assert.equal(picked.idle, clip);
+  assert.equal(picked.walk, clip);
+  assert.equal(pickCharacterClips([clip]).idle, undefined);
+});
+
 test("an uploaded model with no walk clip is driven by the procedural rig, one with a walk clip is not", () => {
   const customId = "custom-11111111-1111-4111-8111-111111111111";
   assert.equal(shouldUseProceduralRig(customId, pickCharacterClips(clips("mixamo.com"))), true);

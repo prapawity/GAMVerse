@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detectHumanoidBones } from "./humanoidBoneDetection";
 
 type JointPose = {
   bone: THREE.Object3D;
@@ -7,6 +8,7 @@ type JointPose = {
   axisB: THREE.Vector3;
   deltaA: THREE.Quaternion;
   deltaB: THREE.Quaternion;
+  restAngleRad?: number;
 };
 
 export type ProceduralHumanoidRig = {
@@ -24,6 +26,7 @@ export type ProceduralHumanoidRig = {
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
+const INFERRED_ARM_OUTWARD_DOWN_RATIO = 0.2;
 const MIXAMO_BONE_NAMES = {
   leftArm: ["mixamorig:LeftArm", "mixamorigLeftArm", "LeftArm", "LeftUpperArm", "J_Bip_L_UpperArm", "upperarm.l", "upperarml"],
   rightArm: ["mixamorig:RightArm", "mixamorigRightArm", "RightArm", "RightUpperArm", "J_Bip_R_UpperArm", "upperarm.r", "upperarmr"],
@@ -55,7 +58,11 @@ function joint(root: THREE.Object3D, names: readonly string[], axisA = AXIS_Z, a
   };
 }
 
-export function createProceduralHumanoidRig(root: THREE.Object3D): ProceduralHumanoidRig | null {
+export function createProceduralHumanoidRig(root: THREE.Object3D, calibrateFromStructure = false): ProceduralHumanoidRig | null {
+  if (calibrateFromStructure) {
+    const inferred = inferProceduralHumanoidRig(root);
+    if (inferred) return inferred;
+  }
   const rig: ProceduralHumanoidRig = {
     leftArm: joint(root, MIXAMO_BONE_NAMES.leftArm),
     rightArm: joint(root, MIXAMO_BONE_NAMES.rightArm),
@@ -71,7 +78,58 @@ export function createProceduralHumanoidRig(root: THREE.Object3D): ProceduralHum
   // Arm pose correction must still run for humanoid rigs that omit or rename
   // their leg bones. Requiring all four limbs caused some otherwise valid
   // models (including Jimmy) to fall back to their source T-pose.
-  return rig.leftArm && rig.rightArm ? rig : null;
+  if (rig.leftArm && rig.rightArm && rig.leftLeg && rig.rightLeg && rig.leftForearm && rig.rightForearm && rig.leftShin && rig.rightShin) return rig;
+  return inferProceduralHumanoidRig(root) ?? (rig.leftArm && rig.rightArm ? rig : null);
+}
+
+function inferProceduralHumanoidRig(root: THREE.Object3D): ProceduralHumanoidRig | null {
+  root.updateWorldMatrix(true, true);
+  const bones: THREE.Bone[] = [];
+  root.traverse(object => { if (object instanceof THREE.Bone) bones.push(object); });
+  const indices = new Map(bones.map((bone, index) => [bone, index]));
+  const positions = bones.map(bone => root.worldToLocal(bone.getWorldPosition(new THREE.Vector3())));
+  const detected = detectHumanoidBones(bones.map((bone, index) => ({
+    parent: indices.get(bone.parent as THREE.Bone) ?? null,
+    position: positions[index],
+  })));
+  if (!detected) return null;
+  const rootRotation = root.getWorldQuaternion(new THREE.Quaternion());
+  const pose = (index: number, child?: number, side?: number): JointPose => {
+    const bone = bones[index];
+    const rest = bone.quaternion.clone();
+    if (child !== undefined && side !== undefined) {
+      const direction = positions[child].clone().sub(positions[index]).normalize();
+      const target = new THREE.Vector3(side * INFERRED_ARM_OUTWARD_DOWN_RATIO, -1, 0).normalize();
+      const correction = new THREE.Quaternion().setFromUnitVectors(direction, target);
+      const parentRotation = rootRotation.clone().invert().multiply(bone.parent!.getWorldQuaternion(new THREE.Quaternion()));
+      rest.premultiply(parentRotation.clone().invert().multiply(correction).multiply(parentRotation));
+    }
+    const rotation = bone.parent!.getWorldQuaternion(new THREE.Quaternion()).multiply(rest);
+    const toLocal = rotation.invert().multiply(rootRotation);
+    return {
+      bone, rest,
+      axisA: (side === undefined ? AXIS_X : AXIS_Z).clone().applyQuaternion(toLocal),
+      axisB: (side === undefined ? AXIS_Z : AXIS_X).clone().applyQuaternion(toLocal),
+      deltaA: new THREE.Quaternion(), deltaB: new THREE.Quaternion(), restAngleRad: 0,
+    };
+  };
+  const leftArm = pose(detected.leftArm.upper, detected.leftArm.lower, 1);
+  const rightArm = pose(detected.rightArm.upper, detected.rightArm.lower, -1);
+  const originals = [leftArm.bone.quaternion.clone(), rightArm.bone.quaternion.clone()];
+  leftArm.bone.quaternion.copy(leftArm.rest);
+  rightArm.bone.quaternion.copy(rightArm.rest);
+  root.updateWorldMatrix(true, true);
+  const rig = {
+    leftArm, rightArm,
+    leftForearm: pose(detected.leftArm.lower), rightForearm: pose(detected.rightArm.lower),
+    leftLeg: pose(detected.leftLeg.upper), rightLeg: pose(detected.rightLeg.upper),
+    leftShin: pose(detected.leftLeg.lower), rightShin: pose(detected.rightLeg.lower),
+    leftFoot: pose(detected.leftLeg.end), rightFoot: pose(detected.rightLeg.end),
+  };
+  leftArm.bone.quaternion.copy(originals[0]);
+  rightArm.bone.quaternion.copy(originals[1]);
+  root.updateWorldMatrix(true, true);
+  return rig;
 }
 
 function setPose(pose: JointPose | undefined, primary: number, secondary = 0) {
@@ -91,8 +149,8 @@ export function updateProceduralHumanoidRig(rig: ProceduralHumanoidRig, phase: n
   // The source packs use a consistent Mixamo local arm axis. Applying the
   // correction in bone-local space avoids world-direction calculations that
   // can silently leave some rigs at their imported T-pose.
-  setPose(rig.leftArm, 1.12, moving ? -stride * 0.52 : idleSway);
-  setPose(rig.rightArm, -1.12, moving ? stride * 0.52 : -idleSway);
+  setPose(rig.leftArm, rig.leftArm?.restAngleRad ?? 1.12, moving ? -stride * 0.52 : idleSway);
+  setPose(rig.rightArm, rig.rightArm?.restAngleRad ?? -1.12, moving ? stride * 0.52 : -idleSway);
   setPose(rig.leftForearm, 0.1);
   setPose(rig.rightForearm, -0.1);
 

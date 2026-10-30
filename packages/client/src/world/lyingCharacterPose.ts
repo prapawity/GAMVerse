@@ -9,7 +9,8 @@ const REST_ROTATION_RAD = new THREE.Euler();
 export function applyLyingCharacterPose(model: THREE.Object3D, lying: boolean,
   restPosition: THREE.Vector3 = ORIGIN_M, restRotation: THREE.Euler = REST_ROTATION_RAD, forwardSign = 1): void {
   model.rotation.x = lying ? restRotation.x - forwardSign * Math.PI / 2 : restRotation.x;
-  model.position.z = restPosition.z + (lying ? forwardSign * CHARACTER_HALF_HEIGHT_M : 0);
+  const halfHeightM = typeof model.userData.characterHeightM === "number" ? model.userData.characterHeightM / 2 : CHARACTER_HALF_HEIGHT_M;
+  model.position.z = restPosition.z + (lying ? forwardSign * halfHeightM : 0);
   if (!lying && model.userData.characterLying) model.position.y = restPosition.y;
   if (lying) {
     model.rotation.y = restRotation.y;

@@ -10,4 +10,13 @@
 .availability-presets, .availability-dialog footer { display: flex; gap: 8px; flex-wrap: wrap; }
 .availability-dialog footer { justify-content: flex-end; margin-top: 16px; }
 .availability-menu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.availability-menu-label { color: var(--workspace-muted); font-size: 12px; font-weight: 600; }
+.availability-status-options { display: grid; width: 100%; gap: 3px; }
+.availability-menu .availability-status-option { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 5px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--workspace-ink); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.availability-menu .availability-status-option:hover:not(:disabled), .availability-menu .availability-status-option.is-selected { background: var(--workspace-selected); }
+.availability-menu .availability-status-option:focus-visible { outline: 2px solid var(--workspace-focus); outline-offset: 1px; }
+.availability-menu .availability-status-option:disabled { cursor: wait; opacity: .6; }
+.availability-menu .availability-status-option .user-status-dot { width: 18px; height: 18px; border: 0; box-shadow: none; font-size: 10px; }
+.availability-status-icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--status-color); }
+.availability-status-check { margin-left: auto; color: var(--workspace-accent); font-weight: 700; }
 .directory-custom-status { overflow-wrap: anywhere; white-space: normal; color: var(--workspace-muted); font-size: 12px; }

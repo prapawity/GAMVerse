@@ -408,6 +408,8 @@ button.voice-participant-media:disabled { opacity: .45; cursor: default; }
 .settings-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid #e8ede9; border-radius: 9px; background: rgba(255,255,255,.78); color: #4a6353; text-align: left; font-size: 11px; cursor: pointer; }
 .settings-menu-row + .settings-menu-row { margin-top: 7px; }
 .settings-menu-row:hover { border-color: #c9d8cd; background: #fff; }
+.availability-settings-row { justify-content: flex-start; }
+.availability-settings-row > span:nth-child(2) { flex: 1; min-width: 0; }
 .settings-menu-row > span:last-child { color: #99a69d; font-size: 18px; line-height: 1; }
 .profile-dialog-backdrop { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; width: 100vw; height: 100vh; height: 100dvh; box-sizing: border-box; padding: 16px; background: rgba(24, 37, 29, .42); backdrop-filter: blur(5px); }
 .profile-dialog { display: flex; flex-direction: column; width: min(820px, 100%); max-height: 100%; overflow: hidden; border: 1px solid #e1e9e2; border-radius: 16px; background: #f9fbf8; box-shadow: 0 24px 80px rgba(18, 34, 24, .25); }
@@ -1294,6 +1296,20 @@ button:focus-visible, .focus-character-control:focus-visible { outline-color: va
 .user-status-option:hover, .user-status-option.is-selected { background: #e7f4f8; }
 .user-status-option .user-status-dot { width: 22px; height: 22px; border-width: 1px; }
 .user-status-check { margin-left: auto; color: #168aad; font-weight: 800; }
+.availability-dim-overlay { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(11, 20, 28, .36); }
+.availability-dim-notice { display: flex; width: min(300px, 100%); max-height: calc(100dvh - 32px); flex-direction: column; align-items: center; gap: 8px; box-sizing: border-box; padding: 14px; overflow-y: auto; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; background: rgba(20, 31, 40, .94); box-shadow: 0 10px 32px rgba(0,0,0,.2); color: #fff; text-align: center; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.availability-dim-notice > .user-status-dot { width: 24px; height: 24px; border-width: 1px; font-size: 11px; }
+.availability-dim-notice > span:nth-of-type(2) { display: grid; gap: 3px; }
+.availability-dim-notice strong { font-size: 12px; }
+.availability-dim-notice small { color: rgba(255,255,255,.72); font-size: 10px; line-height: 1.3; }
+.availability-dim-notice .availability-back-button { box-sizing: border-box; width: 100%; min-height: 34px; padding: 0 10px; border: 0; border-radius: 8px; background: #2f9e62; color: #fff; font: 700 10px "DM Sans", sans-serif; cursor: pointer; }
+.availability-dim-notice .availability-back-button:disabled { cursor: wait; opacity: .65; }
+.availability-dim-list { width: 100%; }
+.availability-dim-list .availability-menu { align-items: stretch; }
+.availability-dim-list .availability-menu-label { color: rgba(255,255,255,.72); }
+.availability-dim-list .availability-status-options { gap: 1px; }
+.availability-dim-list .availability-menu .availability-status-option { min-height: 31px; padding: 4px 6px; color: #fff; font-size: 11px; }
+.availability-dim-list .availability-menu .availability-status-option:hover:not(:disabled), .availability-dim-list .availability-menu .availability-status-option.is-selected { background: rgba(255,255,255,.12); }
 .leave-button { color: #ffcf70; }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

@@ -52,7 +52,7 @@ One controller for all three kinds, replacing the three copies. Its contract:
 - **Media policy (decided).**
   - Joins and recoveries are receive-only, the same as today's `resetLocalMediaForVoiceRoom` (`:924-932`).
   - The mic's *muted* intent is kept across a switch or recovery: if the user was unmuted, the mic is republished in the new room.
-  - Camera and screen share are not republished automatically. The user is told they stopped, because screen share needs fresh consent.
+  - Camera and screen share are held and republished only while the audience is unchanged: a retry or recovery of the same target, a browser suspend/resume of the same target, and proximity rotation within one session (`keepsAudience` in `voiceRoomSession.ts`). Held tracks stop, with a reason in the notice, when the target changes to a different room, when the user leaves, or when recovery gives up (retry cap or 401/403). A track the browser or user already ended is never republished. Moving to a different audience still stops them, because screen share needs fresh consent.
   - Controls that race with a recovery are queued until the session is connected, or dropped if the generation changes.
 - **Reporting up.** State is reported through a listener interface that `VoiceRoomSession` owns (connected, muted, busy, error, tracks), so `OfficeApp` subscribes and nothing calls upward.
 

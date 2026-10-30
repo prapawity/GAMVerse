@@ -1,4 +1,5 @@
 import { appendCampusCityBlocks } from "./campusCityBlocks.js";
+import { campusRoomStyle } from "./campusRoomStyles.js";
 import { MAX_OFFICE_PROPS } from "./officePropLimits.js";
 import { placeCampusFinishedBuildings } from "./campusFinishedBuildings.js";
 import { campusRestroomFixtures } from "./campusFurnishingTemplates.js";
@@ -114,7 +115,7 @@ function seededRandom(seed: number) {
 }
 
 function addZone(layout: RoomLayout, zone: RoomLayoutZone, doorSide: "north" | "east" | "south" | "west" = "south") {
-  const wallColor = TEMPLATE_WALL_COLORS[layout.zones.length % TEMPLATE_WALL_COLORS.length]!;
+  const wallColor = campusRoomStyle(zone)?.wallColor ?? TEMPLATE_WALL_COLORS[layout.zones.length % TEMPLATE_WALL_COLORS.length]!;
   const privateRoomIndex = layout.zones.filter((item) => item.kind === "private").length;
   const meetingWallAsset = zone.kind === "meeting"
     ? TEMPLATE_MEETING_WALL_ASSETS[layout.zones.length % TEMPLATE_MEETING_WALL_ASSETS.length]!
@@ -326,7 +327,7 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
 
   const roads = campusLoopRoads(layout.zones, { width, depth }, compactFivePerHalf);
   layout.roadways = roads;
-  appendCampusCivicParkProps(layout, compactFivePerHalf);
+  appendCampusCivicParkProps(layout, compactFivePerHalf, { width, depth });
   appendCampusCityBlocks(layout);
 
   // Cars are parked on the wide roads with enough room between them to drive through.

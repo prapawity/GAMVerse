@@ -23,7 +23,9 @@ export const CAMERA_ZOOM_BUTTON_RATIO = 1.25;
 export const CAMERA_PAN_DRAG_SENSITIVITY = 2;
 export const CAMERA_WHEEL_SENSITIVITY_PER_PIXEL = 0.001;
 export const CAMERA_NEAR_MAX_M = 0.1;
-export const CAMERA_NEAR_DISTANCE_RATIO = 1 / 1_000;
+export const CAMERA_NEAR_DISTANCE_RATIO = 1 / 100;
+// Far-away orbit cameras raise the near plane so far:near stays small enough that coplanar ground and road meshes do not z-fight.
+export const CAMERA_NEAR_CEILING_M = 8;
 export const CAMERA_FAR_MIN_M = 7_000;
 export const CAMERA_FAR_DISTANCE_RATIO = 2;
 export const CAMPUS_FIT_TANGENT_RATIO = 0.84;

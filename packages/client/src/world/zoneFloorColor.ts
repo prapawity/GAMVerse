@@ -1,18 +1,12 @@
-import type { RoomLayoutZone } from "@gammyverse/shared";
+import { campusRoomStyle, type RoomLayoutZone } from "@gammyverse/shared";
 
 export const CAMPUS_GRASS_COLOR = 0xb8d2a5;
 export const CAMPUS_STONE_COLOR = 0xe9e8df;
 export const ZONE_COLOR_OPACITY = 0.22;
 
-/** Opaque civic floors in the 3D world. */
+/** Opaque floors of generated rooms in the 3D world; rooms drawn in the editor keep their tinted zone colour. */
 export function civicRoomFloorColor(zone: RoomLayoutZone): number | null {
-  if (zone.id === "shared-townhall") return 0xe5e0ec;
-  if (zone.id === "shared-lobby") return 0xf2eadc;
-  if (zone.id === "shared-cafeteria") return 0xf3e6d2;
-  if (zone.id === "shared-lounge") return CAMPUS_STONE_COLOR;
-  if (/^meeting-(small|large)-/.test(zone.id)) return 0xece9e0;
-  if (zone.id.startsWith("shared-restroom-")) return 0xe6eeee;
-  return null;
+  return campusRoomStyle(zone)?.floorColor ?? null;
 }
 
 /** Canvas uses the visible result of the 3D translucent zone floor. */

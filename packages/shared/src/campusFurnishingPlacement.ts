@@ -21,6 +21,7 @@ function starterProp(zone: RoomLayoutZone, placement: StarterPlacement, placed: 
     width: catalog.width, depth: catalog.depth, collision: catalog.collision,
   };
   assertFitsRoom(zone, prop);
+  if (placement.elevationM !== undefined && !placement.supported) prop.elevation = placement.elevationM;
   if (placement.supported) {
     const support = roomPropPlacementSupport(placed, prop.asset, prop.x, prop.z, prop.rotation);
     if (!support) throw new Error(MISSING_SUPPORT_LABEL);

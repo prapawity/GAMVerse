@@ -4,6 +4,7 @@ import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { loadCharacterAsset } from "../assets/characterAssets";
 import { loadGltfAsset } from "../assets/loaders";
 import { hasLargeSkinnedMeshScale } from "./petModelCompatibility";
+import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 
 type CharacterPreview3DProps = {
@@ -117,11 +118,12 @@ export function CharacterPreview3D({ characterId, modelUrl, endpoint, label, fal
       const scale = 1.55 / Math.max(size.y, 0.001);
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
-      proceduralRig = characterId.startsWith("character-pm-") || characterId.startsWith("character-kaykit-") ? createProceduralHumanoidRig(model) : null;
+      const clips = pickCharacterClips(asset.animations);
+      proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model) : null;
       if (proceduralRig) updateProceduralHumanoidRig(proceduralRig, 0, false, false, false);
       scene.add(model);
 
-      const idleClip = asset.animations.find((clip) => clip.name.toLowerCase() === "idle");
+      const idleClip = clips.idle;
       const firstClip = idleClip ?? asset.animations[0];
       // Procedural humanoid models need their rig pose to remain authoritative;
       // a bundled clip can otherwise restore the source T-pose each frame.

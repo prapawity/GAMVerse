@@ -1,3 +1,4 @@
+import { compassRotationDeg, minimapRotationRad, rotateAroundCenter } from "./minimapOrientation";
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { CAMPUS_WORLD, type RoomLayout } from "@gammyverse/shared";
 import { Map2dStaticLayer } from "../world/map2d/map2dStaticLayer";
@@ -83,7 +84,7 @@ export function Minimap({
       const yaw = cameraYawRef.current;
       ctx.save();
       ctx.translate(MINIMAP_WIDTH_PX / 2, MINIMAP_HEIGHT_PX / 2);
-      ctx.rotate(-yaw);
+      ctx.rotate(minimapRotationRad(yaw));
       ctx.translate(-MINIMAP_WIDTH_PX / 2, -MINIMAP_HEIGHT_PX / 2);
       ctx.globalAlpha = MINIMAP_MAP_OPACITY;
       layer.blit(ctx, mapProjection);
@@ -91,12 +92,7 @@ export function Minimap({
       for (const [sessionId, player] of playersRef.current) {
         if (sessionId === localSessionIdRef.current || player.presence === "away") continue;
         const point = worldToScreen(mapProjection, player);
-        const dx = point.x - MINIMAP_WIDTH_PX / 2;
-        const dy = point.y - MINIMAP_HEIGHT_PX / 2;
-        const cos = Math.cos(-yaw);
-        const sin = Math.sin(-yaw);
-        const rotatedX = MINIMAP_WIDTH_PX / 2 + dx * cos - dy * sin;
-        const rotatedY = MINIMAP_HEIGHT_PX / 2 + dx * sin + dy * cos;
+        const { x: rotatedX, y: rotatedY } = rotateAroundCenter(point, { x: MINIMAP_WIDTH_PX / 2, y: MINIMAP_HEIGHT_PX / 2 }, minimapRotationRad(yaw));
         const radius = Math.min(MINIMAP_WIDTH_PX, MINIMAP_HEIGHT_PX) / 2 - MINIMAP_EDGE_PADDING_PX;
         const fromCenterX = rotatedX - MINIMAP_WIDTH_PX / 2;
         const fromCenterY = rotatedY - MINIMAP_HEIGHT_PX / 2;
@@ -113,10 +109,7 @@ export function Minimap({
         ctx.fill();
       }
       if (compassRoseRef.current) {
-        // The map's screen-space projection has +Z pointing down, so its
-        // north-up correction is opposite to the camera yaw. Keep the rose
-        // aligned with that corrected map orientation.
-        compassRoseRef.current.style.transform = `rotate(${((Math.PI - yaw) * 180) / Math.PI}deg)`;
+        compassRoseRef.current.style.transform = `rotate(${compassRotationDeg(yaw)}deg)`;
       }
       return true;
     };

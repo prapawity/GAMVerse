@@ -1,7 +1,7 @@
 import { MathUtils, PerspectiveCamera, Vector3 } from "three";
 import type { CameraState } from "./cameraState";
 import { computeCameraPose, type CameraPose } from "./cameraPose";
-import { CAMERA_FAR_DISTANCE_RATIO, CAMERA_FAR_MIN_M, CAMERA_NEAR_DISTANCE_RATIO, CAMERA_NEAR_MAX_M, CAMPUS_FIT_MIN_ASPECT_RATIO, CAMPUS_FIT_PADDING_M, CAMPUS_FIT_TANGENT_RATIO, FPP_FOV_DEG, LOOK_TARGET_HEIGHT_M, SHOULDER_OFFSET_M, TPP_FOV_DEG } from "./constants";
+import { CAMERA_FAR_DISTANCE_RATIO, CAMERA_FAR_MIN_M, CAMERA_NEAR_CEILING_M, CAMERA_NEAR_DISTANCE_RATIO, CAMERA_NEAR_MAX_M, CAMPUS_FIT_MIN_ASPECT_RATIO, CAMPUS_FIT_PADDING_M, CAMPUS_FIT_TANGENT_RATIO, FPP_FOV_DEG, LOOK_TARGET_HEIGHT_M, SHOULDER_OFFSET_M, TPP_FOV_DEG } from "./constants";
 
 export function campusOverviewDistance(width: number, depth: number, aspect: number, _yaw: number, elevation: number, fovDegrees: number) {
   const verticalTangent = Math.tan(MathUtils.degToRad(fovDegrees / 2)) * CAMPUS_FIT_TANGENT_RATIO;
@@ -49,7 +49,7 @@ export function computeCameraFrame(input: CameraFrameInput): CameraFrame {
   });
   return {
     pose, focus, mode,
-    near: Math.max(Number.EPSILON, Math.min(CAMERA_NEAR_MAX_M, distance * CAMERA_NEAR_DISTANCE_RATIO)),
+    near: Math.min(CAMERA_NEAR_CEILING_M, Math.max(CAMERA_NEAR_MAX_M, distance * CAMERA_NEAR_DISTANCE_RATIO)),
     far: Math.max(CAMERA_FAR_MIN_M, distance * CAMERA_FAR_DISTANCE_RATIO),
   };
 }

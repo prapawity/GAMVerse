@@ -2,6 +2,8 @@ import type { RoomLayoutZone } from "./roomLayout.js";
 import { campusTeamMeetingPlacements } from "./campusTeamMeetingTemplate.js";
 import { campusPrivateRoomPlacements } from "./campusPrivateRoomTemplate.js";
 import { campusCivicMeetingPlacements, campusLobbyPlacements, campusTownhallPlacements } from "./campusCivicRoomTemplates.js";
+import { civicMeetingDecor, lobbyDecor, townhallDecor } from "./campusRoomDecor.js";
+import { campusCafeteriaPlacements, campusLoungePlacements } from "./campusSharedRoomTemplates.js";
 export { campusRestroomFixtures } from "./campusRestroomFixtures.js";
 
 export type StarterPlacement = { key: string; asset: string; xM: number; zM: number; rotationRad?: number; supported?: boolean; collision?: boolean; elevationM?: number };
@@ -13,7 +15,6 @@ const ROOM_EDGE_INSET_M = 3;
 const GROUP_X_OFFSETS_M = [-5, 5];
 const TABLE_SEAT_X_OFFSETS_M = [-0.8, 0.8];
 const TABLE_SEAT_Z_OFFSETS_M = [-1.8, 1.8];
-const TABLE_ROW_Z_OFFSETS_M = [-6, 6];
 const MEETING_TABLE_Z_M = -2;
 // A meeting room only fits a second table group once it is this wide.
 const MEETING_TWO_GROUP_MIN_WIDTH_M = 18;
@@ -48,17 +49,14 @@ function tableGroup(key: string, xM: number, zM: number): StarterPlacement[] {
   ];
 }
 
-function cafeteria(zone: RoomLayoutZone): StarterPlacement[] {
-  return [...TABLE_ROW_Z_OFFSETS_M.flatMap((zM, row) => GROUP_X_OFFSETS_M.flatMap((xM, column) => tableGroup(`dining-${row}-${column}`, xM, zM))), ...plants(zone)];
-}
-
 export function campusStarterPlacements(zone: RoomLayoutZone): readonly StarterPlacement[] {
   if (zone.kind === "private") return campusPrivateRoomPlacements(zone);
   // Restroom fixtures are added directly by the campus map generator.
   if (zone.kind === "restroom") return [];
-  if (zone.id === "shared-townhall") return campusTownhallPlacements(zone);
-  if (/^meeting-(small|large)-/.test(zone.id)) return campusCivicMeetingPlacements();
-  if (zone.id === "shared-cafeteria") return cafeteria(zone);
-  if (zone.id === "shared-lobby" || zone.id === "shared-lounge") return campusLobbyPlacements(zone);
+  if (zone.id === "shared-townhall") return [...campusTownhallPlacements(zone), ...townhallDecor(zone)];
+  if (/^meeting-(small|large)-/.test(zone.id)) return [...campusCivicMeetingPlacements(), ...civicMeetingDecor(zone)];
+  if (zone.id === "shared-cafeteria") return campusCafeteriaPlacements(zone);
+  if (zone.id === "shared-lounge") return campusLoungePlacements(zone);
+  if (zone.id === "shared-lobby") return [...campusLobbyPlacements(zone), ...lobbyDecor(zone)];
   return meetingRoom(zone);
 }

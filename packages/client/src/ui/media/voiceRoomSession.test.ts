@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ConnectionError, DisconnectReason, RoomEvent, type RoomEventCallbacks } from "livekit-client";
-import { VoiceRoomSession, VOICE_RETRY_BASE_MS, VOICE_RETRY_MAX_ATTEMPTS, VOICE_RETRY_MAX_DELAY_MS, type VoiceRoom, type VoiceRoomAdapter, type VoiceSessionState } from "./voiceRoomSession.ts";
+import { VoiceRoomSession, VOICE_MEDIA_HOLD_MS, VOICE_RETRY_BASE_MS, VOICE_RETRY_MAX_ATTEMPTS, VOICE_RETRY_MAX_DELAY_MS, type VoiceRoom, type VoiceRoomAdapter, type VoiceSessionState } from "./voiceRoomSession.ts";
 import { VoiceTokenError } from "./voiceToken.ts";
 import * as officeMedia from "./officeMediaSession.ts";
 import type { VoiceTarget } from "./voiceTarget.ts";
@@ -286,12 +286,107 @@ test("a replacement controller waits for disposal teardown and keeps microphone 
   teardown.resolve(); await flush(); assert.equal(rooms.length, 1); rooms[0]!.ready(); await flush(); assert.equal(rooms[0]!.microphone.at(-1), true);
 });
 
-test("camera/share stop notification survives SDK clearing publications before disconnect", async () => {
-  const f = fixture(); await join(f);
-  await f.session.control(async room => { room.localParticipant.isCameraEnabled = true; });
-  f.rooms[0]!.localParticipant.isCameraEnabled = false;
-  f.rooms[0]!.emitDisconnected(); await flush(); assert.deepEqual(f.notices, ["stopped"]);
-  f.timers.shift()!.callback(); await flush(); f.rooms[1]!.ready(); await flush(); assert.equal(f.rooms[1]!.localParticipant.isCameraEnabled, false);
+function liveVideoTrack(onStop: () => void = () => {}) {
+  return { kind: "video", mediaStreamTrack: { readyState: "live" }, stop: onStop };
+}
+async function joinWithScreenShare(f: ReturnType<typeof fixture>, stopped: { value: boolean }) {
+  await join(f);
+  const track = liveVideoTrack(() => { stopped.value = true; });
+  const publication = { track, source: "screen_share", isMuted: false };
+  f.rooms[0]!.localParticipant.videoTrackPublications.set("screen", publication);
+  return { track, publication };
+}
+for (const kind of ["meeting", "private"] as const) {
+  test(`${kind}: an unexpected disconnect keeps camera/screen and republishes them on recovery`, async () => {
+    const f = fixture(); const stopped = { value: false };
+    f.session.setTarget({ ...target, kind }); await flush(); f.rooms[0]!.ready(); await flush();
+    const track = liveVideoTrack(() => { stopped.value = true; });
+    const publication = { track, source: "screen_share", isMuted: false };
+    f.rooms[0]!.localParticipant.videoTrackPublications.set("screen", publication);
+    f.rooms[0]!.localParticipant.videoTrackPublications.delete("screen");
+    f.rooms[0]!.emitLocalTrackUnpublished(publication);
+    f.rooms[0]!.emitDisconnected(); await flush();
+    assert.deepEqual(f.notices, []); assert.equal(stopped.value, false);
+    f.timers.shift()!.callback(); await flush(); f.rooms[1]!.ready(); await flush();
+    assert.deepEqual(f.rooms[1]!.publishedTracks, [track]);
+    assert.equal(f.states.at(-1)?.connected, true);
+  });
+}
+test("suspend then resume of the same target keeps and republishes camera/screen", async () => {
+  const f = fixture(); const stopped = { value: false }; const { track } = await joinWithScreenShare(f, stopped);
+  f.session.suspend("browser"); await flush();
+  assert.deepEqual(f.notices, []); assert.equal(stopped.value, false);
+  f.session.resume(target, "browser"); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.deepEqual(f.rooms[1]!.publishedTracks, [track]);
+});
+test("resume into a different target stops held camera/screen with a target-changed reason", async () => {
+  const reasons: Array<string | undefined> = []; const stopped = { value: false };
+  const f = fixture((dependencies, listener) => new VoiceRoomSession(dependencies, { ...listener, mediaStopped: reason => reasons.push(reason) }));
+  await joinWithScreenShare(f, stopped);
+  f.session.suspend("browser"); await flush();
+  f.session.resume({ ...target, id: "B" }, "browser"); await flush();
+  assert.equal(stopped.value, true); assert.deepEqual(reasons, ["target-changed"]);
+});
+function reasonFixture() {
+  const reasons: Array<string | undefined> = []; const stopped = { value: false };
+  const f = fixture((dependencies, listener) => new VoiceRoomSession(dependencies, { ...listener, mediaStopped: reason => reasons.push(reason) }));
+  return { f, reasons, stopped };
+}
+test("a transient null target keeps camera/screen for the same zone even when the conversation generation changes", async () => {
+  const { f, reasons, stopped } = reasonFixture(); const { track } = await joinWithScreenShare(f, stopped);
+  f.session.setTarget(null); await flush();
+  assert.deepEqual(reasons, []); assert.equal(stopped.value, false); assert.equal(f.timers.at(-1)?.delay, VOICE_MEDIA_HOLD_MS);
+  f.session.setTarget({ ...target, conversationId: "next", conversationGeneration: 2 }); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.deepEqual(f.rooms[1]!.publishedTracks, [track]); assert.deepEqual(reasons, []); assert.equal(f.timers.length, 0);
+});
+test("realtime resume with no target holds camera/screen until the same zone returns", async () => {
+  const { f, reasons, stopped } = reasonFixture(); const { track } = await joinWithScreenShare(f, stopped);
+  f.session.suspend("realtime"); await flush(); f.session.resume(null, "realtime"); await flush();
+  assert.deepEqual(reasons, []); assert.equal(stopped.value, false);
+  f.session.setTarget(target); await flush(); f.rooms[1]!.ready(); await flush();
+  assert.deepEqual(f.rooms[1]!.publishedTracks, [track]);
+});
+test("camera/screen held on a null target is stopped when the hold lapses", async () => {
+  const { f, reasons, stopped } = reasonFixture(); await joinWithScreenShare(f, stopped);
+  f.session.setTarget(null); await flush(); f.timers.at(-1)!.callback(); await flush();
+  assert.equal(stopped.value, true); assert.deepEqual(reasons, ["left"]);
+});
+test("a held camera/screen is stopped when the target returns as a different zone", async () => {
+  const { f, reasons, stopped } = reasonFixture(); await joinWithScreenShare(f, stopped);
+  f.session.setTarget(null); await flush(); f.session.setTarget({ ...target, id: "B" }); await flush();
+  assert.equal(stopped.value, true); assert.deepEqual(reasons, ["target-changed"]);
+});
+test("suppressing media (availability or listen-only) stops camera/screen immediately", async () => {
+  const { f, reasons, stopped } = reasonFixture(); await joinWithScreenShare(f, stopped); f.rooms[0]!.localParticipant.isCameraEnabled = true;
+  f.session.suppressMedia(); await flush();
+  assert.deepEqual(reasons, ["left"]); assert.equal(f.timers.length, 0);
+});
+test("moving to a different meeting stops camera/screen and says why", async () => {
+  const reasons: Array<string | undefined> = []; const stopped = { value: false };
+  const f = fixture((dependencies, listener) => new VoiceRoomSession(dependencies, { ...listener, mediaStopped: reason => reasons.push(reason) }));
+  await joinWithScreenShare(f, stopped); f.rooms[0]!.localParticipant.isScreenShareEnabled = true;
+  f.session.setTarget({ ...target, id: "B" }); await flush();
+  assert.deepEqual(reasons, ["target-changed"]);
+  assert.deepEqual(f.rooms[0]!.disconnectStopTracks, [true]);
+});
+test("held camera/screen is stopped and announced when recovery gives up", async () => {
+  const reasons: Array<string | undefined> = []; const stopped = { value: false };
+  const f = fixture((dependencies, listener) => new VoiceRoomSession(dependencies, { ...listener, mediaStopped: reason => reasons.push(reason) }));
+  const { publication } = await joinWithScreenShare(f, stopped);
+  f.rooms[0]!.localParticipant.videoTrackPublications.delete("screen");
+  f.rooms[0]!.emitLocalTrackUnpublished(publication);
+  f.setTokenError(new VoiceTokenError("forbidden", HTTP_FORBIDDEN_STATUS));
+  f.rooms[0]!.emitDisconnected(); await flush(); f.timers.shift()!.callback(); await flush();
+  assert.equal(stopped.value, true); assert.deepEqual(reasons, ["connection-lost"]);
+});
+test("a camera the user switched off is not announced as stopped", async () => {
+  const reasons: Array<string | undefined> = []; const stopped = { value: false };
+  const f = fixture((dependencies, listener) => new VoiceRoomSession(dependencies, { ...listener, mediaStopped: reason => reasons.push(reason) }));
+  const { track, publication } = await joinWithScreenShare(f, stopped);
+  f.rooms[0]!.emitLocalTrackUnpublished(publication);
+  (track.mediaStreamTrack as { readyState: string }).readyState = "ended";
+  f.session.setTarget({ ...target, id: "B" }); await flush();
+  assert.deepEqual(reasons, []);
 });
 test("duplicate browser resume/pageshow events coalesce into one recovery", async () => {
   const f = fixture(); await join(f); f.session.suspend("browser"); f.session.resume(target, "browser"); await flush();

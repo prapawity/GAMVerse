@@ -17,6 +17,9 @@ export type VoiceRosterPerson = {
 };
 export type VoiceRosterActivity = { microphone: boolean; camera: boolean; screenShare: boolean };
 
+// With more people than this, tiles shrink into a wrapping grid so everyone fits without sideways scrolling.
+const ROSTER_COMPACT_MIN_PEOPLE = 2;
+
 const STATUS_LABELS: Record<VoiceRosterStatus, string> = {
   available: "Available",
   away: "Away",
@@ -47,10 +50,6 @@ function MoreGlyph() {
   return <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg>;
 }
 
-function ScrollGlyph({ direction }: { direction: "left" | "right" }) {
-  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={direction === "left" ? "m12 4-6 6 6 6" : "m8 4 6 6-6 6"}/></svg>;
-}
-
 export function VoiceParticipantRoster({
   people,
   speakingUsernames,
@@ -78,8 +77,6 @@ export function VoiceParticipantRoster({
 }) {
   const [settingsPersonId, setSettingsPersonId] = useState<string | null>(null);
   const [settingsPosition, setSettingsPosition] = useState<{ top: number; left: number } | null>(null);
-  const [listScroll, setListScroll] = useState({ left: false, right: false });
-  const peopleListRef = useRef<HTMLUListElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!settingsPersonId) return;
@@ -99,39 +96,9 @@ export function VoiceParticipantRoster({
   }, [settingsPersonId]);
 
   const visiblePeople = people.filter((person) => !person.local);
-  useEffect(() => {
-    const list = peopleListRef.current;
-    if (!list) return;
-    const updateScrollState = () => {
-      setListScroll({ left: list.scrollLeft > 1, right: list.scrollLeft + list.clientWidth < list.scrollWidth - 1 });
-    };
-    const resizeObserver = new ResizeObserver(updateScrollState);
-    resizeObserver.observe(list);
-    Array.from(list.children).forEach((child) => resizeObserver.observe(child));
-    const mutationObserver = new MutationObserver(() => {
-      Array.from(list.children).forEach((child) => resizeObserver.observe(child));
-      updateScrollState();
-    });
-    mutationObserver.observe(list, { childList: true, subtree: true, attributes: true });
-    list.addEventListener("scroll", updateScrollState, { passive: true });
-    window.addEventListener("resize", updateScrollState);
-    updateScrollState();
-    return () => {
-      list.removeEventListener("scroll", updateScrollState);
-      window.removeEventListener("resize", updateScrollState);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-    };
-  }, [visiblePeople.length]);
   if (!visiblePeople.length) return null;
 
-  const scrollPeople = (direction: "left" | "right") => {
-    const list = peopleListRef.current;
-    if (!list) return;
-    list.scrollBy({ left: direction === "left" ? -Math.max(list.clientWidth * 0.8, 140) : Math.max(list.clientWidth * 0.8, 140), behavior: "smooth" });
-  };
-
-  return <section className="voice-participant-roster" aria-label="People you can talk to" aria-live="polite">
+  return <section className={`voice-participant-roster${visiblePeople.length > ROSTER_COMPACT_MIN_PEOPLE ? " is-compact" : ""}`} aria-label="People you can talk to" aria-live="polite">
     <div className="voice-participant-roster-header">
       <span className="voice-participant-roster-heading">VOICE · {visiblePeople.length} {visiblePeople.length === 1 ? "PERSON" : "PEOPLE"}</span>
       {canMuteAll && <span className="voice-participant-mute-all" role="group" aria-label="Mute all participants in this voice zone">
@@ -141,7 +108,7 @@ export function VoiceParticipantRoster({
       </span>}
     </div>
     <div className="voice-participant-list-wrap">
-    <ul ref={peopleListRef}>
+    <ul>
       {visiblePeople.map((person) => {
         const activityKnown = activities.has(person.username.toLocaleLowerCase());
         const activity = activities.get(person.username.toLocaleLowerCase()) ?? { microphone: false, camera: false, screenShare: false };
@@ -183,8 +150,6 @@ export function VoiceParticipantRoster({
         </li>;
       })}
     </ul>
-    {listScroll.left && <button type="button" className="voice-participant-scroll is-left" aria-label="Scroll to previous people" title="Previous people" onClick={() => scrollPeople("left")}><ScrollGlyph direction="left" /></button>}
-    {listScroll.right && <button type="button" className="voice-participant-scroll is-right" aria-label="Scroll to more people" title="More people" onClick={() => scrollPeople("right")}><ScrollGlyph direction="right" /></button>}
     </div>
   </section>;
 }

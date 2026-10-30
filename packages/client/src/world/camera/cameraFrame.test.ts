@@ -38,3 +38,10 @@ test("orbiting, zooming and walking retain one 3D camera distance", () => {
   assert.equal(walking.distanceM, freeZoomed.distanceM);
   assert.equal(frameNear(walking), frameNear(freeZoomed));
 });
+
+test("a distant orbit camera keeps the far:near ratio small enough to avoid z-fighting", () => {
+  const far = cameraReducer(cameraReducer(createCameraState(true), { type: "avatar-ready" }), { type: "distance", distanceM: 400, maxDistanceM: 500 });
+  const frame = computeCameraFrame({ state: far, localPosition: new Vector3(100, 0, 125), panTarget: new Vector3(100, 0, 125), width: 200, depth: 250, aspect: 1, yaw: 0, pitch: 0, campusFitDistanceM: FIT_DISTANCE_M });
+  assert.ok(frame.near >= 1, `near ${frame.near}`);
+  assert.ok(frame.far / frame.near <= 10_000, `ratio ${frame.far / frame.near}`);
+});

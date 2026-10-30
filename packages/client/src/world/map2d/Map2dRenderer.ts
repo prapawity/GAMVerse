@@ -24,6 +24,8 @@ import {
   type Map2dProjection,
   type ScreenPoint,
 } from "./map2dProjection";
+import type { DomeEntry } from "../proximityGroupShape";
+import { drawMap2dProximityDomes } from "./map2dProximityDome";
 export interface Map2dListener {
   pan(center: Map2dPoint): void;
   zoom(pxPerM: number): void;
@@ -48,6 +50,7 @@ export type Map2dFrame = {
   nowMs: number;
   deltaS: number;
   destination?: Map2dPoint | null;
+  proximityDomes?: readonly DomeEntry[];
   following?: boolean;
 };
 export function readMap2dPreference(): boolean {
@@ -250,6 +253,7 @@ export class Map2dRenderer {
       state.presentation,
     );
     this.staticLayer.blit(ctx, p);
+    if (state.proximityDomes?.length) drawMap2dProximityDomes(ctx, p, state.proximityDomes);
     if (state.destination) drawMap2dDestination(ctx, p, state.destination);
     drawMap2dInteraction(
       ctx,

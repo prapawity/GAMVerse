@@ -22,7 +22,8 @@ function fixture(kind: "private" | "meeting" = "private") {
   const zone: RoomLayoutZone = {id: ZONE_ID, kind, name: "Private desk", ownerUsername: kind === "private" ? "alice" : undefined, x: 0, z: 0, width: 6, depth: 6, color: "#ffffff"};
   const frame: PrivateAccessFrame = {zones: [zone], people, zoneBySession: new Map([["alice", ZONE_ID], ["bob", ZONE_ID]])};
   const epochs = new PrivateMediaEpochs({nowMs: () => nowMs, epoch: () => (++sequence).toString(16).padStart(24, "0"), removeRoom: async name => {removed.push(name);await removeRoom(name);}});
-  const privacy = new PrivateConversations(OFFICE_ID, "incarnation", {epochs, nowMs: () => nowMs, id: () => `id-${++sequence}`, queries: {authorize: person => authorize(person), owner: () => ownerRead()}});
+  const departures: Array<{sessionIds: string[]; roomName: string}> = [];
+  const privacy = new PrivateConversations(OFFICE_ID, "incarnation", {epochs, onDeparture: (sessionIds, roomName) => {departures.push({sessionIds: [...sessionIds], roomName});}, nowMs: () => nowMs, id: () => `id-${++sequence}`, queries: {authorize: person => authorize(person), owner: () => ownerRead()}});
   privacy.reconcile(frame);
   const settle = () => new Promise<void>(resolve => setImmediate(resolve));
   async function command(sessionId: string, action: string, extra: Record<string, unknown> = {}) {
@@ -39,7 +40,7 @@ function fixture(kind: "private" | "meeting" = "private") {
     await settle();
     return request.id;
   }
-  return {privacy, people, frame, removed, command, admit, settle, advance: (elapsedMs: number) => {nowMs += elapsedMs;}, now: () => nowMs, setOwner: (value: string | null) => {owner = value;}, setOwnerRead: (read: typeof ownerRead) => {ownerRead=read;}, setAuthorize: (value: typeof authorize) => {authorize = value;}, setRemoval: (value: typeof removeRoom) => {removeRoom = value;}};
+  return {privacy, people, frame, removed, departures, command, admit, settle, advance: (elapsedMs: number) => {nowMs += elapsedMs;}, now: () => nowMs, setOwner: (value: string | null) => {owner = value;}, setOwnerRead: (read: typeof ownerRead) => {ownerRead=read;}, setAuthorize: (value: typeof authorize) => {authorize = value;}, setRemoval: (value: typeof removeRoom) => {removeRoom = value;}};
 }
 test("desk owner locks; baseline occupants retain entry; outsiders and office administrators have no override", async () => {
   const f = fixture();
@@ -144,26 +145,44 @@ test("drop during authorization rejects late moderation", async () => {
   assert.equal((await pending).ok, false);
   assert.equal(f.privacy.lockedIds().has(ZONE_ID), false);
 });
-test("rotation is immediately unavailable, changes generation without logical membership changes, and fails closed", async () => {
+test("a structural change rotates the room: it is immediately unavailable, changes generation without logical membership changes, and fails closed", async () => {
   const f = fixture();const previous = f.privacy.descriptor(ZONE_ID);
   let release!: () => void;f.setRemoval(() => new Promise(resolve => {release = resolve;}));
-  assert.equal((await f.command("alice", "lock")).ok, true);
+  const resize = (width: number) => f.privacy.mapChanged({...f.frame, zones: f.frame.zones.map(zone => ({...zone, width}))});
+  resize(7);
   const rotating = f.privacy.descriptor(ZONE_ID);
   assert.equal(rotating.available, false);assert.ok(rotating.generation > previous.generation);
   release();await f.settle();assert.equal(f.privacy.descriptor(ZONE_ID).available, true);
   f.setRemoval(async () => {throw new Error("fixture service unavailable");});
-  await f.command("alice", "unlock");await f.settle();
+  resize(8);await f.settle();
   assert.equal(f.privacy.descriptor(ZONE_ID).state, "unavailable");
   assert.equal(f.privacy.descriptor(ZONE_ID).available, false);
 });
 
-test("unlocked departures rotate transport so former occupants cannot remain in the current room", async () => {
+test("an unlocked meeting keeps its room when someone leaves and removes only the leaver", async () => {
   const f=fixture("meeting");const original=f.privacy.descriptor(ZONE_ID);
   (f.frame.zoneBySession as Map<string,string>).delete("bob");f.privacy.reconcile(f.frame);
-  assert.equal(f.privacy.descriptor(ZONE_ID).available,false);
   await f.settle();
-  assert.notEqual(f.privacy.descriptor(ZONE_ID).roomName,original.roomName);
-  assert.equal(f.privacy.mayHear("bob",ZONE_ID),false);
+  assert.equal(f.privacy.descriptor(ZONE_ID).roomName,original.roomName);
+  assert.equal(f.privacy.descriptor(ZONE_ID).available,true);
+  assert.deepEqual(f.departures,[{sessionIds:["bob"],roomName:original.roomName}]);
+});
+test("a private zone keeps its room when someone leaves and removes only the leaver", async () => {
+  const f=fixture();const original=f.privacy.descriptor(ZONE_ID);
+  (f.frame.zoneBySession as Map<string,string>).delete("bob");f.privacy.reconcile(f.frame);
+  await f.settle();
+  assert.equal(f.privacy.descriptor(ZONE_ID).roomName,original.roomName);
+  assert.equal(f.privacy.descriptor(ZONE_ID).available,true);
+  assert.deepEqual(f.departures,[{sessionIds:["bob"],roomName:original.roomName}]);
+});
+test("someone joining a zone does not rotate its media room", async () => {
+  for (const kind of ["meeting","private"] as const) {
+    const f=fixture(kind);const original=f.privacy.descriptor(ZONE_ID);
+    (f.frame.zoneBySession as Map<string,string>).set("carol",ZONE_ID);f.privacy.reconcile(f.frame);
+    await f.settle();
+    assert.equal(f.privacy.descriptor(ZONE_ID).roomName,original.roomName,kind);
+    assert.equal(f.departures.length,0,kind);
+  }
 });
 test("access read floods run one authorization and reject stale ownership completions after departure", async () => {
   const f=fixture();let calls=0;const releases:Array<()=>void>=[];
@@ -243,4 +262,21 @@ test("private access read awaiting authorization cannot reveal a fenced room sna
   const events = await pending;
   assert.equal(events.some(event => event.event === "private-zone-access"), false);
   assert.equal((events.find(event => event.event === PRIVATE_ZONE_RESULT_EVENT)?.payload as PrivateZoneResult).ok, false);
+});
+
+test("an expired guest is removed from the room without rotating it", async () => {
+  const f = fixture();const original = f.privacy.descriptor(ZONE_ID).roomName;
+  await f.admit();
+  (f.frame.zoneBySession as Map<string, string>).set("carol", ZONE_ID);f.privacy.reconcile(f.frame);
+  assert.equal(f.departures.length, 0);
+  f.advance(PRIVATE_ADMISSION_TTL_MS);f.privacy.reconcile(f.frame);await f.settle();
+  assert.equal(f.privacy.descriptor(ZONE_ID).roomName, original);
+  assert.deepEqual(f.departures, [{sessionIds: ["carol"], roomName: original}]);
+});
+test("locking, admitting and unlocking keep the media room", async () => {
+  const f = fixture();const original = f.privacy.descriptor(ZONE_ID).roomName;
+  await f.admit();
+  assert.equal((await f.command("alice", "unlock")).ok, true);await f.settle();
+  assert.equal(f.privacy.descriptor(ZONE_ID).roomName, original);
+  assert.equal(f.privacy.descriptor(ZONE_ID).available, true);
 });

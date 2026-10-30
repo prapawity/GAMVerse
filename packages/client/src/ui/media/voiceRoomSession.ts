@@ -31,6 +31,7 @@ export interface VoiceRoom {
   connect(url: string, token: string, options?: RoomConnectOptions): Promise<void>;
   disconnect(stopTracks?: boolean): Promise<void>;
   localParticipant: Pick<LocalParticipant, "setMicrophoneEnabled" | "setCameraEnabled" | "setScreenShareEnabled"> & Partial<Pick<LocalParticipant, "isCameraEnabled" | "isScreenShareEnabled" | "audioTrackPublications" | "videoTrackPublications" | "publishTrack" | "unpublishTrack">>;
+  remoteParticipants?: ReadonlyMap<string, RemoteParticipant>;
   on<E extends keyof RoomEventCallbacks>(event: E, listener: RoomEventCallbacks[E]): this;
   off<E extends keyof RoomEventCallbacks>(event: E, listener: RoomEventCallbacks[E]): this;
 }
@@ -109,10 +110,11 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
 
   /** Diagnostic trail for unexplained media drops; read it in the browser console. */
   private log(event: string, detail: Record<string, unknown> = {}): void {
-    console.info(`[voice] ${event}`, {
+    // Stringified so the detail stays readable when the console collapses objects.
+    console.info(`[voice] ${event}`, JSON.stringify({
       at: new Date().toISOString(), target: this.target ? `${this.target.kind}:${this.target.id}` : null,
-      generation: this.generation, cameraOrScreenLive: this.localVideoActive, ...detail,
-    });
+      key: voiceTargetKey(this.target), generation: this.generation, cameraOrScreenLive: this.localVideoActive, ...detail,
+    }));
   }
 
   isProximityTarget(): boolean { return this.target?.kind === "proximity"; }
@@ -304,6 +306,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.listener.roomChanged?.(room, target);
       await room.connect(token.url, token.token, { autoSubscribe: false });
       if (!this.current(generation, room)) return;
+      this.subscribeRemoteAudio(room);
       if (this.retainedTracks.length) await this.restoreRetainedTracks(room, generation);
       else await this.resetMedia(room, generation);
       if (!this.current(generation, room)) return;
@@ -321,6 +324,12 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.log("join failed", { message: error.message, retries: this.retries });
       this.fail(error);
     }
+  }
+  /** With `autoSubscribe: false`, tracks published before this client joined raise no TrackPublished, so subscribe to them explicitly. */
+  private subscribeRemoteAudio(room: R): void {
+    for (const participant of room.remoteParticipants?.values() ?? [])
+      for (const publication of participant.audioTrackPublications.values())
+        if (!publication.isDesired) publication.setSubscribed(true);
   }
   private async restoreRetainedTracks(room: R, generation: number): Promise<void> {
     const tracks = this.retainedTracks.filter(({ track }) => track.mediaStreamTrack.readyState === "live");
@@ -399,6 +408,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     bind(events.Reconnected, () => {
       if (!this.current(generation, room)) return;
       this.publish({ connected: true, busy: false });
+      this.subscribeRemoteAudio(room);
       this.listener.participantsChanged?.(room);
       void this.drainControls();
     });
@@ -442,7 +452,11 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.listener.participantsChanged?.(room);
     });
     for (const event of [events.ParticipantConnected, events.ParticipantDisconnected, events.TrackUnpublished]) {
-      bind(event, () => { if (this.current(generation, room)) this.listener.participantsChanged?.(room); });
+      bind(event, () => {
+        if (!this.current(generation, room)) return;
+        this.subscribeRemoteAudio(room);
+        this.listener.participantsChanged?.(room);
+      });
     }
     for (const event of [events.TrackMuted, events.TrackUnmuted]) {
       bind(event, () => {

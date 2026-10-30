@@ -37,7 +37,7 @@ import { isValidAutoMoveInput, isValidTargetPlayerInput, shouldClearHandRaise, I
 import { getAccountNickname, getSession, markUserActive } from "../auth/service.js";
 import { isCustomCharacterId, userOwnsCharacterModel } from "../auth/characterModels.js";
 import { getOfficeRole, markOfficeActive } from "./repository.js";
-import { liveKitIdentity, proximityRoomName, revokeProximityParticipants } from "../media/service.js";
+import { liveKitIdentity, proximityRoomName, removeZoneParticipants, revokeProximityParticipants } from "../media/service.js";
 import { recordOfficeActivity } from "./activity.js";
 import { ghostCollisionWorld, movementBlockedByProps } from "./ghostCollision.js";
 import { database } from "../infra/db.js";
@@ -216,6 +216,10 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       onChange: () => {
         this.invalidateChangedRouteAccess();
         if (!this.reconcilingPrivateAccess) { this.updateMeetingMembership(); this.updateProximity(); }
+      },
+      onDeparture: (sessionIds, roomName) => {
+        const identities = [...sessionIds].map(sessionId => this.mediaIdentityBySessionId.get(sessionId)).filter((identity): identity is string => Boolean(identity));
+        if (identities.length) void removeZoneParticipants(roomName, identities).catch(() => console.warn("Could not remove departed zone participants."));
       },
     });
     registerPrivateConversationMessages(this,this.privacy);

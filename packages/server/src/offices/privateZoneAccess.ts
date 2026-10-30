@@ -41,11 +41,14 @@ function sameMembers(first: ReadonlySet<string>, second: ReadonlySet<string>) { 
 export class PrivateZoneAccess {
   private readonly zones = new Map<string, ZoneState>();
   private readonly knocks = new Map<string, StoredKnock>();
+  private readonly departures = new Map<string, Set<string>>();
   private frame: PrivateAccessFrame = { zones: [], people: new Map(), zoneBySession: new Map() };
   constructor(readonly officeId: string, readonly roomIncarnationId: string) { }
   person(id: string) { return this.frame.people.get(id); }
   zone(id: string) { return this.zones.get(id)?.zone; }
   zoneForSession(id: string) { return this.frame.zoneBySession.get(id); }
+  /** Sessions currently inside `zoneId` and allowed to hear it. */
+  hearers(zoneId: string, nowMs: number): Set<string> { return new Set([...this.frame.zoneBySession].filter(([sessionId, id]) => id === zoneId && this.mayHear(sessionId, zoneId, nowMs)).map(([sessionId]) => sessionId)); }
   audienceSessions(nowMs:number){return new Set([...this.frame.zoneBySession].filter(([sessionId,zoneId])=>this.mayHear(sessionId,zoneId,nowMs)).map(([sessionId])=>sessionId));}
   zoneIds() { return [...this.zones.keys()]; }
   nextDeadlineAtMs(): number | null {
@@ -116,9 +119,12 @@ export class PrivateZoneAccess {
     const members = this.admittedPhysical(zone, nowMs);
     let changed = false;
     if (!sameMembers(zone.lastMembers, members)) {
+      // Neither a joiner nor a leaver rotates the media room, so a conversation is never cut. A leaver is
+      // removed from the room instead; LiveKit cannot revoke the token, so it stays usable until it expires.
+      const departed = [...zone.lastMembers].filter(id => !members.has(id));
+      if (departed.length) this.departures.set(incoming.id, new Set([...(this.departures.get(incoming.id) ?? []), ...departed]));
       zone.lastMembers = members;
       zone.revision += 1;
-      changed = true;
     }
     if (zone.retainEmptyUntilMs !== null && nowMs >= zone.retainEmptyUntilMs) zone.retainEmptyUntilMs = null;
     if (zone.locked && this.physical(incoming.id).length === 0 && zone.retainEmptyUntilMs === null) {
@@ -130,6 +136,12 @@ export class PrivateZoneAccess {
       zone.revision += 1;
     }
     return changed;
+  }
+  /** Sessions that left a zone since the last call; they are removed from its media room, which is not rotated. */
+  takeDepartures(): Map<string, Set<string>> {
+    const taken = new Map(this.departures);
+    this.departures.clear();
+    return taken;
   }
   updateZone(zone: RoomLayoutZone): boolean {
     const current = this.zones.get(zone.id);

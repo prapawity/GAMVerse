@@ -18,6 +18,8 @@ type Options = {
   id?: () => string;
   onDeadline?: () => void;
   onChange?: () => void;
+  /** Sessions that left a zone whose media room was kept; the owner removes them from `roomName`. */
+  onDeparture?: (sessionIds: ReadonlySet<string>, roomName: string) => void;
 };
 const PRIVATE_ACCESS_PENDING_MAX_COUNT = 256;
 const ACCESS_DENIED_LABEL = "Room access is unavailable. Refresh and try again.";
@@ -46,6 +48,7 @@ export class PrivateConversations {
   private readonly deadlines: PrivateDeadlines;
   private frame?: PrivateAccessFrame;
   private readonly onChange?: () => void;
+  private readonly onDeparture?: Options["onDeparture"];
   constructor(readonly officeId: string, readonly roomIncarnationId: string, options: Options = {}) {
     this.access = new PrivateZoneAccess(officeId, roomIncarnationId);
     this.epochs = options.epochs ?? new PrivateMediaEpochs();
@@ -53,6 +56,7 @@ export class PrivateConversations {
     this.nowMs = options.nowMs ?? Date.now;
     this.id = options.id ?? randomUUID;
     this.onChange = options.onChange;
+    this.onDeparture = options.onDeparture;
     this.deadlines = new PrivateDeadlines(this.nowMs, () => {
       if (this.disposed || !this.frame) return;
       this.reconcile(this.frame);
@@ -65,16 +69,19 @@ export class PrivateConversations {
       return;
     this.frame = frame;
     const previousKeys = new Map(this.access.zoneIds().map(id => [id, this.key(id)]));
+    const before = this.hearersByZone();
     const changed = this.access.reconcile(frame, this.nowMs());
     for (const id of changed) {
       if (this.access.zone(id))
-        this.rotate(id);
+        this.evictLost(id, before.get(id));
       else {
         const key = previousKeys.get(id);
         if (key && this.usedEpochs.has(JSON.stringify(key)))
           void this.epochs.invalidate(key).settled;
       }
     }
+    for (const [zoneId, sessionIds] of this.access.takeDepartures())
+      if (this.access.zone(zoneId)) this.onDeparture?.(sessionIds, this.descriptor(zoneId).roomName);
     this.publishChanges();
   }
   mapChanged(frame: PrivateAccessFrame) {
@@ -125,6 +132,15 @@ export class PrivateConversations {
     if (!zone || zone.kind === "restroom")
       throw new PrivateAccessDeniedError(ACCESS_DENIED_LABEL);
     return { officeId: this.officeId, roomIncarnationId: this.roomIncarnationId, zoneId, kind: zone.kind };
+  }
+  private hearersByZone() { return new Map(this.access.zoneIds().map(id => [id, this.access.hearers(id, this.nowMs())])); }
+  /** An access change never rotates the media room, so a conversation is not cut: whoever lost access is removed instead. */
+  private evictLost(zoneId: string, before: ReadonlySet<string> | undefined) {
+    if (!this.access.zone(zoneId)) return;
+    const hearers = this.access.hearers(zoneId, this.nowMs());
+    const lost = new Set([...before ?? []].filter(sessionId => !hearers.has(sessionId)));
+    this.access.touch(zoneId);
+    if (lost.size) this.onDeparture?.(lost, this.descriptor(zoneId).roomName);
   }
   private rotate(zoneId: string) {
     if (!this.access.zone(zoneId))
@@ -271,6 +287,7 @@ export class PrivateConversations {
     await this.authorized(request.sessionId);
   }
   private apply(sessionId: string, command: PrivateZoneCommand) {
+    const before = this.access.hearers(command.zoneId, this.nowMs());
     const securityChanged = this.access.apply(sessionId, command, this.nowMs(), this.id());
     if (command.action === "retry-media") {
       const failedAt=this.mediaFailureAt.get(command.zoneId);
@@ -280,15 +297,16 @@ export class PrivateConversations {
       return;
     }
     if (securityChanged)
-      this.rotate(command.zoneId);
+      this.evictLost(command.zoneId, before);
   }
   removeSession(sessionId: string, retainAdmission: boolean) {
     const read=this.reads.get(sessionId);if(read)read.valid=false;
     const action=this.pending.get(sessionId);if(action)action.valid=false;
     this.lastReadAt.delete(sessionId);
+    const before = this.hearersByZone();
     const changed = this.access.removeSession(sessionId, retainAdmission);
     for (const zoneId of changed)
-      this.rotate(zoneId);
+      this.evictLost(zoneId, before.get(zoneId));
     this.watches.delete(sessionId);
     this.events.delete(sessionId);
     this.lastActionAt.delete(sessionId);

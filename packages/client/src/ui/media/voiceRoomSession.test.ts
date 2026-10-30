@@ -26,6 +26,7 @@ class FakeRoom implements VoiceRoom {
   teardown: Promise<void> = Promise.resolve();
   microphone: boolean[] = [];
   publishedTracks: unknown[] = [];
+  remoteParticipants = new Map<string, any>();
   localParticipant: any = {
     audioTrackPublications: new Map(),
     videoTrackPublications: new Map(),
@@ -47,6 +48,7 @@ class FakeRoom implements VoiceRoom {
   disconnectedHandler() { return this.handlers.get(RoomEvent.Disconnected) as RoomEventCallbacks[RoomEvent.Disconnected]; }
   emitDisconnected(reason = DisconnectReason.UNKNOWN_REASON) { (this.handlers.get(RoomEvent.Disconnected) as RoomEventCallbacks[RoomEvent.Disconnected])?.(reason); }
   emitLocalTrackUnpublished(publication: any) { (this.handlers.get(RoomEvent.LocalTrackUnpublished) as RoomEventCallbacks[RoomEvent.LocalTrackUnpublished])?.(publication, this.localParticipant); }
+  emitParticipantConnected() { (this.handlers.get(RoomEvent.ParticipantConnected) as RoomEventCallbacks[RoomEvent.ParticipantConnected])?.({} as never); }
   emitReconnecting() { (this.handlers.get(RoomEvent.Reconnecting) as RoomEventCallbacks[RoomEvent.Reconnecting])?.(); }
   connect = async () => this.connection.promise;
   disconnect = async (stopTracks = true) => { this.disconnectCount++; this.disconnectStopTracks.push(stopTracks); this.connection.reject(ConnectionError.cancelled("SDK cancellation")); await this.teardown; };
@@ -87,6 +89,21 @@ test("regression: meeting A→B joins B and disconnects A first", async () => {
   const f = fixture(); await join(f); f.session.setTarget({ ...target, id: "B" }); await flush();
   assert.equal(f.rooms[0]!.disconnectCount, 1); assert.equal(f.rooms.length, 2);
   f.rooms[1]!.ready(); await flush(); assert.equal(f.states.at(-1)?.target?.id, "B"); assert.equal(f.states.at(-1)?.connected, true);
+});
+
+function remoteAudio() {
+  const publication = { isDesired: false, subscribed: 0, setSubscribed(value: boolean) { this.isDesired = value; if (value) this.subscribed += 1; } };
+  return { publication, participant: { audioTrackPublications: new Map([["TR_audio", publication]]) } };
+}
+test("regression: joining a room subscribes to audio published before this client connected", async () => {
+  const f = fixture(); f.session.setTarget(target); await flush();
+  const early = remoteAudio(); f.rooms[0]!.remoteParticipants.set("early", early.participant);
+  f.rooms[0]!.ready(); await flush();
+  assert.equal(early.publication.subscribed, 1);
+  const late = remoteAudio(); f.rooms[0]!.remoteParticipants.set("late", late.participant);
+  f.rooms[0]!.emitParticipantConnected();
+  assert.equal(late.publication.subscribed, 1);
+  assert.equal(early.publication.subscribed, 1);
 });
 
 test("proximity group rotation republishes active local media without stopping captured tracks", async () => {

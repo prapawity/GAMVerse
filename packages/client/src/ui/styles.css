@@ -214,18 +214,19 @@ button:focus-visible { outline: 3px solid #287a59; outline-offset: 3px; }
 .voice-participant-mute-all button:hover { background: #ffe9e5; }
 .voice-participant-mute-all svg { width: 12px; height: 12px; }
 .voice-participant-list-wrap { position: relative; width: 100%; min-width: 0; }
-.voice-participant-roster ul { display: flex; justify-content: center; gap: 6px; width: 100%; margin: 0; padding: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-behavior: smooth; list-style: none; scrollbar-width: thin; }
-.voice-participant-scroll { position: absolute; z-index: 1; top: 50%; display: grid; width: 24px; height: 24px; padding: 0; place-items: center; transform: translateY(-50%); border: 1px solid rgba(255,255,255,.9); border-radius: 50%; background: rgba(2,48,71,.86); color: #fff; box-shadow: 0 2px 8px rgba(2,48,71,.2); cursor: pointer; }
-.voice-participant-scroll.is-left { left: -4px; }
-.voice-participant-scroll.is-right { right: -4px; }
-.voice-participant-scroll svg { width: 14px; height: 14px; }
-.voice-participant-scroll:hover { background: #126782; }
+.voice-participant-roster ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: 100%; max-height: min(52dvh, 340px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
 .voice-participant-roster li { position: relative; isolation: isolate; display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; width: clamp(200px, 22vw, 216px); min-width: clamp(200px, 22vw, 216px); max-width: clamp(200px, 22vw, 216px); min-height: 120px; aspect-ratio: 1.72; padding: 9px 10px; overflow: hidden; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
 .voice-participant-roster li.has-camera-background { color: #fff; border-color: rgba(255,255,255,.7); background: #18313b; }
 .voice-participant-camera-background { position: absolute; z-index: -1; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; opacity: .62; }
 .voice-participant-roster li.has-camera-background::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(180deg,rgba(4,22,31,.24),rgba(4,22,31,.72)); content: ""; }
 .voice-participant-roster li.has-camera-background .voice-participant-copy strong,.voice-participant-roster li.has-camera-background .voice-participant-copy small { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 .voice-participant-roster li.has-camera-background .voice-participant-settings-trigger { color: #fff; }
+.voice-participant-roster.is-compact { max-width: min(560px, calc(100vw - 32px)); }
+.voice-participant-roster.is-compact ul { justify-content: flex-start; }
+.voice-participant-roster.is-compact li { flex: 1 1 calc(50% - 3px); grid-template-columns: 9px minmax(0,1fr) auto 20px; grid-template-areas: "dot copy activity menu"; width: auto; min-width: 0; max-width: none; min-height: 48px; aspect-ratio: auto; padding: 7px 8px; }
+.voice-participant-roster.is-compact .voice-participant-activity { justify-self: end; }
+.voice-participant-roster.is-compact .voice-participant-media { width: 22px; height: 22px; }
+.voice-participant-roster.is-compact .voice-participant-media svg { width: 13px; height: 13px; }
 .voice-participant-status-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--participant-status-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--participant-status-color) 15%, transparent); }
 .voice-participant-copy { grid-area: copy; display: grid; min-width: 0; gap: 2px; }
 .voice-participant-copy strong { overflow-wrap: anywhere; color: #123247; font-size: 11px; font-weight: 750; line-height: 1.2; }
@@ -605,12 +606,16 @@ button.voice-participant-media:disabled { opacity: .45; cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .voice-participant-roster { top: calc(var(--office-header-height, 52px) + 12px); left: 50%; width: calc(100vw - 24px); max-width: 480px; max-height: calc(100dvh - 250px); padding: 6px 8px 9px; }
+  .voice-participant-roster { top: calc(var(--office-header-height, 52px) + 12px); left: calc(var(--office-rail-width, 74px) + 8px); width: calc(100vw - var(--office-rail-width, 74px) - 16px); max-width: 480px; transform: none; max-height: calc(100dvh - 250px); padding: 6px 8px 9px; }
   .voice-participant-roster-header { justify-content: space-between; width: 100%; gap: 4px; }
   .voice-participant-mute-all button { padding: 0 4px; font-size: 7px; }
   .voice-participant-mute-all button span { display: none; }
-  .voice-participant-roster ul { justify-content: flex-start; }
-  .voice-participant-roster li { width: clamp(184px, calc(100vw - 56px), 216px); min-width: clamp(184px, calc(100vw - 56px), 216px); max-width: clamp(184px, calc(100vw - 56px), 216px); min-height: 120px; gap: 6px; padding: 9px 10px; }
+  .voice-participant-roster ul { flex-wrap: nowrap; justify-content: flex-start; max-height: none; overflow: auto hidden; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; }
+  /* One person per view with the next one peeking in; swipe to scroll. */
+  .voice-participant-roster.is-compact li, .voice-participant-roster li { flex: 0 0 calc(100% - 28px); grid-template-columns: 9px minmax(0,1fr) auto 20px; grid-template-areas: "dot copy activity menu"; width: auto; min-width: 0; max-width: none; min-height: 48px; aspect-ratio: auto; gap: 6px; padding: 7px 8px; scroll-snap-align: start; }
+  .voice-participant-roster li:only-child { flex-basis: 100%; }
+  .voice-participant-roster.is-compact .voice-participant-activity, .voice-participant-roster .voice-participant-activity { justify-self: end; }
+  .voice-participant-roster .voice-participant-media { width: 22px; height: 22px; }
   .focus-character-control { right: 14px; bottom: calc(100px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }
   .camera-view-control { right: 14px; bottom: calc(212px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }
   .weapon-inventory-control { right: 14px; bottom: calc(264px + env(safe-area-inset-bottom)); width: 44px; height: 44px; }

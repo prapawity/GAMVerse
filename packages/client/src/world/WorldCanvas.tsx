@@ -19,8 +19,12 @@ import { createMapPropHitTarget } from "./mapPropHitTargets";
 import { cacheLocalMatrix, cacheStaticModelLocalMatrices } from "./staticModelTransforms";
 import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
+import { shouldShowNameTag } from "./nameTagVisibility";
+import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type ProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 import { createWorldDestinationBeacon } from "./destinationBeacon";
+import { createProximityDomeSet } from "./proximityDome";
+import { createDomeSmoothers, proximityDomeEntries, type DomeEntry } from "./proximityGroupShape";
 import { fitWallAssetModel } from "./wallAssetTransform";
 import { cameraReducer, createCameraState, isBehindCharacterLocked, type CameraEvent } from "./camera/cameraState";
 import { isLockedBackwardHeld } from "./camera/lockedMovement";
@@ -55,7 +59,7 @@ import { createInstancedSceneryBatches, isInstancedScenery } from "./instancedSc
 
 type CharacterModelId = KenneyCharacterId | `custom-${string}`;
 type PlayerStatus = UserStatus;
-type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer?: boolean; characterId: CharacterModelId; petId?: string; weaponId?: KenneyBlasterId | ""; vehicleId?: string; vehicleMode?: "" | "manual" | "auto"; vehiclePropId?: string; vehiclePropX?: number; vehiclePropZ?: number; vehiclePropRotation?: number; sittingPropId?: string; dancing?: boolean; status?: PlayerStatus; handRaised?: boolean };
+type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer?: boolean; characterId: CharacterModelId; petId?: string; weaponId?: KenneyBlasterId | ""; vehicleId?: string; vehicleMode?: "" | "manual" | "auto"; vehiclePropId?: string; vehiclePropX?: number; vehiclePropZ?: number; vehiclePropRotation?: number; sittingPropId?: string; dancing?: boolean; status?: PlayerStatus; handRaised?: boolean; presence?: "online" | "away" };
 type RoomPortalVisual = { roomKey: string; name: string; x: number; z: number; isLocked: boolean };
 type BlasterVector = { x: number; y: number; z: number };
 type BlasterShotEvent = { shooterSessionId: string; start: BlasterVector; end: BlasterVector };
@@ -94,6 +98,8 @@ interface Props {
   localSessionIdRef: MutableRefObject<string | null>;
   localPetIdRef?: MutableRefObject<string>;
   speakingUsernamesRef?: MutableRefObject<Set<string>>;
+  proximityGroupIdRef?: MutableRefObject<string | null>;
+  headingIntentRef?: MutableRefObject<number | null>;
   heldKeysRef?: MutableRefObject<Set<string>>;
   cameraYawRef: MutableRefObject<number>;
   cameraBehindCharacterRef: MutableRefObject<boolean>;
@@ -800,7 +806,7 @@ function snapCampusPropPointInZone(
   };
 }
 
-export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onModifyProps, onMapViewChange }: Props) {
+export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, proximityGroupIdRef, headingIntentRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onModifyProps, onMapViewChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [propActionMenu, setPropActionMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const propActionMenuRef = useRef(propActionMenu);
@@ -2091,6 +2097,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const avatarColors = [0x668c7a, 0x7291bd, 0xd18c6b, 0x9a81b3, 0xd1ae63, 0x6fa9a0, 0xb97691];
     const roomPortalMeshes = new Map<string, { root: THREE.Group; label: THREE.Sprite; signature: string }>();
     const avatars = new Map<string, THREE.Group>();
+    const proximityDomes = createProximityDomeSet(scene);
+    const smoothProximityDomes = createDomeSmoothers();
     const avatarSpeakingBubbles = new Map<string, THREE.Sprite>();
     const localFireRaycaster = new THREE.Raycaster();
     fireFirstPerson = () => {
@@ -3020,6 +3028,13 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       const localId = localSessionIdRef.current;
 
       const localPlayer = localId ? players.get(localId) : undefined;
+      let sharedDomes: DomeEntry[] = [];
+      if (!mapEditModeRef.current && localId && players.has(localId)) {
+        const onlinePoints = new Map<string, { x: number; z: number }>();
+        for (const [id, player] of players) if (id === localId || player.presence === "online") onlinePoints.set(id, player);
+        sharedDomes = smoothProximityDomes(proximityDomeEntries(localId, onlinePoints, mapWorld.proximityRadius, Boolean(proximityGroupIdRef?.current)), performance.now());
+      } else smoothProximityDomes([], performance.now());
+      proximityDomes.update(sharedDomes, campusOverviewRef.current ? { x: mapWorld.width / 2, z: mapWorld.depth / 2 } : { x: 0, z: 0 });
       // Proximity based opening is client side, so doors animate without any
       // extra realtime messages. Keep them open while someone is in the doorway
       // and briefly after they pass through.
@@ -3189,17 +3204,16 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             avatarRoot.add(model);
             fallbackRig.visible = false;
 
-            const proceduralRig = characterId.startsWith("character-pm-") || characterId.startsWith("character-kaykit-") ? createProceduralHumanoidRig(model) ?? undefined : undefined;
+            const clips = pickCharacterClips(gltf.animations);
+            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model) ?? undefined : undefined;
             // The procedural rig owns these models' idle and movement poses.
             // Starting an asset clip as well can put the arms back in T-pose.
             const mixer = proceduralRig ? undefined : new THREE.AnimationMixer(model);
-            const idleClip = gltf.animations.find((clip) => clip.name.toLowerCase() === "idle");
-            const walkClip = gltf.animations.find((clip) => clip.name.toLowerCase() === "walk");
-            const runClip = gltf.animations.find((clip) => clip.name.toLowerCase() === "run");
+            const { idle: idleClip, walk: walkClip, run: runClip } = clips;
             // Kenney's generic `sit` clip lowers the root by 0.2 m, as if the
             // character were sitting on the floor. Keep its leg pose but
             // remove that root drop so the hips remain at the chair seat.
-            const sitClip = gltf.animations.find((clip) => clip.name.toLowerCase() === "sit");
+            const sitClip = clips.sit;
             const chairSitClip = sitClip?.clone();
             chairSitClip?.tracks.forEach((track) => {
               if (!/^(?:root|armature|mixamorig:)?root\.position$/i.test(track.name)) return;
@@ -3210,7 +3224,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             const walkAction = walkClip ? mixer?.clipAction(walkClip) : undefined;
             const runAction = runClip ? mixer?.clipAction(runClip) : undefined;
             const sitAction = chairSitClip ? mixer?.clipAction(chairSitClip) : undefined;
-            const danceClip = gltf.animations.find((clip) => /dance/i.test(clip.name));
+            const danceClip = clips.dance;
             const danceAction = danceClip ? mixer?.clipAction(danceClip) : undefined;
             const currentAction = idleAction ?? walkAction;
             currentAction?.play();
@@ -3538,7 +3552,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       cameraBehindCharacterRef.current = lockBehind;
       if (lockBehind && localPlayerState && !backwardHeld) {
         const blend = 1 - Math.exp(-FOLLOW_FACING_RESPONSE_PER_SECOND * delta);
-        cameraYawRef.current = lerpAngle(cameraYawRef.current, localPlayerState.rotation + Math.PI, blend);
+        // Follow the steered heading when there is one: the server's rotation arrives a round trip later and in 50 ms steps.
+        cameraYawRef.current = lerpAngle(cameraYawRef.current, (headingIntentRef?.current ?? localPlayerState.rotation) + Math.PI, blend);
       }
       const frame = computeCameraFrame({
         state: cameraStateRef.current, localPosition: local?.position, panTarget: cameraPanTarget,
@@ -3775,7 +3790,11 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const isDriving = Boolean(player.vehicleId);
         const nameAnchor = isDriving ? vehiclePositions.get(id) : avatars.get(id)?.position;
         const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : CHARACTER_NAME_TAG_HEIGHT_M;
-        if (!nameAnchor || showMap2d || firstPersonViewRef.current || (campusOverviewRef.current && isCoveredPosition(player, roofZones))) { if (label.style.display !== "none") label.style.display = "none"; continue; }
+        const showNameTag = nameAnchor !== undefined && shouldShowNameTag({
+          isLocal: id === localId, map2d: showMap2d, firstPerson: firstPersonViewRef.current,
+          covered: campusOverviewRef.current && isCoveredPosition(player, roofZones), distanceToCameraM: nameAnchor.distanceTo(camera.position),
+        });
+        if (!nameAnchor || !showNameTag) { if (label.style.display !== "none") label.style.display = "none"; continue; }
         const projected = vehicleNameProjection.set(nameAnchor.x, nameAnchor.y + nameHeight, nameAnchor.z).project(camera);
         const visible = projected.z >= -1 && projected.z <= 1 && Math.abs(projected.x) <= 1.05 && Math.abs(projected.y) <= 1.05;
         const display = visible ? "block" : "none";
@@ -3790,7 +3809,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
       map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing, visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: roomLayout, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM, widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
-        players: playersRef.current, localId, speaking: speakingUsernamesRef?.current ?? new Set<string>(), decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs: performance.now(), deltaS: delta, destination: travelFeedbackRef.current?.destination ?? null }) ?? map2dCenterRef.current;
+        players: playersRef.current, localId, speaking: speakingUsernamesRef?.current ?? new Set<string>(), decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs: performance.now(), deltaS: delta, destination: travelFeedbackRef.current?.destination ?? null, proximityDomes: sharedDomes }) ?? map2dCenterRef.current;
       socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: roomLayout, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: !showMap2d, nowMs: performance.now() });
       if (!showMap2d) renderer.render(scene, camera);
       if (document.visibilityState === "visible") {
@@ -3901,6 +3920,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           }
         });
       }
+      proximityDomes.dispose();
       renderer.dispose();
       destinationBeacon.dispose();
       socialOverlay.dispose();

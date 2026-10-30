@@ -7,6 +7,7 @@ import { CAMPUS_FINISHED_BUILDING_LIMIT } from "./campusFinishedBuildings.js";
 import { campusWorldFromConfig, isPositionWalkable, type WorldConfig } from "./index.js";
 import { readRoomLayout, ROOM_PROP_CATALOG, roomPropCollisionFootprint, roomPropPlacementSupport, type RoomLayout, type RoomLayoutProp, type RoomLayoutZone } from "./roomLayout.js";
 import { MAX_OFFICE_PROPS } from "./officePropLimits.js";
+import { WALL_MOUNTED_ASSETS } from "./campusRoomDecor.js";
 
 const FIXTURES = [
   { totalPeople: 1, peoplePerTeam: 1, teamCount: 1, seed: 1 },
@@ -108,6 +109,10 @@ function assertCatalogPlacement(prop: RoomLayoutProp, layout: RoomLayout) {
   if (!prop.elevation) return;
   if (prop.asset === "kit:bathroommirror") {
     assert.equal(prop.elevation, 1.15);
+    return;
+  }
+  if (WALL_MOUNTED_ASSETS.has(prop.asset)) {
+    assert.ok(prop.elevation >= 1 && prop.elevation <= 2.5, `${prop.id} hangs at a believable wall height`);
     return;
   }
   const support = roomPropPlacementSupport(layout.props.filter(item => item.id !== prop.id), prop.asset, prop.x, prop.z, prop.rotation);

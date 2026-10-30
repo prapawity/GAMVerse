@@ -1,0 +1,7 @@
+.local-media-preview { position: fixed; z-index: 9; left: calc(var(--office-rail-width, 0px) + 16px); bottom: calc(var(--office-popup-bottom-clearance, 92px) + 8px); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.local-media-tile { position: relative; width: 168px; margin: 0; overflow: hidden; border: 2px solid #f8fcfd; border-radius: 10px; background: #10212c; box-shadow: 0 6px 20px rgba(2,48,71,.28); }
+.local-media-tile video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.local-media-tile.is-camera video { transform: scaleX(-1); }
+.local-media-tile.is-screen_share video { object-fit: contain; }
+.local-media-tile figcaption { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; border-radius: 999px; background: rgba(16,33,44,.78); color: #f8fcfd; font-size: 10px; }
+@media (max-width: 640px) { .local-media-tile { width: 120px; } }

@@ -1,5 +1,5 @@
 import { USER_STATUS_PRESENTATIONS } from "../presencePresentation";
-import type { RoomLayoutZone, RoomLayoutWall } from "@gammyverse/shared";
+import { campusRoomStyle, type RoomLayoutZone, type RoomLayoutWall } from "@gammyverse/shared";
 
 export type ZonePosition = { x: number; z: number };
 export type ZoneOccupant = ZonePosition & { displayName: string; username: string; status?: string };
@@ -30,5 +30,5 @@ export function zoneRoofHeightM(zone: RoomLayoutZone, walls: readonly RoomLayout
 }
 
 export function zoneRoofColor(zone: RoomLayoutZone, walls: readonly RoomLayoutWall[]): string {
-  return walls.find(wall => isInsideZone(wall, zone))?.color ?? "#63bbd0";
+  return campusRoomStyle(zone)?.roofColor ?? walls.find(wall => isInsideZone(wall, zone))?.color ?? "#63bbd0";
 }

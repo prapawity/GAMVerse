@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OfficeState, PlayerState } from "@gammyverse/shared";
 import {
-  registerSocialMessages,
+  HAND_RAISE_MAX_DURATION_MS, registerSocialMessages,
   socialPeople,
   unregisterSocialMessages,
 } from "./socialMessages.js";
@@ -87,4 +87,37 @@ test("revoked physical occupants are isolated from private Nearby chat audiences
   const second = new PlayerState();second.username="guest";second.presence="online";
   const people = socialPeople([["alice",first],["guest",second]],new Map([["alice",{id:"private-zone"}],["guest",{id:"private-zone"}]]),new Map(),new Set(["alice"]));
   assert.notEqual(people.find(person=>person.sessionId==="alice")?.channel,people.find(person=>person.sessionId==="guest")?.channel);
+});
+
+test("hand-raise is handled: raising and lowering update the player, bad payloads are ignored", () => {
+  const room = roomFixture();
+  const player = new PlayerState();
+  const state = { username: () => "alice", player: () => player, people: () => [], client: () => undefined };
+  registerSocialMessages(room, "hand-fixture", state);
+  const handler = room.handlers.get("hand-raise");
+  assert.ok(handler, "an unregistered message makes Colyseus drop the sender");
+  const client = { sessionId: "alice-session", send: () => {} };
+  handler(client, { raised: "yes" });
+  assert.equal(Boolean(player.handRaised), false);
+  handler(client, { raised: true });
+  assert.equal(player.handRaised, true);
+  handler(client, { raised: false });
+  assert.equal(player.handRaised, false);
+  unregisterSocialMessages(room, "hand-fixture");
+});
+
+test("a raised hand lowers itself after the maximum duration and re-raising cannot extend it", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const room = roomFixture();
+  const player = new PlayerState();
+  const state = { username: () => "alice", player: () => player, people: () => [], client: () => undefined };
+  registerSocialMessages(room, "hand-timer-fixture", state);
+  const handler = room.handlers.get("hand-raise")!;
+  const client = { sessionId: "alice-session", send: () => {} };
+  handler(client, { raised: true });
+  context.mock.timers.tick(HAND_RAISE_MAX_DURATION_MS - 1_000);
+  handler(client, { raised: true });
+  context.mock.timers.tick(1_000);
+  assert.equal(player.handRaised, false);
+  unregisterSocialMessages(room, "hand-timer-fixture");
 });

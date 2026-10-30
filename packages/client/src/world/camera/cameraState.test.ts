@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Vector3 } from "three";
 import { computeCameraFrame } from "./cameraFrame";
-import { cameraReducer, createCameraState } from "./cameraState";
+import { cameraReducer, createCameraState, isBehindCharacterLocked } from "./cameraState";
 import { CAMPUS_MAX_ZOOM_RATIO, CAMPUS_MIN_ZOOM_RATIO, DEFAULT_TPP_ELEVATION_RAD, LIVE_OFFICE_FOCUS_DISTANCE_M } from "./constants";
 
 const FREE_ZOOM_RATIO = CAMPUS_MAX_ZOOM_RATIO / 2;
@@ -18,6 +18,13 @@ const POSE_TOLERANCE_M = 1e-9;
 function readyState() {
   return cameraReducer(createCameraState(true), { type: "avatar-ready" });
 }
+
+test("camera starts following the character without locking behind it", () => {
+  const state = createCameraState(false);
+  assert.equal(state.following, true);
+  assert.equal(isBehindCharacterLocked(state), false);
+  assert.equal(isBehindCharacterLocked(cameraReducer(state, { type: "set-camera-lock", locked: true })), true);
+});
 
 test("manual drag detaches; walking resumes TPP follow", () => {
   const free = cameraReducer(readyState(), { type: "manual-drag" });

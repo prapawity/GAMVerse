@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { appendCampusStarterProps } from "./campusFurnishingPlacement.js";
-import { campusPrivateRoomPlacements } from "./campusPrivateRoomTemplate.js";
+import { campusPrivateRoomPlacements, STUDIO_REQUIRED_KEYS } from "./campusPrivateRoomTemplate.js";
 import { campusWorldFromConfig, isPositionWalkable } from "./index.js";
 import { ROOM_PROP_CATALOG, roomPropCollisionFootprint, roomPropPlacementSupport, type RoomLayout, type RoomLayoutZone } from "./roomLayout.js";
 
 const ZONE: RoomLayoutZone = { id: "private-0", name: "Studio", kind: "private", x: 0, z: 0, width: 8, depth: 8, color: "#ffffff" };
 const EPSILON_M = 0.001;
 const GRID_STEP_M = 0.25;
-const KEYS = ["desk", "monitor", "keyboard", "chair", "bed", "fridge", "sink", "counter", "stove", "washer", "storage", "decor", "plant"];
+const RUG_ASSET = "external-pixel-modern-office-pixel-modern-office-floor-tile-carpet-01352f6c";
+const SEAT_APPROACH_M = 1.4;
 const VARIANTS = {
   monitor: ["computerScreen", "external-pixel-modern-office-pixel-modern-office-monitor-arm-54a8d67b", "external-cozy-home-interiors-cozy-home-interiors-computer-monitor-3e762133"],
-  bed: ["kit:bedsingle", "kit:beddouble"],
+  bed: ["kit:bedsingle"],
   plant: ["kit:pottedplant", "kit:plantsmall1", "kit:plantsmall2", "kit:plantsmall3"],
   decor: ["kit:books", "kit:radio"],
 };
@@ -29,13 +30,19 @@ function studio(zone = ZONE): RoomLayout {
   };
 }
 
-test("private studios have the exact complete inventory and deterministic independent variants", () => {
+test("private studios provide the full inventory in one of three stable layouts, mirrored or not", () => {
   const seen = Object.fromEntries(Object.keys(VARIANTS).map((key) => [key, new Set<string>()]));
-  for (let index = 0; index < 48; index += 1) {
+  const layouts = new Set<string>();
+  const mirrors = new Set<boolean>();
+  for (let index = 0; index < 96; index += 1) {
     const zone = { ...ZONE, id: `team-${Math.floor(index / 8)}-private-${index}` };
     const placements = campusPrivateRoomPlacements(zone);
-    assert.deepEqual(placements.map((item) => item.key), KEYS);
+    const keys = placements.map((item) => item.key);
+    for (const key of STUDIO_REQUIRED_KEYS) assert.ok(keys.includes(key), `${zone.id} has ${key}`);
+    assert.equal(new Set(keys).size, keys.length, "keys are unique");
     assert.deepEqual(placements, campusPrivateRoomPlacements({ ...zone, name: "Renamed", ownerUsername: "changed" }));
+    layouts.add(keys.slice().sort().join(","));
+    mirrors.add(placements.find((item) => item.key === "desk")!.xM > 0);
     for (const [key, variants] of Object.entries(VARIANTS)) {
       const asset = placements.find((item) => item.key === key)!.asset;
       assert.ok(variants.includes(asset), `${key} uses an existing approved variant`);
@@ -48,7 +55,19 @@ test("private studios have the exact complete inventory and deterministic indepe
       counter: "kit:kitchencabinet", stove: "kit:kitchenstove", washer: "kit:washer", storage: "kit:bookcaseopenlow",
     })) assert.equal(placements.find((item) => item.key === key)?.asset, asset);
   }
+  assert.ok(layouts.size >= 2, "more than one arrangement is used");
+  assert.deepEqual([...mirrors].sort(), [false, true], "both mirror orientations occur");
   for (const [key, variants] of Object.entries(VARIANTS)) assert.deepEqual([...seen[key]!].sort(), [...variants].sort(), `${key} varies across stable room identities`);
+});
+
+test("the three layouts really place the desk and the bed differently", () => {
+  const arrangements = new Set<string>();
+  for (let index = 0; index < 96; index += 1) {
+    const placements = campusPrivateRoomPlacements({ ...ZONE, id: `team-1-office-${index}` });
+    const at = (key: string) => placements.find((item) => item.key === key)!;
+    arrangements.add(`${Math.sign(at("desk").xM) * Math.sign(at("bed").xM)}:${Math.sign(at("desk").zM) * Math.sign(at("bed").zM)}`);
+  }
+  assert.ok(arrangements.size >= 3, `desk and bed relation varies (${[...arrangements].join(" ")})`);
 });
 
 test("computer keyboards are tabletop items without classifying keyboard instruments as tabletop decor", () => {
@@ -66,7 +85,7 @@ test("studio variants are bounded, collision-free and supported at catalog surfa
   for (let index = 0; index < 24; index += 1) {
     const zone = { ...ZONE, id: `private-${index}`, x: 17, z: -21 };
     const props = appendCampusStarterProps(studio(zone));
-    assert.equal(props.length, KEYS.length);
+    assert.ok(props.length >= STUDIO_REQUIRED_KEYS.length && props.length <= 24, `${props.length} props`);
     for (const prop of props) {
       const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset)!;
       assert.ok(definition);
@@ -84,7 +103,8 @@ test("studio variants are bounded, collision-free and supported at catalog surfa
         assert.equal(support.prop.id, `${zone.id}-starter-${prop.id.endsWith("-decor") ? "storage" : "desk"}`);
       } else assert.equal(prop.elevation, undefined);
     }
-    const floorProps = props.filter((prop) => !prop.elevation);
+    // Rugs lie under furniture by design, so they are not part of the clearance rule.
+    const floorProps = props.filter((prop) => !prop.elevation && prop.asset !== RUG_ASSET);
     for (let firstIndex = 0; firstIndex < floorProps.length; firstIndex += 1) {
       const first = floorProps[firstIndex]!;
       const firstSize = roomPropCollisionFootprint(first);
@@ -111,11 +131,12 @@ test("studio variants are bounded, collision-free and supported at catalog surfa
     const monitor = props.find((prop) => prop.id.endsWith("-monitor"))!;
     const keyboard = props.find((prop) => prop.id.endsWith("-keyboard"))!;
     assert.ok(Math.abs(monitor.z - keyboard.z) >= (monitor.depth + keyboard.depth) / 2 - EPSILON_M, "computer accessories do not overlap each other");
+    assert.ok(props.some((prop) => prop.asset === RUG_ASSET), "every studio has a rug under its main activity");
   }
 });
 
-test("all studio variants preserve center, both entrances and desk chair approach routes", () => {
-  for (let index = 0; index < 12; index += 1) {
+test("all studio layouts preserve the center, both entrances and every seat approach", () => {
+  for (let index = 0; index < 48; index += 1) {
     const layout = studio({ ...ZONE, id: `private-${index}` });
     layout.props = appendCampusStarterProps(layout);
     const world = campusWorldFromConfig({ version: 1, layout });
@@ -134,7 +155,10 @@ test("all studio variants preserve center, both entrances and desk chair approac
       }
     }
     for (const z of [-4.5, 4.5]) assert.ok(points.some((point) => point.x === 0 && point.z === z), `entrance ${z} reaches outside`);
-    assert.ok(points.some((point) => point.x === -2 && point.z === 1), "front of chair is reachable, not just its blocked center");
-    assert.ok(points.some((point) => point.x === 0.5 && point.z === 1), "kitchen side of room is accessible");
+    const seats = layout.props.filter((prop) => ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset)?.interaction === "sit");
+    assert.ok(seats.length >= 2, "a studio has at least a chair and a bed");
+    for (const seat of seats) {
+      assert.ok(points.some((point) => Math.hypot(point.x - seat.x, point.z - seat.z) <= SEAT_APPROACH_M), `${seat.id} is approachable`);
+    }
   }
 });

@@ -41,7 +41,7 @@ export type CameraEvent =
 
 export function createCameraState(campus: boolean, alignBehind = true): CameraState {
   return {
-    mode: "tpp", view: "3d", map2dScalePxPerM: MAP2D_DEFAULT_SCALE_PX_PER_M, following: true, followFacing: true, editing: false, campus, arrival: "awaiting-avatar", alignBehind,
+    mode: "tpp", view: "3d", map2dScalePxPerM: MAP2D_DEFAULT_SCALE_PX_PER_M, following: true, followFacing: false, editing: false, campus, arrival: "awaiting-avatar", alignBehind,
     distanceM: LIVE_OFFICE_FOCUS_DISTANCE_M, zoomRatio: CAMPUS_MAX_ZOOM_RATIO,
     elevationRad: campus ? MathUtils.degToRad(DEFAULT_CAMPUS_ELEVATION_DEG) : DEFAULT_TPP_ELEVATION_RAD,
   };

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type SyntheticEvent } from "react";
 import { screenCameraTile, type RemoteMediaSelection, type RemoteMediaSnapshot } from "./remoteMediaState";
 import "./RemoteMediaViewer.css";
 
@@ -18,6 +18,13 @@ export function RemoteMediaViewer({ tiles, availableTiles = tiles, selected, min
   const cameraTrack = camera?.track;
   const screenShares = availableTiles.filter(tile => tile.source === "screen_share");
   const screenIndex = screenShares.findIndex(tile => tile.key === selected?.key);
+  const stageRef = useRef<HTMLDivElement>(null);
+  // A live stream has nothing to pause: a local pause only freezes the picture while the sender keeps going.
+  const keepPlaying = (event: SyntheticEvent<HTMLVideoElement>) => { if (!event.currentTarget.ended) void event.currentTarget.play().catch(() => undefined); };
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void stageRef.current?.requestFullscreen?.().catch(() => undefined);
+  };
   useEffect(() => {
     const video = videoRef.current;
     if (!track || !video) return;
@@ -36,8 +43,8 @@ export function RemoteMediaViewer({ tiles, availableTiles = tiles, selected, min
       <strong>{selected.name} · {selected.source === "screen_share" ? "Screen" : "Camera"}</strong>
       <button type="button" title={minimized ? "Expand" : "Minimize"} aria-label={minimized ? "Expand media viewer" : "Minimize media viewer"} aria-expanded={!minimized} onClick={onToggleSize}><ViewerSizeGlyph expanded={minimized} /></button>
     </header>
-    <div className="remote-media-stage">
-      {track ? <video ref={videoRef} autoPlay muted playsInline controls aria-label={`${selected.name}'s ${selected.source === "screen_share" ? "screen share" : "camera"}`} /> : <div className="remote-media-loading" role="status">Connecting video…</div>}
+    <div ref={stageRef} className="remote-media-stage">
+      {track ? <video ref={videoRef} autoPlay muted playsInline onPause={keepPlaying} onDoubleClick={toggleFullscreen} title="Double-click for full screen" aria-label={`${selected.name}'s ${selected.source === "screen_share" ? "screen share" : "camera"}`} /> : <div className="remote-media-loading" role="status">Connecting video…</div>}
       {screenIndex >= 0 && screenShares.length > 1 && <>
         <button type="button" className="remote-media-switcher previous" aria-label="Previous screen share" onClick={() => onSelect(screenShares[(screenIndex - 1 + screenShares.length) % screenShares.length]!.key)}><ScreenShareArrow direction="previous" /></button>
         <span className="remote-media-position" aria-live="polite">{screenIndex + 1} / {screenShares.length}</span>

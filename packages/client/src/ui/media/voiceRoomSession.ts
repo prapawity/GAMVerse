@@ -6,6 +6,8 @@ import { voiceTargetKey, type VoiceTarget } from "./voiceTarget";
 export const VOICE_RETRY_BASE_MS = 500;
 export const VOICE_RETRY_MAX_DELAY_MS = 8_000;
 export const VOICE_RETRY_MAX_ATTEMPTS = 5;
+/** How long captured camera/screen waits for the same audience to return after the target goes null. */
+export const VOICE_MEDIA_HOLD_MS = 30_000;
 const VOICE_RETRY_MULTIPLIER = 2;
 const VOICE_CONNECTION_ERROR_LABEL = "Could not connect to voice.";
 const VOICE_CAMERA_SOURCE = "camera";
@@ -13,7 +15,15 @@ const VOICE_SCREEN_SHARE_SOURCE = "screen_share";
 const VOICE_SCREEN_SHARE_AUDIO_SOURCE = "screen_share_audio";
 const VOICE_MICROPHONE_SOURCE = "microphone";
 const RETAINABLE_TRACK_SOURCES = [VOICE_CAMERA_SOURCE, VOICE_SCREEN_SHARE_SOURCE, VOICE_SCREEN_SHARE_AUDIO_SOURCE, VOICE_MICROPHONE_SOURCE];
-export const VOICE_MEDIA_STOPPED_LABEL = "Camera and screen sharing stopped. Turn them on again when voice reconnects.";
+export type VoiceMediaStopReason = "target-changed" | "left" | "unavailable" | "connection-lost";
+const VOICE_MEDIA_STOPPED_LABELS: Record<VoiceMediaStopReason, string> = {
+  "target-changed": "Camera and screen sharing stopped because you moved to a different voice room. Turn them on again there.",
+  left: "Camera and screen sharing stopped because you left voice.",
+  unavailable: "Camera and screen sharing stopped because voice is not available here.",
+  "connection-lost": "Camera and screen sharing stopped because voice could not reconnect. Turn them on again when it does.",
+};
+export const VOICE_MEDIA_STOPPED_LABEL = VOICE_MEDIA_STOPPED_LABELS["connection-lost"];
+export function voiceMediaStoppedLabel(reason: VoiceMediaStopReason = "connection-lost"): string { return VOICE_MEDIA_STOPPED_LABELS[reason]; }
 export const VOICE_AUDIO_CAPTURE_OPTIONS = { autoGainControl: true, echoCancellation: true, noiseSuppression: true, voiceIsolation: true };
 
 /** Small SDK seam: tests replace only the room and token transport. */
@@ -40,7 +50,7 @@ export interface VoiceSessionListener<R extends VoiceRoom> {
   localTracksChanged?(room: R, publication?: LocalTrackPublication): void;
   trackSubscribed?(room: R, track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant, target: VoiceTarget): void;
   trackUnsubscribed?(room: R, track: RemoteTrack, participant: RemoteParticipant): void;
-  mediaStopped?(): void;
+  mediaStopped?(reason?: VoiceMediaStopReason): void;
 }
 export interface VoiceRoomAdapter<R extends VoiceRoom> {
   room: R;
@@ -57,6 +67,18 @@ export interface VoiceSessionDependencies<R extends VoiceRoom> {
 }
 type QueuedControl<R> = { generation: number; run: (room: R) => Promise<unknown>; finish: () => void; muted?: boolean; source?: MediaControlSource };
 type RetainedTrack = { track: LocalTrack; options?: TrackPublishOptions };
+
+/**
+ * Whether switching `previous` to `next` keeps the same place for local media.
+ * A proximity group is one audience per session; a meeting or private zone is one audience per zone,
+ * even when a conversation generation or room incarnation churns because someone else left.
+ */
+function keepsAudience(previous: VoiceTarget | null, next: VoiceTarget | null): boolean {
+  if (!previous || !next) return false;
+  if (voiceTargetKey(previous) === voiceTargetKey(next)) return true;
+  if (previous.officeId !== next.officeId || previous.sessionKey !== next.sessionKey || previous.kind !== next.kind) return false;
+  return previous.kind === "proximity" || ((previous.kind === "meeting" || previous.kind === "private") && previous.id === next.id);
+}
 
 function scheduleRetry(callback: () => void, delayMs: number): () => void {
   const timer = setTimeout(callback, delayMs);
@@ -81,7 +103,17 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
   private drainingGeneration: number | null = null;
   private localVideoActive = false;
   private retainedTracks: RetainedTrack[] = [];
+  private heldTarget: VoiceTarget | null = null;
+  private cancelHold: (() => void) | null = null;
   private state: VoiceSessionState = { target: null, connected: false, muted: true, busy: false, retryExhausted: false, error: null };
+
+  /** Diagnostic trail for unexplained media drops; read it in the browser console. */
+  private log(event: string, detail: Record<string, unknown> = {}): void {
+    console.info(`[voice] ${event}`, {
+      at: new Date().toISOString(), target: this.target ? `${this.target.kind}:${this.target.id}` : null,
+      generation: this.generation, cameraOrScreenLive: this.localVideoActive, ...detail,
+    });
+  }
 
   isProximityTarget(): boolean { return this.target?.kind === "proximity"; }
 
@@ -90,25 +122,49 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     this.teardown = dependencies.previousTeardown ?? Promise.resolve();
   }
 
-  setTarget(target: VoiceTarget | null): void {
+  /** `holdMedia: false` is an explicit leave; a null target is otherwise treated as transient and held briefly. */
+  setTarget(target: VoiceTarget | null, options: { holdMedia?: boolean } = {}): void {
     if (this.disposed || voiceTargetKey(this.target) === voiceTargetKey(target)) return;
-    const preserveProximityMedia = this.target?.kind === "proximity" && target?.kind === "proximity"
-      && this.target.officeId === target.officeId && this.target.sessionKey === target.sessionKey;
-    this.invalidate(preserveProximityMedia);
+    const keepMedia = this.transitionKeepsMedia(target, options.holdMedia ?? true);
+    this.log("target change", { next: target ? `${target.kind}:${target.id}` : null, keepMedia });
+    this.invalidate(keepMedia, target ? "target-changed" : "left");
+    this.updateHold(target, keepMedia);
     this.target = target;
     this.retries = 0;
     this.publish({ target, error: null, retryExhausted: false });
     this.start();
   }
-  leave(): void { this.setTarget(null); }
+  leave(): void { this.setTarget(null, { holdMedia: false }); }
   suppressMedia(): void {
     if (this.disposed) return;
     this.publish({ muted: true });
     this.leave();
   }
+  /** Held media survives only a move to the same audience; a null target keeps it on hold until the timer lapses. */
+  private transitionKeepsMedia(next: VoiceTarget | null, holdMedia: boolean): boolean {
+    const previous = this.target ?? this.heldTarget;
+    return next ? keepsAudience(previous, next) : holdMedia && previous !== null;
+  }
+  private updateHold(next: VoiceTarget | null, keepMedia: boolean): void {
+    this.cancelHold?.();
+    this.cancelHold = null;
+    const previous = this.target ?? this.heldTarget;
+    this.heldTarget = next === null && keepMedia ? previous : null;
+    if (!this.heldTarget || !this.retainedTracks.length) return;
+    this.cancelHold = (this.dependencies.schedule ?? scheduleRetry)(() => {
+      this.cancelHold = null;
+      if (this.target || this.disposed) return;
+      this.heldTarget = null;
+      this.localVideoActive = false;
+      this.discardRetainedMedia("left");
+    }, VOICE_MEDIA_HOLD_MS);
+  }
   dispose(): Promise<void> {
     if (this.disposed) return this.teardown;
     this.disposed = true;
+    this.cancelHold?.();
+    this.cancelHold = null;
+    this.heldTarget = null;
     this.invalidate();
     this.target = null;
     this.publish({ target: null });
@@ -117,19 +173,24 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
   suspend(reason: "browser" | "realtime" = "browser"): void {
     if (this.disposed) return;
     this.suspensionReasons.add(reason);
+    this.log("suspend", { reason });
     if (this.suspended) return;
     this.suspended = true;
-    this.invalidate();
+    // The audience is unchanged until resume proves otherwise, so keep captured tracks on hold.
+    this.invalidate(true, "connection-lost");
   }
   resume(target: VoiceTarget | null, reason: "browser" | "realtime" = "browser"): void {
     if (this.disposed) return;
     if (!this.suspensionReasons.delete(reason)) return;
     if (this.suspensionReasons.size) return;
+    this.log("resume", { reason });
     this.suspended = false;
     this.revalidate(target);
   }
   private revalidate(target: VoiceTarget | null): void {
-    this.invalidate();
+    const keepMedia = this.transitionKeepsMedia(target, true);
+    this.invalidate(keepMedia, target ? "target-changed" : "left");
+    this.updateHold(target, keepMedia);
     this.target = target;
     this.retries = 0;
     this.publish({ target, error: null, retryExhausted: false });
@@ -147,7 +208,8 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
   private current(generation: number, room: R | null): boolean {
     return !this.disposed && !this.suspended && generation === this.generation && room === this.room;
   }
-  private invalidate(preserveProximityMedia = false): void {
+  /** `preserveMedia` holds captured camera/screen tracks for republish; only pass it when the audience is unchanged. */
+  private invalidate(preserveMedia = false, reason: VoiceMediaStopReason = "left"): void {
     this.generation++;
     this.abort?.abort();
     this.abort = null;
@@ -160,10 +222,12 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     if (pendingRoom) this.settleTeardown(pendingRoom.then(adapter => adapter.room.disconnect()));
     const room = this.room;
     this.room = null;
+    let retainedNoticeSent = false;
+    if (this.controls.length) this.log("dropping queued media controls", { count: this.controls.length });
     this.controls.splice(0).forEach(control => control.finish());
     this.listener.roomChanged?.(null, null);
     this.publish({ connected: false, busy: false });
-    if (room && preserveProximityMedia && room.localParticipant.audioTrackPublications && room.localParticipant.videoTrackPublications
+    if (room && preserveMedia && room.localParticipant.audioTrackPublications && room.localParticipant.videoTrackPublications
       && room.localParticipant.publishTrack && room.localParticipant.unpublishTrack) {
       this.retainedTracks = this.retainedTracks.filter(({ track }) => track.mediaStreamTrack.readyState === "live");
       const publications = [...room.localParticipant.audioTrackPublications.values(), ...room.localParticipant.videoTrackPublications.values()];
@@ -179,11 +243,17 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.localVideoActive = this.retainedTracks.some(({ track }) => track.kind === "video");
     } else {
       if (room) {
-        if (this.localVideoActive || room.localParticipant.isCameraEnabled || room.localParticipant.isScreenShareEnabled) this.listener.mediaStopped?.();
+        if (this.localVideoActive || room.localParticipant.isCameraEnabled || room.localParticipant.isScreenShareEnabled) {
+          this.listener.mediaStopped?.(reason);
+          retainedNoticeSent = true;
+        }
         this.localVideoActive = false;
         this.disconnect(room);
       }
-      if (!preserveProximityMedia) this.stopRetainedTracks();
+      if (!preserveMedia) {
+        if (!retainedNoticeSent && this.hasLiveRetainedVideo()) this.listener.mediaStopped?.(reason);
+        this.stopRetainedTracks();
+      }
     }
   }
   private disconnect(room: R): void {
@@ -217,8 +287,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       const token = await this.dependencies.fetchToken(target, abort.signal);
       if (!this.current(generation, null)) return;
       if (!token) {
-        if (this.retainedTracks.length) this.listener.mediaStopped?.();
-        this.stopRetainedTracks();
+        this.discardRetainedMedia("unavailable");
         this.localVideoActive = false;
         this.publish({ muted: true, busy: false });
         return;
@@ -249,6 +318,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.pendingRoom = null;
       // Cancelled/CLIENT_INITIATED on the current generation is a real failure.
       const error = cause instanceof Error ? cause : new Error(VOICE_CONNECTION_ERROR_LABEL);
+      this.log("join failed", { message: error.message, retries: this.retries });
       this.fail(error);
     }
   }
@@ -264,9 +334,18 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       tracks.forEach(({ track }) => track.stop());
       this.localVideoActive = false;
       this.publish({ muted: true });
-      this.listener.mediaStopped?.();
+      this.listener.mediaStopped?.("connection-lost");
       throw cause;
     }
+  }
+  // A track the user switched off is already ended, so it must not be announced as "stopped".
+  private hasLiveRetainedVideo(): boolean {
+    return this.retainedTracks.some(({ track }) => track.kind === "video" && track.mediaStreamTrack.readyState === "live");
+  }
+  private discardRetainedMedia(reason: VoiceMediaStopReason): void {
+    const hadVideo = this.hasLiveRetainedVideo();
+    this.stopRetainedTracks();
+    if (hadVideo) this.listener.mediaStopped?.(reason);
   }
   private stopRetainedTracks(): void {
     this.retainedTracks.forEach(({ track }) => track.stop());
@@ -284,11 +363,14 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     await room.localParticipant.setScreenShareEnabled(false);
   }
   private fail(error: Error): void {
-    this.invalidate(this.target?.kind === "proximity");
+    // The target is unchanged, so the audience is too: hold captured media for the recovery join.
+    this.invalidate(true, "connection-lost");
     if (isVoiceAuthorizationDenied(error) || this.authorizationDenied?.(error)) {
+      this.discardRetainedMedia("connection-lost");
       this.publish({ error, busy: false }); return;
     }
     if (this.retries >= VOICE_RETRY_MAX_ATTEMPTS) {
+      this.discardRetainedMedia("connection-lost");
       this.publish({ error, busy: false, retryExhausted: true }); return;
     }
     this.publish({ error: null, busy: true });
@@ -310,6 +392,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     };
     bind(events.Disconnected, reason => {
       if (!this.current(generation, room)) return;
+      this.log("room disconnected", { reason, retries: this.retries });
       this.fail(adapter.disconnectError(reason));
     });
     bind(events.Reconnecting, () => { if (this.current(generation, room)) this.publish({ connected: false, busy: true }); });
@@ -332,7 +415,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
     bind(events.LocalTrackUnpublished, publication => {
       if (!this.current(generation, room)) return;
       const track = publication.track;
-      if (target.kind === "proximity" && track && !publication.isMuted
+      if (track && !publication.isMuted
         && RETAINABLE_TRACK_SOURCES.includes(String(publication.source))
         && track.mediaStreamTrack.readyState === "live") {
         this.retainedTracks = [...this.retainedTracks.filter(item => item.track !== track), {
@@ -409,6 +492,7 @@ export class VoiceRoomSession<R extends VoiceRoom = VoiceRoom> {
       this.localVideoActive = Boolean(room.localParticipant.isCameraEnabled || room.localParticipant.isScreenShareEnabled);
       this.listener.localTracksChanged?.(room);
     } catch (cause) {
+      this.log("media control failed", { source: control.source, stale: !this.current(control.generation, room), cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause) });
       if (this.current(control.generation, room)) this.publish({ ...(control.muted === false ? { muted: true } : {}), error: mediaControlError(cause, control.source) });
     } finally { control.finish(); }
   }

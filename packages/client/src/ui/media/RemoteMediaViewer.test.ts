@@ -21,11 +21,13 @@ cssLoader.deregister();
 const camera: RemoteMediaTile = { key: "camera", identity: "alice-session", username: "alice", name: "Alice", source: "camera", track: {} as RemoteTrack };
 const screen: RemoteMediaTile = { ...camera, key: "screen", source: "screen_share" };
 const NO_ACTION = () => {};
-test("video viewer is nonmodal, with inline muted video and source selection without a close action", () => {
+test("video viewer is nonmodal, with inline muted video without native controls and no close action", () => {
   const html = renderToStaticMarkup(createElement(RemoteMediaViewer, { tiles: [camera, screen], selected: screen, onToggleSize: NO_ACTION, onSelect: NO_ACTION, minimized: false }));
   assert.match(html, /<aside\b/);
   assert.doesNotMatch(html, /<dialog\b|aria-modal="true"/);
-  assert.match(html, /<video[^>]+autoPlay=""[^>]+muted=""[^>]+playsInline=""[^>]+controls=""/);
+  assert.match(html, /<video[^>]+autoPlay=""[^>]+muted=""[^>]+playsInline=""/);
+  // A live stream has nothing to pause, so the native play/pause bar stays off.
+  assert.doesNotMatch(html, /<video[^>]+controls/);
   assert.doesNotMatch(html, /<select\b|Media to view/);
   assert.doesNotMatch(html, /Close media viewer/);
   assert.match(html, /aria-label="Minimize media viewer"/);

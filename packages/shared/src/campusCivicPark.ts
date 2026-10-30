@@ -1,4 +1,5 @@
 import { CIVIC_PARK_ASSETS } from "./campusCivicParkCatalog.js";
+import { groveCandidates, type GroveBand } from "./campusParkGrove.js";
 import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutProp } from "./roomLayout.js";
 export { CIVIC_PARK_ASSETS } from "./campusCivicParkCatalog.js";
 
@@ -23,6 +24,18 @@ const COMPACT_GARDEN_CENTERS_M = [[-70, -24], [-70, 24], [-36, -26], [-36, 26], 
 const GENERIC_GARDEN_CENTERS_M = [[-108, -30], [-108, 30], [-55, -31], [-55, 31], [-8, -30], [8, 30], [42, -29], [82, 29]] as const;
 const COMPACT_CANOPY_X_M = [-128, -116, -104, -92, -72, -60, -36, -24, 0, 24, 36, 60, 72, 92, 104, 116, 128];
 const GENERIC_CANOPY_X_M = [-112, -100, -88, -76, -64, -52, -40, -28, -16, 16, 28, 40, 52, 64, 76, 88, 100, 112];
+// Lawn bands planted in staggered rows. Anything that would touch a room, road, path, pond or existing prop is skipped.
+const COMPACT_GROVE_BANDS_M: readonly GroveBand[] = [
+  { xMin: -172, xMax: -34, zMin: -32, zMax: 32 },
+  { xMin: -34, xMax: 94, zMin: -32, zMax: 32 },
+];
+const GENERIC_GROVE_BANDS_M: readonly GroveBand[] = [
+  { xMin: -112, xMax: -20, zMin: -38, zMax: 38 },
+  { xMin: 20, xMax: 114, zMin: -38, zMax: 38 },
+];
+const MAP_EDGE_MARGIN_M = 8;
+const WEST_BENCH_TARGET = 6;
+const WEST_BENCH_ROWS_Z_M = [-20, 20, -8, 8, -26, 26] as const;
 const COMPACT_BENCH_CENTERS_M = [[-62, -29], [-38, -18], [38, 28], [62, 28], [-70, 18], [70, -18]] as const;
 const GENERIC_BENCH_CENTERS_M = [[-91, 33], [-67, 33], [51, -31], [75, -31]] as const;
 const COMPACT_CANOPY_Z_M = 30;
@@ -50,7 +63,7 @@ export function campusCivicParkSurfaces(layout: Pick<RoomLayout, "props">): Civi
 }
 
 /** Reserve a designed waterfront before generic building infill and roadside planting. */
-export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean): void {
+export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean, mapSizeM?: { width: number; depth: number }): void {
   const surfaceTiles = new Map<string, { x: number; z: number; bridge: boolean }>();
   const footprint = (prop: RoomLayoutProp) => ({
     x: prop.x, z: prop.z,
@@ -60,14 +73,17 @@ export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean)
   const overlaps = (first: { x: number; z: number; width: number; depth: number }, second: { x: number; z: number; width: number; depth: number }, clearanceM = 0) =>
     Math.abs(first.x - second.x) < (first.width + second.width) / 2 + clearanceM - GEOMETRY_TOLERANCE_M
       && Math.abs(first.z - second.z) < (first.depth + second.depth) / 2 + clearanceM - GEOMETRY_TOLERANCE_M;
-  const add = (key: string, asset: string, x: number, z: number, rotation = 0, clearanceM = 0) => {
+  const add = (key: string, asset: string, x: number, z: number, rotation = 0, clearanceM = 0): boolean => {
     const definition = ROOM_PROP_CATALOG.find(item => item.asset === asset);
     if (!definition) throw new Error(`Missing civic park asset ${asset}.`);
     const prop: RoomLayoutProp = { id: `campus-civic-park-${key}`, asset, x, z, rotation, width: definition.width, depth: definition.depth, collision: definition.collision };
     const area = footprint(prop);
-    if (layout.zones.some(zone => overlaps(area, zone, clearanceM)) || layout.roadways?.some(road => overlaps(area, road, clearanceM))) return;
-    if (layout.props.some(other => overlaps(area, footprint(other), clearanceM))) return;
+    // Small maps are narrower than the fixed park layout, so anything past the map edge is dropped.
+    if (mapSizeM && (Math.abs(area.x) + area.width / 2 > mapSizeM.width / 2 || Math.abs(area.z) + area.depth / 2 > mapSizeM.depth / 2)) return false;
+    if (layout.zones.some(zone => overlaps(area, zone, clearanceM)) || layout.roadways?.some(road => overlaps(area, road, clearanceM))) return false;
+    if (layout.props.some(other => overlaps(area, footprint(other), clearanceM))) return false;
     layout.props.push(prop);
+    return true;
   };
   const path = (x1: number, z1: number, x2: number, z2: number, bridge = false) => {
     const steps = Math.round(Math.hypot(x2 - x1, z2 - z1) / PATH_TILE_STEP_M);
@@ -142,10 +158,12 @@ export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean)
   for (const [index, [x, z]] of extraBenchSpots.entries()) {
     add(`garden-bench-${index}`, "kit:benchcushionlow", x, z, index % 2 ? -QUARTER_TURN_RAD : QUARTER_TURN_RAD, TREE_CLEARANCE_M);
   }
-  let westBenchIndex = 0;
-  for (let x = -136; x <= -52; x += 28) {
-    add(`west-garden-bench-${westBenchIndex}`, "kit:benchcushionlow", x, westBenchIndex % 2 ? 20 : -20, westBenchIndex % 2 ? -QUARTER_TURN_RAD : QUARTER_TURN_RAD, TREE_CLEARANCE_M);
-    westBenchIndex += 1;
+  // Seating along the western lawn: try several rows per column and keep the first few that fit, since narrow maps lose some spots to roads and rooms.
+  let westBenchesPlaced = 0;
+  for (let x = -136; x <= -52 && westBenchesPlaced < WEST_BENCH_TARGET; x += 14) for (const z of WEST_BENCH_ROWS_Z_M) {
+    if (westBenchesPlaced >= WEST_BENCH_TARGET) break;
+    const rotation = Math.sign(z) > 0 ? -QUARTER_TURN_RAD : QUARTER_TURN_RAD;
+    if (add(`west-garden-bench-${westBenchesPlaced}`, "kit:benchcushionlow", x, z, rotation, TREE_CLEARANCE_M)) westBenchesPlaced += 1;
   }
 
   if (compact) {
@@ -167,12 +185,21 @@ export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean)
       const asset = PARK_TREE_ASSETS[(index * 7 + Math.floor(index / 3)) % PARK_TREE_ASSETS.length]!;
       add(`west-public-park-tree-${index}`, asset, x, z, (index % 4) * QUARTER_TURN_RAD, TREE_CLEARANCE_M);
     }
-    for (const [index, [x, z]] of ([[-164, -16], [-164, 16], [-140, -16], [-140, 16], [-130, -16], [-130, 16]] as const).entries()) {
+    for (const [index, [x, z]] of ([[-164, -16], [-164, 16], [-156, -14], [-156, 14], [-148, -14], [-148, 14]] as const).entries()) {
       add(`west-public-park-bench-${index}`, "kit:benchcushionlow", x, z, index % 2 ? -QUARTER_TURN_RAD : QUARTER_TURN_RAD, TREE_CLEARANCE_M);
     }
     for (const [index, [x, z]] of ([[-160, -6], [-160, 6], [-140, -6], [-140, 6], [-130, -6], [-130, 6]] as const).entries()) {
       const asset = PARK_ROCK_ASSETS[(index * 5 + 2) % PARK_ROCK_ASSETS.length]!;
       add(`west-public-park-rock-${index}`, asset, x, z, (index % 4) * QUARTER_TURN_RAD, 0.25);
     }
+  }
+
+  // Fill the remaining lawn so the park uses its whole area instead of a few scattered groves.
+  const halfWidthM = (mapSizeM?.width ?? Infinity) / 2 - MAP_EDGE_MARGIN_M;
+  const halfDepthM = (mapSizeM?.depth ?? Infinity) / 2 - MAP_EDGE_MARGIN_M;
+  for (const candidate of groveCandidates(compact ? COMPACT_GROVE_BANDS_M : GENERIC_GROVE_BANDS_M)) {
+    if (Math.abs(candidate.x) > halfWidthM || Math.abs(candidate.z) > halfDepthM) continue;
+    const asset = PARK_TREE_ASSETS[(candidate.speciesCluster * 5 + 3) % PARK_TREE_ASSETS.length]!;
+    add(`west-grove-tree-${groveIndex++}`, asset, candidate.x, candidate.z, candidate.rotationQuarterTurns * QUARTER_TURN_RAD, TREE_CLEARANCE_M);
   }
 }

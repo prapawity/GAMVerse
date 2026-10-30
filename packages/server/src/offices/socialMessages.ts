@@ -1,5 +1,6 @@
 import {
   isValidReaction,
+  isValidHandRaise,
   type PlayerState,
 } from "@gammyverse/shared";
 import type { SpotlightRequest } from "@gammyverse/shared";
@@ -12,7 +13,9 @@ import { revokeSpotlightParticipant } from "../media/service.js";
 import { logServerError } from "../infra/logger.js";
 const CHAT_SEND_FAILED_LABEL = "Chat could not be sent.";
 const SPOTLIGHT_COMMAND_FAILED_LABEL = "Spotlight command failed.";
-export { HAND_RAISE_MAX_DURATION_MS } from "./handRaiseLifetime.js";
+import { HAND_RAISE_MAX_DURATION_MS } from "./handRaiseLifetime.js";
+export { HAND_RAISE_MAX_DURATION_MS };
+const handRaiseTimers = new WeakMap<SocialRoom, Map<string, ReturnType<typeof setTimeout>>>();
 
 type Client = {
   sessionId: string;
@@ -116,6 +119,36 @@ function registerReactions(
       });
   });
 }
+/**
+ * Without this handler Colyseus treats "hand-raise" as an unregistered message and drops the sender
+ * (production) or errors them (dev mode), which disconnected anyone who pressed the button.
+ */
+function registerHandRaise(room: SocialRoom, state: SocialState) {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  handRaiseTimers.set(room, timers);
+  room.onMessage("hand-raise", (client, payload) => {
+    const player = state.player(client.sessionId);
+    if (!player || !isValidHandRaise(payload)) return;
+    const existing = timers.get(client.sessionId);
+    if (payload.raised) {
+      // A repeated raise cannot extend the one-minute maximum.
+      if (player.handRaised && existing) return;
+      if (existing) clearTimeout(existing);
+      player.handRaised = true;
+      const timer = setTimeout(() => {
+        timers.delete(client.sessionId);
+        const current = state.player(client.sessionId);
+        if (current) current.handRaised = false;
+      }, HAND_RAISE_MAX_DURATION_MS);
+      timer.unref?.();
+      timers.set(client.sessionId, timer);
+      return;
+    }
+    if (existing) clearTimeout(existing);
+    timers.delete(client.sessionId);
+    player.handRaised = false;
+  });
+}
 export function registerSocialMessages(
   room: SocialRoom,
   officeId: string,
@@ -128,6 +161,7 @@ export function registerSocialMessages(
     if (person.username) state.client(person.sessionId)?.send("spotlight-requests", social.spotlight.requestSnapshot(person.username));
   registerChat(room, state, social.chat);
   registerReactions(room, state, social);
+  registerHandRaise(room, state);
   room.onMessage("spotlight", (client, payload) => {
     const username = state.username(client.sessionId);
     if (username)
@@ -147,6 +181,8 @@ export function unregisterSocialMessages(room: SocialRoom, officeId: string, rot
   const social = offices.get(officeId);
   if (!social) return;
   social.states.delete(room);
+  for (const timer of handRaiseTimers.get(room)?.values() ?? []) clearTimeout(timer);
+  handRaiseTimers.delete(room);
   if (social.states.size > 0) return;
   offices.delete(officeId);
   if (!rotateOnFinalDispose) return;

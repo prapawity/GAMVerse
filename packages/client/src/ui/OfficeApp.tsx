@@ -3,6 +3,7 @@ import { LocalMediaPreview, type LocalPreviewTile } from "./media/LocalMediaPrev
 import { useRemoteMediaViewer } from "./media/useRemoteMediaViewer";
 import { readVoiceRosterActivity } from "./media/voiceRosterActivity";
 import { playerName } from "../identity/playerName";
+import { vehicleLabel } from "../assets/vehicleAssets";
 import { useClientDiagnostics } from "./diagnostics/useClientDiagnostics";
 import { MaintainerDiagnosticsPage } from "./diagnostics/MaintainerDiagnosticsPage";
 import { reportClientDiagnostic } from "./diagnostics/clientDiagnostics";
@@ -39,6 +40,7 @@ import { useOfficeShareLinks } from "./workspace/useOfficeShareLinks";
 import { acceptOfficeEntryLink, acceptPendingOfficeInvite, getInviteRouteToken, getOfficeShareRouteToken } from "./workspace/officeEntryLink";
 import { useSignOutConfirmation } from "./workspace/useSignOutConfirmation";
 import { CreateOfficeDialog } from "./workspace/CreateOfficeDialog";
+import { areOfficeTeamNamesValid, createDefaultOfficeTeamNames, normalizeOfficeTeamNames, resizeOfficeTeamNames } from "./workspace/teamNames";
 import { DeskManagerDialog } from "./workspace/DeskManagerDialog";
 import { useDeskAssignmentNotice } from "./workspace/useDeskAssignmentNotice";
 import { createCampusOfficeDraft, type CampusInteriorPreset } from "@gammyverse/shared";
@@ -75,6 +77,7 @@ import { gobkitPet, kaykitCharacter, petModelUrl, petPreviewUrl, polygonalMindCh
 import { CHARACTER_SAVE_TIMEOUT_MS, characterSaveError } from "./characterSaveError";
 import { getRealtimeEndpoint } from "../realtimeEndpoint";
 import { Minimap } from "./Minimap";
+import { ZoneMapOverlay } from "./zoneMap/ZoneMapOverlay";
 import type { Map2dLocateRequest } from "../world/map2d/map2dInput";
 import { WorldCanvas } from "../world/WorldCanvas";
 import { clientRuntimeMetrics } from "../world/clientRuntimeMetrics";
@@ -223,10 +226,6 @@ function characterDetails(characterId: CharacterSelectionId, models: PersonalAva
 }
 
 const petLabel = (id: KenneyPetId) => gobkitPet(id)?.label ?? quaterniusPet(id)?.label ?? id.replace("animal-", "").replace(/(^|-)([a-z])/g, (_match, dash: string, letter: string) => `${dash ? " " : ""}${letter.toUpperCase()}`);
-const vehicleLabel = (id: KenneyVehicleId) => ({
-  "vehicle-speedster": "Speedster", "vehicle-racer": "Racer", "vehicle-suv": "Toy SUV", "vehicle-monster-truck": "Monster Truck", "vehicle-truck": "Toy Truck",
-  "car-sedan": "Sedan", "car-hatchback-sports": "Sports Hatchback", "car-taxi": "Taxi", "car-kart-oopi": "Kart",
-})[id];
 function TouchMoveButton({
   label,
   code,
@@ -356,6 +355,9 @@ export function OfficeApp() {
   const inboundAudioMutedRef = useRef(false);
   const appPausedRef = useRef(false);
   const workspaceInputBlockedRef = useRef(false);
+  const [zoneMapOpen, setZoneMapOpen] = useState(false);
+  const zoneMapOpenRef = useRef(false);
+  zoneMapOpenRef.current = zoneMapOpen;
   const [workspaceOverlayOpen, setWorkspaceOverlayOpen] = useState(false);
   const playersRef = useRef<Map<string, PlayerSnapshot>>(new Map());
   const blasterEventsRef = useRef<BlasterShotEvent[]>([]);
@@ -461,8 +463,10 @@ export function OfficeApp() {
   const [generatorTotalPeople, setGeneratorTotalPeople] = useState(150);
   const [generatorPeoplePerTeam, setGeneratorPeoplePerTeam] = useState(15);
   const [generatorTeamCount, setGeneratorTeamCount] = useState(10);
+  const [generatorTeamNames, setGeneratorTeamNames] = useState(() => createDefaultOfficeTeamNames(10));
   const createOfficePeoplePerTeam = generatorTeamCount > 0 ? generatorTotalPeople / generatorTeamCount : Number.NaN;
   const createOfficeInputsValid = Number.isInteger(createOfficePeoplePerTeam) && createOfficePeoplePerTeam > 0 && createOfficePeoplePerTeam <= 16;
+  const createOfficeTeamNamesValid = areOfficeTeamNamesValid(generatorTeamNames, generatorTeamCount);
   const [mapZoneArea, setMapZoneArea] = useState<{ x: number; z: number; width: number; depth: number } | null>(null);
   const [mapZoneName, setMapZoneName] = useState("");
   const [mapZoneKind, setMapZoneKind] = useState<"meeting" | "private" | "restroom">("meeting");
@@ -1594,9 +1598,10 @@ export function OfficeApp() {
 
   const createOfficeAction = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!createOfficeInputsValid || !createOfficeTeamNamesValid) return;
     let generatedLayout: RoomLayout;
     try {
-      generatedLayout = createCampusOfficeDraft({ totalPeople: generatorTotalPeople, peoplePerTeam: createOfficePeoplePerTeam, teamCount: generatorTeamCount, seed: Math.floor(Math.random() * 0x1_0000_0000) }, createOfficeInteriors).layout;
+      generatedLayout = createCampusOfficeDraft({ totalPeople: generatorTotalPeople, peoplePerTeam: createOfficePeoplePerTeam, teamCount: generatorTeamCount, teamNames: normalizeOfficeTeamNames(generatorTeamNames, generatorTeamCount), seed: Math.floor(Math.random() * 0x1_0000_0000) }, createOfficeInteriors).layout;
     } catch (cause) {
       setLobbyError(cause instanceof Error ? cause.message : "Check the team and people counts.");
       return;
@@ -1723,7 +1728,7 @@ export function OfficeApp() {
   };
 
   const enterMapEditMode = (office: Office) => {
-    if (office.role !== "owner" && office.role !== "admin") return;
+    if (office.role !== "owner" && office.role !== "admin" && authUser?.role !== "maintainer") return;
     const room = roomRef.current;
     if (!room) { setLobbyError("Connect to the office before editing its map."); return; }
     if (mapEditLockRequestPending) return;
@@ -2237,6 +2242,12 @@ export function OfficeApp() {
       if (movementKeys.includes(event.code) && userStatusRef.current !== "available") {
         event.preventDefault();
         if (!event.repeat) restoreAvailableRef.current();
+        return;
+      }
+      if (event.code === "Escape" && zoneMapOpenRef.current) { setZoneMapOpen(false); return; }
+      if (event.code === "KeyM" && !event.repeat && !appPausedRef.current && !mapEditModeRef.current && !modifyPropsOpenRef.current) {
+        event.preventDefault();
+        setZoneMapOpen((open) => !open);
         return;
       }
       if (event.code === "KeyZ" && !event.repeat && !appPausedRef.current && !mapEditModeRef.current && !modifyPropsOpenRef.current) {
@@ -2794,9 +2805,9 @@ export function OfficeApp() {
           </>}
           {lobbyError && <p className="auth-error" role="alert">{lobbyError}</p>}
           {accountError && <p className="auth-error" role="alert">{accountError}</p>}
-          {createOfficeDialogOpen && <CreateOfficeDialog name={officeName} totalPeople={generatorTotalPeople} teamCount={generatorTeamCount}
+          {createOfficeDialogOpen && <CreateOfficeDialog name={officeName} totalPeople={generatorTotalPeople} teamCount={generatorTeamCount} teamNames={generatorTeamNames} teamNamesValid={createOfficeTeamNamesValid}
             peoplePerTeam={createOfficePeoplePerTeam} inputsValid={createOfficeInputsValid} interiors={createOfficeInteriors} busy={lobbyBusy} error={lobbyError}
-            onNameChange={setOfficeName} onTotalPeopleChange={setGeneratorTotalPeople} onTeamCountChange={setGeneratorTeamCount} onInteriorsChange={setCreateOfficeInteriors}
+            onNameChange={setOfficeName} onTotalPeopleChange={setGeneratorTotalPeople} onTeamCountChange={(count) => { setGeneratorTeamCount(count); setGeneratorTeamNames((names) => resizeOfficeTeamNames(names, count)); }} onTeamNameChange={(index, value) => setGeneratorTeamNames((names) => names.map((name, nameIndex) => nameIndex === index ? value : name))} onInteriorsChange={setCreateOfficeInteriors}
             onSubmit={(event) => void createOfficeAction(event)} onClose={() => setCreateOfficeDialogOpen(false)} />}
           <LobbyDirectory endpoint={endpoint} username={authUser.username} maintainer={authUser.role === "maintainer"}
             officesRevision={offices} invitesRevision={invites} busy={lobbyBusy} inviteToken={inviteLinkToken}
@@ -2938,6 +2949,7 @@ export function OfficeApp() {
       {profileDialog}
       <WorldCanvas activeRoomKey="lobby" cameraRoomKey={activeCameraRoomKey} playersRef={playersRef} localSessionIdRef={localSessionIdRef} proximityGroupIdRef={proximityGroupIdRef} headingIntentRef={headingIntentRef} localPetIdRef={localPetIdRef} map2dToggleRef={map2dToggleRef} onMapViewChange={setMap2dViewActive} speakingUsernamesRef={speakingUsernamesRef} heldKeysRef={heldKeysRef} cameraYawRef={cameraYawRef} cameraBehindCharacterRef={cameraBehindCharacterRef} firstPersonViewRef={firstPersonViewRef} map2dDecorationsRef={social.decorationsRef} map2dViewRef={map2dViewRef} locateRequestRef={locateRequestRef} travelFeedback={travel.feedback} travelRequesting={travel.requesting} onCancelTravel={() => roomRef.current?.send("auto-move-cancel", {})} propsConfigVersion={modifyPropsOpen ? modifyPropsVersion : mapPropsConfigVersion} roomLayout={displayedOfficeMapLayout} personalDeskZone={personalDeskZone} onReturnToDesk={returnToDesk} deskClaimingZoneId={deskClaimingZoneId} currentPrivateZoneId={privateZoneId} inboundAudioMuted={inboundAudioMutedRef.current} appPaused={deskManagerOpen || conversationsOpen || Boolean(social.interaction) || workspaceOverlayOpen || userStatus !== "available"} idleAnimationsEnabled={idleAnimationsEnabled} ghostSessionIds={ghostSessionIds} mapEditMode={mapEditMode} selectedMapZoneId={selectedMapZoneId} buildMode={modifyPropsOpen || mapBuildingPickerOpen} selectedAsset={mapBuildingPickerOpen ? selectedMapBuildingAsset : selectedModifyPropAsset} selectedMapItemId={selectedModifyPropId} onPlaceProp={(asset, position) => mapEditMode ? placeMapBuilding(asset, position) : placeOfficeProp(asset, position)} onPlacementComplete={() => { if (!mapEditMode) setSelectedModifyPropAsset(null); else if (ROOM_PROP_CATALOG.find((item) => item.asset === selectedMapBuildingAsset)?.editorRole !== "map-component") setSelectedMapBuildingAsset(null); }} onMoveProp={(id, position) => mapEditMode ? moveMapBuilding(id, position) : moveOfficeProp(id, position)} onRotateProp={(id) => mapEditMode ? rotateMapBuilding(id) : rotateOfficeProp(id)} onDeleteProp={(id) => mapEditMode ? deleteMapBuilding(id) : deleteOfficeProp(id)} onSelectMapItem={setSelectedModifyPropId} onModifyProps={() => void enterModifyPropsMode()} spawnPlacementMode={spawnPlacementMode} onMoveSpawnPoint={(position) => void saveMapSpawnPoint(position)} zoneDrawing={mapZoneDrawing} onZoneAreaDrawn={(area) => { setMapZoneArea(area); setMapZoneDrawing(false); setMapZoneName(""); setLobbyError(null); }} onSelectDeskZone={(zoneId) => setSelectedDeskZoneId(zoneId)} onSelectMapZone={(zoneId) => setSelectedMapZoneId(zoneId)} onClaimDeskZone={(zoneId) => void claimDeskZone(zoneId)} canClaimDesk={canClaimAnyDesk} canEditMap={authUser?.role === "maintainer" || activeOffice.role === "owner" || activeOffice.role === "admin"} mapEditorUsername={mapEditorUsername} mapEditLockPending={mapEditLockRequestPending} onEditMap={() => enterMapEditMode(activeOffice)} blasterEventsRef={blasterEventsRef} jumpStartedAtRef={jumpStartedAtRef} onJump={() => roomRef.current?.send("jump", true)} onBlasterShot={(shot) => { if (!appPausedRef.current) roomRef.current?.send("blaster-shot", shot); }} onWeaponEquip={(weaponId) => { if (!appPausedRef.current) roomRef.current?.send("weapon-equip", weaponId); }} onVehicleInteract={(vehicleId, propId) => { if (!appPausedRef.current) roomRef.current?.send("vehicle-interact", vehicleId ? { vehicleId, propId } : ""); }} onAutoMove={(destination) => { if (appPausedRef.current) return; if (!travel.expectDestination(destination)) return; heldKeysRef.current.clear(); lockedMovementRef.current = null; roomRef.current?.send("auto-move", { ...destination, randomVehicle: true }); }} onSelectPlayer={(sessionId) => { const player = playersRef.current.get(sessionId); if (player?.presence === "online") setMapPlayerAction({ sessionId }); }} onGhostModeChange={setGhostMode} />
       <OfficeSocialOverlay social={social} room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} endpoint={endpoint} officeId={activeOffice.id} username={authUser.username} sessionKey={localSessionIdRef.current} chatTarget={chatTarget} chatTargetRevision={chatTargetRevision} chatContainer={chatContainer} chatVisible={activeLeftTab === "chat" && workspacePanelOpen} onUnread={setChatUnread} doNotDisturb={mediaSuppressed} zoneUsernames={zoneAudioUsernames} />
+      {zoneMapOpen && <ZoneMapOverlay layout={displayedOfficeMapLayout} playersRef={playersRef} localSessionIdRef={localSessionIdRef} onClose={() => setZoneMapOpen(false)} />}
       <Minimap layout={displayedOfficeMapLayout} configVersion={mapPropsConfigVersion} playersRef={playersRef} localSessionIdRef={localSessionIdRef} cameraYawRef={cameraYawRef} hidden={mapEditMode || modifyPropsOpen} />
       <VoiceMediaWorkspace viewer={remoteMediaViewer} people={voiceRosterPeople} speakingUsernames={speakingUsernames} activities={voiceRosterActivities}
         audioLevels={participantAudioLevels} canMuteAll={voiceRosterPeople.filter(person => !person.local).length > 1 && ["owner", "admin"].includes(activeOffice.role)}

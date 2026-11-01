@@ -1,3 +1,4 @@
+import { planCompactCampus } from "./campusCompactPlan.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { generateCampusMap } from "./campusMapGenerator.js";
@@ -153,8 +154,8 @@ test("team blocks alternate with finished-building city gaps and a planted map b
       })).sort((a,b) => a.left - b.left);
       for (let index = 0; index < blocks.length - 1; index += 1) {
         const left = blocks[index]!, right = blocks[index + 1]!;
-        assert.ok(right.left - left.right >= 12, "every adjacent pair reserves a city gap");
-        assert.ok(layout.props.some(prop => prop.id.startsWith("campus-city-building-") && prop.x > left.right && prop.x < right.left && (prop.z < 0) === north), "each gap contains a finished building");
+        assert.ok(right.left - left.right >= 8, "every adjacent pair keeps its two alleys apart (compact campuses fill the rest with rooms)");
+        if (!planCompactCampus(teamCount, 15)) assert.ok(layout.props.some(prop => prop.id.startsWith("campus-city-building-") && prop.x > left.right && prop.x < right.left && (prop.z < 0) === north), "each gap contains a finished building");
       }
     }
     const border = layout.props.filter(prop => prop.id.startsWith("campus-border-tree-"));

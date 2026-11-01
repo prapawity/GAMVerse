@@ -1,0 +1,125 @@
+{
+  "packCounts": {
+    "car-kit": 42,
+    "castle-kit": 76,
+    "conveyor-kit": 61,
+    "graveyard-kit": 82,
+    "hexagon-kit": 72,
+    "marble-kit": 162,
+    "mini-arcade": 18,
+    "mini-arena": 21,
+    "minigolf-kit": 126,
+    "mini-skate": 18,
+    "modular-buildings": 108,
+    "platformer-kit": 142,
+    "retro-medieval-kit": 105,
+    "retro-urban-kit": 124,
+    "space-kit": 150,
+    "space-station-kit": 97,
+    "survival-kit": 80,
+    "tower-defense-kit": 156
+  },
+  "added": 1640,
+  "omitted": [
+    {
+      "pack": "car-kit",
+      "model": "hatchback-sports",
+      "existingAsset": "car-hatchback-sports"
+    },
+    {
+      "pack": "car-kit",
+      "model": "sedan",
+      "existingAsset": "car-sedan"
+    },
+    {
+      "pack": "car-kit",
+      "model": "taxi",
+      "existingAsset": "car-taxi"
+    },
+    {
+      "pack": "graveyard-kit",
+      "model": "character-digger",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "graveyard-kit",
+      "model": "character-ghost",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "graveyard-kit",
+      "model": "character-skeleton",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "graveyard-kit",
+      "model": "character-vampire",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "graveyard-kit",
+      "model": "character-zombie",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "mini-arcade",
+      "model": "character-employee",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "mini-arcade",
+      "model": "character-gamer",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "mini-arena",
+      "model": "character-soldier",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "mini-skate",
+      "model": "character-skate-boy",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "mini-skate",
+      "model": "character-skate-girl",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "space-kit",
+      "model": "alien",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "space-kit",
+      "model": "astronautA",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "space-kit",
+      "model": "astronautB",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "tower-defense-kit",
+      "model": "enemy-ufo-beam-burst",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "tower-defense-kit",
+      "model": "enemy-ufo-beam",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "tower-defense-kit",
+      "model": "selection-a",
+      "reason": "Character or selection/effect mesh"
+    },
+    {
+      "pack": "tower-defense-kit",
+      "model": "selection-b",
+      "reason": "Character or selection/effect mesh"
+    }
+  ]
+}

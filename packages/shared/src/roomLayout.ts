@@ -4,6 +4,7 @@ import { EXTERNAL_ROOM_PROP_CATALOG, EXTERNAL_WALL_ASSET_IDS } from "./externalR
 import { NATURE_ROOM_PROP_CATALOG } from "./natureRoomProps.js";
 import { CIVIC_PARK_PROP_CATALOG } from "./campusCivicParkCatalog.js";
 import { CIVIC_ROOM_PROP_CATALOG } from "./campusCivicRoomCatalog.js";
+import { KENNEY_EDITOR_PROP_CATALOG } from "./kenneyEditorProps.js";
 /** Office-owned shared props snapshot; configVersion is independent from the admin map version. */
 export type { RoomLayoutProp, RoomPropDefinition, RoomPropEditorRole } from "./roomPropTypes.js";
 export { ROOM_PROP_BLOCK_SIZE_M, roomPropBlockFootprint } from "./roomLayoutProps.js";
@@ -805,6 +806,7 @@ const FINISHED_BUILDING_PROP_ASSETS = new Set([
   "external-cozy-home-interiors-cozy-home-interiors-two-storey-cutaway-home-4a617fd1",
 ]);
 function roomPropEditorRole(item: RoomPropDefinition): RoomPropEditorRole {
+  if (item.editorRole) return item.editorRole;
   if (FINISHED_BUILDING_PROP_ASSETS.has(item.asset)) return "building-prefab";
   if (item.vehicleId || item.group === "Vehicles") return "map-component";
   if (item.group === "Roads · Tiles" || item.group === "Roads · Paths") return "map-component";
@@ -851,7 +853,7 @@ const INDUSTRIAL_BUILDING_PREFAB_SCALE = 3.375;
 const FINISHED_BUILDING_SCALE_BOOST = 1.5;
 
 /** Shared behavioral hints for the prop library. Placement/interaction support can be enabled progressively. */
-export const ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [...ROOM_PROP_CATALOG_BASE, ...EXTERNAL_ROOM_PROP_CATALOG, ...NATURE_ROOM_PROP_CATALOG].map((item) => {
+export const ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [...ROOM_PROP_CATALOG_BASE, ...EXTERNAL_ROOM_PROP_CATALOG, ...NATURE_ROOM_PROP_CATALOG, ...KENNEY_EDITOR_PROP_CATALOG].map((item) => {
   const isFinishedBuilding = FINISHED_BUILDING_PROP_ASSETS.has(item.asset);
   const environmentScale = ENVIRONMENT_PROP_SCALE[item.asset] ?? (/^kit-city-kit-industrial-building-[a-t]$/.test(item.asset) ? INDUSTRIAL_BUILDING_PREFAB_SCALE : 1);
   const baseScale = environmentScale * (isCampusTreeAsset(item.asset) ? CAMPUS_TREE_SCALE : 1);

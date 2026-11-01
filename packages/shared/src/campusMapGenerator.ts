@@ -1,17 +1,21 @@
 import { appendCampusCityBlocks } from "./campusCityBlocks.js";
+import { teamThemeWallAssets } from "./campusTeamThemes.js";
 import { campusRoomStyle } from "./campusRoomStyles.js";
 import { MAX_OFFICE_PROPS } from "./officePropLimits.js";
 import { placeCampusFinishedBuildings } from "./campusFinishedBuildings.js";
 import { campusRestroomFixtures } from "./campusFurnishingTemplates.js";
 import { roadsideVergePoints } from "./campusRoadNetwork.js";
-import { campusLoopRoads } from "./campusLoopRoads.js";
 import { appendCampusCivicParkProps } from "./campusCivicPark.js";
+import { COMPACT_ROOM_DEPTH_M, COMPACT_ROOM_WIDTH_M, COMPACT_TEAM_GAP_M, COMPACT_TEAM_ROAD_Z_M, compactBandWidth, compactCivicRow, planCompactCampus } from "./campusCompactPlan.js";
+import { campusLoopRoads } from "./campusLoopRoads.js";
 import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "./roomLayout.js";
 
 export interface CampusMapGeneratorInputs {
   totalPeople: number;
   peoplePerTeam: number;
   teamCount: number;
+  /** Optional display names for generated teams, in team-number order. */
+  teamNames?: readonly string[];
   /** Optional seed for repeatable map previews and tests. */
   seed?: number;
 }
@@ -28,7 +32,7 @@ const TEAM_GAP = 4;
 const CENTRAL_ROAD = 8;
 const CITY_GAP_M = 48;
 const CITY_CENTER_GAP_M = 48;
-const COMPACT_CITY_GAP_M = 56;
+// Compact campus (6–10 teams, up to 15 people each): sized by planCompactCampus, civic row by compactCivicRow.
 const MAX_SAVED_MAP_WIDTH_M = 1000;
 const MAP_DEPTH = 260;
 const TOP_TEAM_START_Z = -104;
@@ -43,18 +47,37 @@ const MEETING_ROOM_DEPTH_M = 14;
 const TEAM_MEETING_MAX_WIDTH_M = 48;
 const TEAM_MEETING_GAP_M = 4;
 const PERIMETER_ROAD_INSET_M = 8;
+// Outer verge plus the ring street: the strip every room must stay clear of.
+const MAP_EDGE_VERGE_M = 4;
+const RING_STREET_WIDTH_M = 8;
 const TEAM_MEETING_GAP_DECOR_ASSET = "external-city-park-and-playground-33682";
 const SMALL_MEETING_WIDTH_M = 20;
 const GENERIC_ROOM_COLUMNS = 3;
 const LARGE_TEAM_ROOM_COLUMNS = 4;
 const MAX_THREE_COLUMN_TEAM_PEOPLE = 12;
 const SMALL_MEETING_DEPTH_M = 16;
+// "Meeting L" is larger than the small meeting room and stands in the forest corner beside its team rows.
+const LARGE_MEETING_WIDTH_M = 28;
+const LARGE_MEETING_DEPTH_M = 20;
 const OUTDOOR_FLOOR_COVERAGE = 0.09;
 // Street furniture rhythm along the kerb, in metres.
 const STREET_LIGHT_SPACING_M = 18;
 const STREET_BIN_SPACING_M = 24;
 const STREET_FURNITURE_OFFSET_M = 1.2;
 const STREET_LIGHT_LIMIT = 120;
+// Utility poles reuse the 5 m park lamp post until a dedicated pole model exists.
+// Street trees alternate between a broadleaf and a conifer; accents are flower beds and benches.
+const ROADSIDE_TREE_ASSETS = ["external-city-park-and-playground-33684", "external-city-park-and-playground-33683"] as const;
+const ROADSIDE_ACCENT_ASSETS = ["external-city-park-and-playground-33682", "kit:benchcushionlow"] as const;
+const ROADSIDE_TREE_SPACING_M = 9;
+const ROADSIDE_TREE_OFFSET_M = 2.2;
+const ROADSIDE_TREE_LIMIT = 160;
+// Clear distance kept between a parked car and any doorway.
+const VEHICLE_DOOR_CLEARANCE_M = 7;
+const UTILITY_POLE_ASSET = "external-city-park-and-playground-33677";
+const UTILITY_POLE_SPACING_M = 36;
+const UTILITY_POLE_OFFSET_M = 2.6;
+const UTILITY_POLE_LIMIT = 60;
 // Landscaping keeps this much distance from a finished building's walls.
 const FINISHED_BUILDING_PLANTING_CLEARANCE_M = 0.9;
 const COLORS = ["#ffb703", "#fb8500", "#219ebc", "#8ecae6", "#70c1b3", "#b8a1d9", "#e5989b", "#84a59d", "#f6bd60", "#90be6d"];
@@ -122,7 +145,12 @@ function addZone(layout: RoomLayout, zone: RoomLayoutZone, doorSide: "north" | "
     : undefined;
   // Alternate private offices between a single fitted asset accent wall and
   // the soft color palette. The other three walls stay simple and light.
-  const privateWallAsset = zone.kind === "private" ? templatePrivateWallAsset(privateRoomIndex) : undefined;
+  const teamNumber = /^team-(\d+)-office-/.exec(zone.id)?.[1];
+  const themeWalls = teamNumber ? teamThemeWallAssets(Number(teamNumber)) : [];
+  // Themed teams use their own pack's accent walls on every other room; other teams keep the shared rotation.
+  const privateWallAsset = zone.kind === "private"
+    ? (themeWalls.length ? (privateRoomIndex % 2 === 0 ? themeWalls[Math.floor(privateRoomIndex / 2) % themeWalls.length] as NonNullable<RoomLayoutWall["asset"]> : undefined) : templatePrivateWallAsset(privateRoomIndex))
+    : undefined;
   const oppositeDoorSide = { north: "south", east: "west", south: "north", west: "east" } as const;
   const accentSide = oppositeDoorSide[doorSide];
   layout.zones.push(zone);
@@ -166,6 +194,17 @@ function addZone(layout: RoomLayout, zone: RoomLayoutZone, doorSide: "north" | "
 
 const RESTROOM_ZONE_SCALE = 0.8;
 
+/** Areas of the civic row that finished buildings must leave alone: the park and field lots and the lawn in front of each restroom door. */
+function compactCivicLotReservations(mapWidth: number) {
+  const civic = compactCivicRow(mapWidth);
+  return [
+    { x: civic.park.x, z: 0, width: civic.park.width, depth: 52 },
+    { x: civic.field.x, z: 0, width: civic.field.width, depth: 52 },
+    { x: civic.restroomWestX, z: -20, width: 24, depth: 14 },
+    { x: civic.restroomEastX, z: -20, width: 24, depth: 14 },
+  ];
+}
+
 function addProp(layout: RoomLayout, id: string, asset: string, x: number, z: number, rotation = 0, collisionOverride?: boolean, elevation?: number) {
   const definition = ROOM_PROP_CATALOG.find((item) => item.asset === asset);
   if (!definition) return;
@@ -185,6 +224,9 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   if (totalPeople !== peoplePerTeam * teamCount) throw new Error("Total people must equal people per team × team count.");
   if (peoplePerTeam > 16) throw new Error("This layout supports up to 16 private rooms per team.");
   if (peoplePerTeam * teamCount + 15 > 250) throw new Error("These inputs create more zones or walls than one office map can save. Reduce the team count or team size.");
+  if (input.teamNames && (input.teamNames.length !== teamCount || input.teamNames.some((name) => typeof name !== "string" || !name.trim() || name.trim().length > 22))) {
+    throw new Error("Enter a name of up to 22 characters for every team.");
+  }
 
   const topTeams = Math.ceil(teamCount / 2);
   const bottomTeams = teamCount - topTeams;
@@ -204,36 +246,43 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   const cityGapM = Math.max(TEAM_GAP, Math.min(CITY_GAP_M, Math.floor((availableSideSpanM - largestSideCount * teamWidthM) / Math.max(1, largestSideCount - 1))));
   const leftSpan = leftCount * teamWidthM + Math.max(0, leftCount - 1) * cityGapM;
   const rightSpan = rightCount * teamWidthM + Math.max(0, rightCount - 1) * cityGapM;
-  // Ten-team campuses use five teams in each band. Keep each team block
-  // compact at 3 columns × 5 rows (15 private rooms), and align the two bands.
-  const compactFivePerHalf = topTeams === 5 && bottomTeams === 5 && peoplePerTeam <= 15;
-  const compactBandWidthM = 5 * ROOM_SIZE * GENERIC_ROOM_COLUMNS + 4 * COMPACT_CITY_GAP_M;
-  const compactTeamStarts = Array.from({ length: 5 }, (_, index) => -compactBandWidthM / 2 + index * (ROOM_SIZE * GENERIC_ROOM_COLUMNS + COMPACT_CITY_GAP_M));
-  const width = (compactFivePerHalf ? compactBandWidthM + 32 : Math.max(224, 2 * Math.max(leftSpan, rightSpan) + CITY_CENTER_GAP_M)) + PERIMETER_RESERVE_M;
-  const depth = (compactFivePerHalf ? 280 : MAP_DEPTH) + PERIMETER_RESERVE_M;
+  // Campuses of 6–10 teams (up to 15 people each) use the compact town layout; the plan picks how many room columns each team
+  // gets so the whole map stays close to square. Anything else keeps the original sparse layout.
+  const compactPlan = planCompactCampus(teamCount, peoplePerTeam);
+  const compactCampus = compactPlan !== null;
+  const width = compactPlan ? compactPlan.width : Math.max(224, 2 * Math.max(leftSpan, rightSpan) + CITY_CENTER_GAP_M) + PERIMETER_RESERVE_M;
+  const depth = compactPlan ? compactPlan.depth : MAP_DEPTH + PERIMETER_RESERVE_M;
   const leftStart = -CITY_CENTER_GAP_M / 2 - leftSpan;
   const rightStart = CITY_CENTER_GAP_M / 2;
   const layout: RoomLayout = { version: 1, props: [], zones: [], walls: [], doors: [], roadways: [], dimensions: { width, depth }, spawnPoint: { x: -79, z: 20 } };
 
+  // Team block centres, so each team's meeting room can sit directly above or below it.
+  const teamCenterX = new Map<number, number>();
   const createTeam = (teamNumber: number, side: "left" | "right", column: number, half: "top" | "bottom") => {
     const compactIndex = half === "top" ? teamNumber - 1 : teamNumber - topTeams - 1;
-    const startX = compactFivePerHalf
-      ? compactTeamStarts[compactIndex]!
+    const bandCount = half === "top" ? topTeams : bottomTeams;
+    const startX = compactPlan
+      ? -compactBandWidth(bandCount, compactPlan.columns) / 2 + compactIndex * compactPlan.slotWidthM
       : side === "left" ? leftStart + column * (teamWidthM + cityGapM) : rightStart + column * (teamWidthM + cityGapM);
-    const startZ = half === "top" ? TOP_TEAM_START_Z : compactFivePerHalf ? 48 : BOTTOM_TEAM_START_Z;
+    const roomWidthM = compactPlan ? COMPACT_ROOM_WIDTH_M : ROOM_SIZE;
+    teamCenterX.set(teamNumber, startX + (compactPlan ? compactPlan.columns : genericColumns) * roomWidthM / 2);
+    const startZ = compactCampus
+      ? half === "top" ? -(COMPACT_TEAM_ROAD_Z_M + 4 + compactPlan!.blockDepthM) : COMPACT_TEAM_ROAD_Z_M + 4
+      : half === "top" ? TOP_TEAM_START_Z : BOTTOM_TEAM_START_Z;
     for (let index = 0; index < peoplePerTeam; index += 1) {
-      const columns = compactFivePerHalf ? GENERIC_ROOM_COLUMNS : genericColumns;
+      const columns = compactPlan ? compactPlan.columns : genericColumns;
       const col = index % columns;
       const row = Math.floor(index / columns);
       const rowZ = startZ + 4 + row * (ROOM_SIZE + TEAM_GAP);
       const roomLabel = String(index + 1).padStart(2, "0");
+      const teamName = input.teamNames?.[teamNumber - 1]?.trim() ?? `T${teamNumber}`;
       addZone(layout, {
         id: `team-${teamNumber}-office-${roomLabel}`,
-        name: `T${teamNumber} Office ${roomLabel}`,
+        name: `${teamName} Office ${roomLabel}`,
         kind: "private",
-        x: startX + col * 8 + 4,
+        x: startX + col * roomWidthM + roomWidthM / 2,
         z: rowZ,
-        width: ROOM_SIZE,
+        width: roomWidthM,
         depth: ROOM_SIZE,
         color: COLORS[(teamNumber - 1) % COLORS.length]!,
       }, row % 2 === 0 ? "south" : "north");
@@ -248,58 +297,84 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
 
   // Five equal team meeting rooms fill the strip between the edge avenue and
   // perimeter road, with no leftover verge between their walls and either curb.
-  const edgeRoadZ = compactFivePerHalf ? 114 : MEETING_EDGE_ROAD_Z;
+  const edgeRoadZ = compactPlan ? compactPlan.edgeRoadZ : MEETING_EDGE_ROAD_Z;
   const perimeterRoadZ = depth / 2 - PERIMETER_ROAD_INSET_M;
-  const meetingRoomDepth = perimeterRoadZ - edgeRoadZ - CENTRAL_ROAD;
-  const meetingRoomZ = (perimeterRoadZ + edgeRoadZ) / 2;
-  const meetingRoomWidth = Math.min(TEAM_MEETING_MAX_WIDTH_M, (width - 2 * (PERIMETER_ROAD_INSET_M + CENTRAL_ROAD / 2) - 4 * TEAM_MEETING_GAP_M) / 5);
-  const meetingRoomStep = meetingRoomWidth + TEAM_MEETING_GAP_M;
-  const meetingRoomXs = Array.from({ length: 5 }, (_, index) => (index - 2) * meetingRoomStep);
-  for (let index = 0; index < Math.min(5, Math.max(topTeams, bottomTeams, 5)); index += 1) {
-    for (const [edge, direction] of [["north", -1], ["south", 1]] as const) {
-      addZone(layout, {
-        id: `meeting-${edge}-${index + 1}`,
-        name: `Meeting ${edge === "north" ? index + 1 : index + 6}`,
-        kind: "meeting",
-        x: meetingRoomXs[index]!,
-        z: direction * meetingRoomZ,
-        width: meetingRoomWidth,
-        depth: meetingRoomDepth,
-        color: "#8ecae6",
-      }, edge === "north" ? "south" : "north");
+  const meetingOuterZ = perimeterRoadZ - CENTRAL_ROAD / 2;
+  const meetingRoomDepth = meetingOuterZ - edgeRoadZ - CENTRAL_ROAD / 2;
+  const meetingRoomZ = (meetingOuterZ + edgeRoadZ + CENTRAL_ROAD / 2) / 2;
+  if (compactPlan) {
+    // Compact campus: each team has a meeting room as wide as its own slot, so the row of meeting rooms has no gaps.
+    for (const [edge, direction, count] of [["north", -1, topTeams], ["south", 1, bottomTeams]] as const) {
+      for (let index = 0; index < count; index += 1) {
+        const teamNumber = (edge === "north" ? 0 : topTeams) + index + 1;
+        addZone(layout, {
+          id: `meeting-${edge}-${index + 1}`,
+          name: `Meeting ${teamNumber}`,
+          kind: "meeting",
+          x: teamCenterX.get(teamNumber)!,
+          z: direction * meetingRoomZ,
+          width: compactPlan.slotWidthM,
+          depth: meetingRoomDepth,
+          color: "#8ecae6",
+        }, edge === "north" ? "south" : "north");
+      }
     }
-  }
-  const meetingGapDecor = ROOM_PROP_CATALOG.find((item) => item.asset === TEAM_MEETING_GAP_DECOR_ASSET);
-  if (meetingGapDecor) {
-    for (const edge of ["north", "south"] as const) {
-      for (let index = 0; index < meetingRoomXs.length - 1; index += 1) {
-        addProp(
-          layout,
-          `campus-meeting-gap-planter-${edge}-${index + 1}`,
-          meetingGapDecor.asset,
-          (meetingRoomXs[index]! + meetingRoomXs[index + 1]!) / 2,
-          (edge === "north" ? -1 : 1) * meetingRoomZ,
-          0,
-          meetingGapDecor.collision,
-        );
+  } else {
+    const defaultMeetingWidth = Math.min(TEAM_MEETING_MAX_WIDTH_M, (width - 2 * (PERIMETER_ROAD_INSET_M + CENTRAL_ROAD / 2) - 4 * TEAM_MEETING_GAP_M) / 5);
+    const defaultMeetingXs = Array.from({ length: 5 }, (_, index) => (index - 2) * (defaultMeetingWidth + TEAM_MEETING_GAP_M));
+    // Meeting N sits above (north row) or below (south row) the zone of the team
+    // with the same number; a slot without a matching team keeps its default x.
+    const meetingXsFor = (edge: "north" | "south") => {
+      const aligned = defaultMeetingXs.map((fallback, index) => teamCenterX.get((edge === "north" ? 0 : topTeams) + index + 1) ?? fallback);
+      // Use the aligned row only when it is in order, clear of the ring street and leaves room between neighbours.
+      const insideRing = aligned.every((x) => Math.abs(x) + defaultMeetingWidth / 2 <= width / 2 - MAP_EDGE_VERGE_M - RING_STREET_WIDTH_M);
+      const spaced = aligned.every((x, index) => index === 0 || x - aligned[index - 1]! >= ROOM_SIZE + TEAM_MEETING_GAP_M);
+      return insideRing && spaced ? aligned : defaultMeetingXs;
+    };
+    const meetingXsByEdge = { north: meetingXsFor("north"), south: meetingXsFor("south") };
+    // Keep neighbouring rooms apart when team blocks are closer than a default room is wide.
+    const meetingRoomWidth = Math.max(ROOM_SIZE, Math.min(defaultMeetingWidth, ...Object.values(meetingXsByEdge).flatMap((xs) => xs.slice(1).map((x, index) => Math.abs(x - xs[index]!) - TEAM_MEETING_GAP_M))));
+    for (let index = 0; index < Math.min(5, Math.max(topTeams, bottomTeams, 5)); index += 1) {
+      for (const [edge, direction] of [["north", -1], ["south", 1]] as const) {
+        addZone(layout, {
+          id: `meeting-${edge}-${index + 1}`,
+          name: `Meeting ${edge === "north" ? index + 1 : index + 6}`,
+          kind: "meeting",
+          x: meetingXsByEdge[edge][index]!,
+          z: direction * meetingRoomZ,
+          width: meetingRoomWidth,
+          depth: meetingRoomDepth,
+          color: "#8ecae6",
+        }, edge === "north" ? "south" : "north");
+      }
+    }
+    const meetingGapDecor = ROOM_PROP_CATALOG.find((item) => item.asset === TEAM_MEETING_GAP_DECOR_ASSET);
+    if (meetingGapDecor) {
+      for (const edge of ["north", "south"] as const) {
+        const edgeXs = meetingXsByEdge[edge];
+        for (let index = 0; index < edgeXs.length - 1; index += 1) {
+              addProp(
+            layout,
+            `campus-meeting-gap-planter-${edge}-${index + 1}`,
+            meetingGapDecor.asset,
+            (edgeXs[index]! + edgeXs[index + 1]!) / 2,
+            (edge === "north" ? -1 : 1) * meetingRoomZ,
+            0,
+            meetingGapDecor.collision,
+          );
+        }
       }
     }
   }
-  if (compactFivePerHalf) {
-    // Civic strip: a left-side Lobby spawn, a small meeting room and cafeteria
-    // around the Town Hall, L meeting rooms on opposite sides, and corner WC.
-    addZone(layout, { id: "shared-lobby", name: "Lobby", kind: "meeting", x: -112, z: 0, width: 28, depth: 36, color: "#8ecae6" }, "east");
-    layout.spawnPoint = { x: -120, z: 14 };
-    addZone(layout, { id: "meeting-small-west", name: "Small meeting", kind: "meeting", x: -50, z: 0, width: SMALL_MEETING_WIDTH_M, depth: SMALL_MEETING_DEPTH_M, color: "#8ecae6" }, "west");
-    addZone(layout, { id: "shared-townhall", name: "Town Hall", kind: "meeting", x: 0, z: 0, width: 42, depth: 44, color: "#b8a1d9" });
-    addZone(layout, { id: "shared-cafeteria", name: "Cafeteria", kind: "meeting", x: 50, z: 0, width: 40, depth: 40, color: "#f6bd60" }, "west");
-    addZone(layout, { id: "meeting-large-north-east", name: "Meeting L 1", kind: "meeting", x: 114, z: -64, width: SMALL_MEETING_WIDTH_M, depth: SMALL_MEETING_DEPTH_M, color: "#8ecae6" }, "west");
-    addZone(layout, { id: "meeting-large-south-west", name: "Meeting L 2", kind: "meeting", x: -114, z: 64, width: SMALL_MEETING_WIDTH_M, depth: SMALL_MEETING_DEPTH_M, color: "#8ecae6" }, "east");
-    for (const [id, x, z, doorSide] of [
-      ["shared-restroom-north-west", -112, -90, "east"], ["shared-restroom-north-east", 112, -90, "west"],
-      ["shared-restroom-south-west", -112, 90, "east"], ["shared-restroom-south-east", 112, 90, "west"],
-    ] as const) {
-      addZone(layout, { id, name: "Restroom", kind: "restroom", x, z, width: 20 * RESTROOM_ZONE_SCALE, depth: 26 * RESTROOM_ZONE_SCALE, color: "#70c1b3" }, doorSide);
+  if (compactPlan) {
+    // Civic strip, west to east between the side streets, with 4 m of lawn between neighbours: Lobby (spawn), public park
+    // (open lot), Restroom, Town Hall, Restroom, football field (open lot). The lots are planted and drawn separately.
+    const civic = compactCivicRow(width);
+    addZone(layout, { id: "shared-lobby", name: "Lobby", kind: "meeting", x: civic.lobbyX, z: 0, width: 24, depth: 36, color: "#8ecae6" }, "east");
+    layout.spawnPoint = { x: civic.lobbyX, z: 14 };
+    addZone(layout, { id: "shared-townhall", name: "Town Hall", kind: "meeting", x: civic.townHallX, z: 0, width: 42, depth: 44, color: "#b8a1d9" });
+    for (const [id, x] of [["shared-restroom-west", civic.restroomWestX], ["shared-restroom-east", civic.restroomEastX]] as const) {
+      addZone(layout, { id, name: "Restroom", kind: "restroom", x, z: 0, width: 20, depth: 26, color: "#70c1b3" }, "north");
     }
   } else {
     addZone(layout, { id: "shared-townhall", name: "Town Hall", kind: "meeting", x: -79, z: 0, width: 42, depth: 46, color: "#b8a1d9" });
@@ -317,7 +392,7 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
     const entranceSide = entranceWall.axis === "horizontal"
       ? entranceWall.z < zone.z ? "north" : "south"
       : entranceWall.x < zone.x ? "west" : "east";
-    for (const fixture of campusRestroomFixtures(zone, compactFivePerHalf, entranceSide)) {
+    for (const fixture of campusRestroomFixtures(zone, entranceSide === "east" || entranceSide === "west", entranceSide)) {
       addProp(layout, `${zone.id}-starter-${fixture.key}`, fixture.asset, zone.x + fixture.xM, zone.z + fixture.zM, fixture.rotationRad ?? 0, fixture.collision, fixture.elevationM);
     }
   }
@@ -325,28 +400,54 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   // Keep generated office interiors empty so teams can furnish their rooms
   // themselves. Landscaping and street props are added below, outside zones.
 
-  const roads = campusLoopRoads(layout.zones, { width, depth }, compactFivePerHalf);
+  const roads = campusLoopRoads(layout.zones, { width, depth }, compactCampus, compactPlan?.edgeRoadZ);
   layout.roadways = roads;
-  appendCampusCivicParkProps(layout, compactFivePerHalf, { width, depth });
+  appendCampusCivicParkProps(layout, compactCampus, { width, depth });
   appendCampusCityBlocks(layout);
 
   // Cars are parked on the wide roads with enough room between them to drive through.
   // A seeded shuffle gives variety while keeping the saved layout reproducible.
   const random = seededRandom(input.seed ?? (totalPeople * 31 + peoplePerTeam * 17 + teamCount));
   const vehicleAssets = ["vehicle-speedster", "vehicle-racer", "vehicle-suv", "vehicle-monster-truck", "vehicle-truck", "car-sedan", "car-hatchback-sports", "car-taxi", "car-kart-oopi"];
-  const vehicleSpots = compactFivePerHalf ? [
-    { x: -140, z: -40, rotation: Math.PI / 2 }, { x: 140, z: -40, rotation: Math.PI / 2 },
-    { x: -140, z: 40, rotation: Math.PI / 2 }, { x: 140, z: 40, rotation: Math.PI / 2 },
-    { x: -70, z: -40, rotation: Math.PI / 2 }, { x: 70, z: -40, rotation: Math.PI / 2 },
-    { x: -70, z: 40, rotation: Math.PI / 2 }, { x: 70, z: 40, rotation: Math.PI / 2 },
-  ] : [
+  // Twenty cars, two lanes per street in opposite directions. Compact campuses spread them over the cross streets and the
+  // perimeter ring; the generic layout keeps its original parking spots.
+  const QUARTER = Math.PI / 2;
+  const compactVehicleSpots = () => {
+    if (!compactPlan) return [];
+    // Two cars per lane on the four cross streets (opposite directions), plus four on the side streets: twenty in all.
+    const spots: Array<{ x: number; z: number; rotation: number }> = [];
+    const reach = width / 2 - 52;
+    for (const streetZ of [-compactPlan.edgeRoadZ, -COMPACT_TEAM_ROAD_Z_M, COMPACT_TEAM_ROAD_Z_M, compactPlan.edgeRoadZ]) {
+      spots.push(
+        { x: -reach * 0.6, z: streetZ - 2, rotation: QUARTER }, { x: reach * 0.25, z: streetZ - 2, rotation: QUARTER },
+        { x: -reach * 0.25, z: streetZ + 2, rotation: -QUARTER }, { x: reach * 0.6, z: streetZ + 2, rotation: -QUARTER },
+      );
+    }
+    const sideX = width / 2 - 8;
+    spots.push(
+      { x: -sideX - 2, z: -compactPlan.edgeRoadZ * 0.6, rotation: 0 }, { x: -sideX + 2, z: compactPlan.edgeRoadZ * 0.4, rotation: Math.PI },
+      { x: sideX + 2, z: -compactPlan.edgeRoadZ * 0.4, rotation: Math.PI }, { x: sideX - 2, z: compactPlan.edgeRoadZ * 0.6, rotation: 0 },
+    );
+    return spots;
+  };
+  const vehicleSpots = compactCampus ? compactVehicleSpots() : [
     { x: -1.3, z: -84, rotation: 0 }, { x: 1.3, z: -22, rotation: 0 },
     { x: -1.3, z: 22, rotation: 0 }, { x: 1.3, z: 84, rotation: 0 },
     { x: -68, z: -50, rotation: Math.PI / 2 }, { x: 68, z: -50, rotation: Math.PI / 2 },
     { x: -68, z: 50, rotation: Math.PI / 2 }, { x: 68, z: 50, rotation: Math.PI / 2 },
   ];
+  // Doorways of every room, so a parked car never blocks an entrance.
+  const doorPoints = layout.doors.flatMap((door) => {
+    const doorWall = layout.walls.find((wall) => wall.id === door.wallId);
+    return doorWall ? [doorWall.axis === "horizontal" ? { x: doorWall.x + door.offset, z: doorWall.z } : { x: doorWall.x, z: doorWall.z + door.offset }] : [];
+  });
+  const nearDoor = (x: number, z: number) => doorPoints.some((point) => Math.abs(point.x - x) < VEHICLE_DOOR_CLEARANCE_M && Math.abs(point.z - z) < VEHICLE_DOOR_CLEARANCE_M);
   for (let index = 0; index < vehicleSpots.length; index += 1) {
-    const spot = vehicleSpots[index]!;
+    const spot = { ...vehicleSpots[index]! };
+    // Slide a car along its street until it is clear of every doorway.
+    for (let attempt = 0; attempt < 40 && nearDoor(spot.x, spot.z); attempt += 1) {
+      if (Math.abs(spot.rotation) === Math.PI / 2) spot.x += 3; else spot.z += 3;
+    }
     const asset = vehicleAssets[Math.floor(random() * vehicleAssets.length)]!;
     const definition = ROOM_PROP_CATALOG.find((item) => item.asset === asset);
     if (!definition) continue;
@@ -384,6 +485,38 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
       }
     }
   }
+  // Utility poles: tall park lamp posts stand in for electric poles along the main streets, on the verge opposite the street lights' rhythm.
+  const utilityPole = ROOM_PROP_CATALOG.find((item) => item.asset === UTILITY_POLE_ASSET);
+  if (utilityPole) {
+    let placedPoles = 0;
+    for (const road of roads.filter((item) => item.kind === "major")) {
+      for (const point of roadsideVergePoints(road, { spacingM: UTILITY_POLE_SPACING_M, offsetM: UTILITY_POLE_OFFSET_M, marginM: 14 })) {
+        if (placedPoles >= UTILITY_POLE_LIMIT) break;
+        if (!canPlaceStreetProp(point.x, point.z, utilityPole)) continue;
+        addProp(layout, `campus-utility-pole-${placedPoles + 1}`, utilityPole.asset, point.x, point.z, point.rotation);
+        placedPoles += 1;
+      }
+    }
+  }
+  // Street trees alternate broadleaf / conifer along each kerb, with a flower bed or bench every few trees.
+  const roadsideTrees = ROADSIDE_TREE_ASSETS.map((asset) => ROOM_PROP_CATALOG.find((item) => item.asset === asset)).filter((item): item is NonNullable<typeof streetLight> => Boolean(item));
+  const roadsideAccents = ROADSIDE_ACCENT_ASSETS.map((asset) => ROOM_PROP_CATALOG.find((item) => item.asset === asset)).filter((item): item is NonNullable<typeof streetLight> => Boolean(item));
+  if (roadsideTrees.length) {
+    let placedTrees = 0;
+    let treeCount = 0;
+    for (const road of roads.filter((item) => item.kind === "major")) {
+      for (const point of roadsideVergePoints(road, { spacingM: ROADSIDE_TREE_SPACING_M, offsetM: ROADSIDE_TREE_OFFSET_M, marginM: 6 })) {
+        if (placedTrees >= ROADSIDE_TREE_LIMIT) break;
+        // Every fourth slot is a flower bed or bench; the rest alternate between the two tree shapes.
+        const accent = roadsideAccents.length && treeCount % 4 === 3 ? roadsideAccents[Math.floor(treeCount / 4) % roadsideAccents.length] : undefined;
+        const definition = accent ?? roadsideTrees[treeCount % roadsideTrees.length]!;
+        if (!canPlaceStreetProp(point.x, point.z, definition)) continue;
+        treeCount += 1;
+        placedTrees += 1;
+        addProp(layout, `campus-roadside-${accent ? "accent" : "tree"}-${placedTrees}`, definition.asset, point.x, point.z, accent ? point.rotation : 0, definition.collision);
+      }
+    }
+  }
   if (streetBin) {
     let placedBins = 0;
     const roadsideBinSpots = roads
@@ -407,8 +540,8 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   const trafficLight = ROOM_PROP_CATALOG.find((item) => item.asset === "kenney-city-kit-roads-traffic-light");
   if (trafficLight) {
     let signalIndex = 0;
-    const avenues = compactFivePerHalf ? [-24, 24] : [0];
-    const crossStreets = compactFivePerHalf ? [-40, 40, 114] : [-MEETING_EDGE_ROAD_Z, -50, 50, MEETING_EDGE_ROAD_Z];
+    const avenues = compactPlan ? [-(width / 2 - 8), width / 2 - 8] : [0];
+    const crossStreets = compactPlan ? [-compactPlan.edgeRoadZ, -COMPACT_TEAM_ROAD_Z_M, COMPACT_TEAM_ROAD_Z_M, compactPlan.edgeRoadZ] : [-MEETING_EDGE_ROAD_Z, -50, 50, MEETING_EDGE_ROAD_Z];
     for (const avenueX of avenues) for (const crossZ of crossStreets) for (const sideX of [-1, 1]) for (const sideZ of [-1, 1]) {
       const x = avenueX + sideX * (CENTRAL_ROAD / 2 + trafficLight.width / 2 + 0.7);
       const z = crossZ + sideZ * (CENTRAL_ROAD / 2 + trafficLight.depth / 2 + 0.7);
@@ -421,8 +554,10 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   // Add a few finished buildings only where there is enough clear outdoor
   // space. The placement helper reserves their full rotated footprints before
   // landscaping candidates are generated.
-  const civicParkDepthM = compactFivePerHalf ? 72 : 92;
-  layout.props.push(...placeCampusFinishedBuildings(layout, random, [{ x: 0, z: 0, width, depth: civicParkDepthM }]));
+  const civicParkDepthM = compactCampus ? 56 : 92;
+  layout.props.push(...placeCampusFinishedBuildings(layout, random, [
+    ...(compactPlan ? compactCivicLotReservations(width) : [{ x: 0, z: 0, width, depth: civicParkDepthM }]),
+  ]));
 
   // Keep the middle of open spaces walkable: fill to 8% coverage with
   // landscaping candidates beside road edges only. Rooms and roadways are

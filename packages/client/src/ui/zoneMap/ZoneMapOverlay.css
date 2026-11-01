@@ -1,0 +1,30 @@
+.zone-map-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgba(8, 40, 55, .45); }
+.zone-map { display: flex; flex-direction: column; gap: 10px; width: min(1100px, 100%); max-height: 100%; padding: 14px 16px; border-radius: 16px; background: #f7f8f4; box-shadow: 0 18px 50px rgba(8, 40, 55, .35); color: #183b4b; }
+.zone-map-header { display: flex; align-items: center; gap: 14px; }
+.zone-map-header h2 { margin: 0; font-size: 18px; }
+.zone-map-location { flex: 1; font-size: 14px; }
+.zone-map-close { padding: 6px 12px; border: 1px solid #23495a; border-radius: 999px; background: #fff; color: #23495a; font: inherit; font-size: 13px; cursor: pointer; }
+.zone-map-svg { width: 100%; min-height: 0; max-height: calc(100vh - 150px); border-radius: 10px; }
+.zone-map-ground { fill: #e9f0ed; }
+.zone-map-region > rect:first-child { stroke: #23495a; stroke-width: .5; stroke-opacity: .55; }
+.zone-map-team > rect:first-child { fill: #cfe3f4; }
+.zone-map-seat { fill: #fff; fill-opacity: .8; stroke: #7da3c4; stroke-width: .25; }
+.zone-map-meeting > rect:first-child { fill: #8ecae6; }
+.zone-map-townhall > rect:first-child { fill: #b8a1d9; }
+.zone-map-common > rect:first-child { fill: #f6bd60; }
+.zone-map-restroom > rect:first-child { fill: #70c1b3; }
+.zone-map-room > rect:first-child { fill: #dfe6e2; }
+.zone-map-label { fill: #183b4b; font-weight: 700; paint-order: stroke; stroke: rgba(255, 255, 255, .8); stroke-width: .5px; }
+.zone-map-me-dot { fill: #159bb4; stroke: #fff; stroke-width: .6; }
+.zone-map-me-pulse { fill: #159bb4; fill-opacity: .3; transform-box: fill-box; transform-origin: center; animation: zone-map-pulse 1.6s ease-out infinite; }
+@keyframes zone-map-pulse { from { transform: scale(.6); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .zone-map-me-pulse { animation: none; } }
+.zone-map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; }
+.zone-map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.zone-map-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(35, 73, 90, .5); }
+.zone-map-swatch.zone-map-team { background: #cfe3f4; }
+.zone-map-swatch.zone-map-meeting { background: #8ecae6; }
+.zone-map-swatch.zone-map-townhall { background: #b8a1d9; }
+.zone-map-swatch.zone-map-common { background: #f6bd60; }
+.zone-map-swatch.zone-map-restroom { background: #70c1b3; }
+.zone-map-swatch.zone-map-you { background: #159bb4; border-radius: 50%; }

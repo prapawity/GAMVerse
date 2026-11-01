@@ -58,13 +58,13 @@ test("distance is circular to the nearest chunk extent, not a square or its cent
   assert.equal(shouldRenderRoadsideChunk(bounds, { x: bounds.maxX + R / 2, z: 0 }, false, false), true);
 });
 
-test("editor and missing character preserve visibility; a distant chunk is culled in any zone", () => {
+test("editing keeps distant chunks culled; a missing observer preserves visibility", () => {
   assert.equal(shouldRenderRoadsideChunk(bounds, { x: -1000, z: 0 }, false, false), false);
-  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -1000, z: 0 }, false, true), true);
+  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -1000, z: 0 }, false, true), false);
   assert.equal(shouldRenderRoadsideChunk(bounds, undefined, false, false), true);
 });
 
-test("visibility follows the character, restores batches on zone/editor changes and handles late loads", () => {
+test("visibility follows its observer, stays culled in the editor and handles late loads", () => {
   const roadside = new RoadsideSceneryVisibility([prop("campus-landscape-1", 600)]);
   const visual = { visible: true };
   roadside.update(observer, false);
@@ -77,8 +77,8 @@ test("visibility follows the character, restores batches on zone/editor changes 
   roadside.update(observer, false);
   assert.equal(visual.visible, false);
   roadside.update(observer, true);
-  assert.equal(visual.visible, true);
-  assert.equal(roadside.visibilityFor("campus-landscape-1"), undefined);
+  assert.equal(visual.visible, false);
+  assert.equal(roadside.visibilityFor("campus-landscape-1"), false);
 });
 
 test("instanced placements split by spatial cell for any id; unknown ids stay in an unculled group", () => {
@@ -203,9 +203,9 @@ test("chunk rejection never removes a chunk that holds a prop of the area, whate
   assert.equal(shouldRenderRoadsideChunk({ minX: 150.01, maxX: 160, minZ: -1, maxZ: 1 }, observer, true, false), true);
 });
 
-test("editing and a missing character show every prop", () => {
+test("editing keeps distant props culled and a missing observer shows every prop", () => {
   const far = at(900, 900).bounds;
-  assert.equal(shouldRenderRoadsideProp(far, { x: 0, z: 0, rotation: 0 }, false, true), true);
+  assert.equal(shouldRenderRoadsideProp(far, { x: 0, z: 0, rotation: 0 }, false, true), false);
   assert.equal(shouldRenderRoadsideProp(far, { x: 0, z: 0, rotation: 0 }, false, false), false);
   assert.equal(shouldRenderRoadsideProp(far, undefined, false, false), true);
 });

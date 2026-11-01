@@ -4,7 +4,7 @@ import { PropThumbnail } from "./PropThumbnail";
 import "./MapBuildingPicker.css";
 
 const MAP_COMPONENTS = ROOM_PROP_CATALOG.filter((item) => item.editorRole === "map-component" && !item.vehicleId);
-const TRANSPORTERS = ROOM_PROP_CATALOG.filter((item) => item.editorRole === "map-component" && Boolean(item.vehicleId));
+const TRANSPORTERS = ROOM_PROP_CATALOG.filter((item) => item.editorRole === "map-component" && (Boolean(item.vehicleId) || item.group === "Transporter"));
 const BUILDING_PREFABS = ROOM_PROP_CATALOG.filter((item) => item.editorRole === "building-prefab");
 type PickerSection = "Building components" | "Transporter" | "Finished buildings" | "Placed";
 
@@ -43,7 +43,7 @@ export function MapBuildingPicker({ props, selectedAsset, selectedPropId, onSele
       })}
       {placedItems.length > 0 && <span className="map-building-picker-hint">Select a piece on the map, then right-click it to move or rotate.</span>}
     </div> : <>
-      <p>{section === "Building components" ? "Choose roads, factory parts, plants, rocks, trees, or outdoor decorations, then click the map to place them." : section === "Transporter" ? "Choose a parked vehicle, then click the map to place it. Players can drive vehicles placed on the map." : "Choose a complete building, then click an open area on the map to place it."}</p>
+      <p>{section === "Building components" ? "Choose roads, factory parts, plants, rocks, trees, or outdoor decorations, then click the map to place them." : section === "Transporter" ? "Choose a vehicle model, then click the map to place it. Supported parked vehicles can be driven." : "Choose a complete building, then click an open area on the map to place it."}</p>
       <input aria-label={`Search ${section.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={section === "Building components" ? "Search map components" : section === "Transporter" ? "Search transporters" : "Search buildings"} />
       <div className="map-building-picker-grid">{filteredItems.map((item) => <button type="button" key={item.asset} className={selectedAsset === item.asset ? "is-selected" : ""} aria-label={`Place ${item.label}`} title={item.label} onClick={() => { onSelectProp(null); onSelectAsset(item.asset); }}>
         <span><PropThumbnail item={item} preview={item.preview} /></span><strong>{item.label}</strong>

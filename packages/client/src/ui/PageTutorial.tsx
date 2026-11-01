@@ -38,7 +38,7 @@ const tutorials: Record<TutorialPage, { title: string; steps: TutorialStep[] }> 
   office: { title: "Inside the office", steps: [
     { badge: "WORKSPACE", title: "People, chat, and activity", body: "Use the left rail to find teammates, send office or direct messages, and catch up on recent activity. You can message people even when they are offline.", target: "office-navigation" },
     { badge: "ORIENTATION", title: "Read the minimap", body: "The compass rotates with your view. The minimap stays centered on you and marks teammates nearby; use it to keep your bearings while exploring.", target: "office-minimap" },
-    { badge: "MOVE & LOOK", title: "Choose your view", body: "Walk with WASD or the on-screen controls. Press M to switch between 2D and 3D, V to change the 3D camera, and Space to jump in 3D.", keyboard: "WASD · M 2D/3D · V camera · Space jump" },
+    { badge: "MOVE & LOOK", title: "Choose your view", body: "Walk with WASD or the on-screen controls. Press N to switch between 2D and 3D, M to open the zone map, V to change the 3D camera, and Space to jump in 3D.", keyboard: "WASD · N 2D/3D · M map · V camera · Space jump" },
     { badge: "GET AROUND", title: "Click to travel", body: "Click an open place to travel there automatically; nearby trips may use a vehicle. In 2D, drag to pan and click to walk. Hold G to pass through prompted props; walls and locked rooms stay solid.", keyboard: "Click to travel · Drag to pan · Hold G" },
     { badge: "YOUR DESK", title: "Claim a private workroom", body: "Claim an available desk to make a private room yours. Use the character tools to return to your desk or recenter the camera when you need it.", target: "office-focus-character" },
     { badge: "TALK", title: "Meet people your way", body: "Walking into a voice conversation connects you automatically with your mic and camera off. Use Talk to listen, join, approach a conversation, or send a meet invitation.", target: "office-toolbar" },
@@ -48,7 +48,7 @@ const tutorials: Record<TutorialPage, { title: string; steps: TutorialStep[] }> 
   meeting: { title: "Join the meeting", steps: [
     { badge: "AUDIO", title: "You join muted", body: "Entering a voice zone does not turn on your microphone. Use the microphone control when you are ready to speak.", target: "office-microphone" },
     { badge: "SHARE", title: "Camera and screen", body: "Turn on your camera or share your screen when it helps the conversation. Camera-off participants remain visible in the meeting view.", target: "office-toolbar" },
-    { badge: "MOVE", title: "Move around the room", body: "Walk with WASD. With heading lock on, hold A or D to turn; press Space to jump in 3D. M switches between the 2D and 3D views.", keyboard: "WASD · Hold A / D to turn · Space jump" },
+    { badge: "MOVE", title: "Move around the room", body: "Walk with WASD. With heading lock on, hold A or D to turn; press Space to jump in 3D. N switches between the 2D and 3D views; M opens the zone map.", keyboard: "WASD · Hold A / D to turn · Space jump" },
   ] },
 };
 

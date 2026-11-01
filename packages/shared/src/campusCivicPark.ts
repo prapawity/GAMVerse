@@ -1,3 +1,4 @@
+import { compactCivicLots } from "./campusCompactPlan.js";
 import { CIVIC_PARK_ASSETS } from "./campusCivicParkCatalog.js";
 import { groveCandidates, type GroveBand } from "./campusParkGrove.js";
 import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutProp } from "./roomLayout.js";
@@ -5,6 +6,8 @@ export { CIVIC_PARK_ASSETS } from "./campusCivicParkCatalog.js";
 
 const PATH_TILE_STEP_M = 2;
 const POND_HALF_OFFSET_M = 5;
+// Water sections are 6 m wide; a 2 m gap between them carries the bridge.
+const COMPACT_POND_HALF_OFFSET_M = 4;
 const TREE_CLEARANCE_M = 0.8;
 const QUARTER_TURN_RAD = Math.PI / 2;
 const HALF_TURN_RAD = Math.PI;
@@ -34,6 +37,11 @@ const GENERIC_GROVE_BANDS_M: readonly GroveBand[] = [
   { xMin: 20, xMax: 114, zMin: -38, zMax: 38 },
 ];
 const MAP_EDGE_MARGIN_M = 8;
+/** The compact park keeps its original plan, moved into the lot between Lobby and Town Hall. */
+/** Width the original park plan was drawn for; the compact park lot scales it to fit. */
+export const ORIGINAL_PARK_WIDTH_M = 76;
+const ORIGINAL_PARK_CENTRE_X_M = -132;
+export const COMPACT_PARK_SCALE_Z = 0.76;
 const WEST_BENCH_TARGET = 6;
 const WEST_BENCH_ROWS_Z_M = [-20, 20, -8, 8, -26, 26] as const;
 const COMPACT_BENCH_CENTERS_M = [[-62, -29], [-38, -18], [38, 28], [62, 28], [-70, 18], [70, -18]] as const;
@@ -95,12 +103,56 @@ export function appendCampusCivicParkProps(layout: RoomLayout, compact: boolean,
       surfaceTiles.set(key, { x, z, bridge: bridge || (surfaceTiles.get(key)?.bridge ?? false) });
     }
   };
-  const pond = (x: number, z: number, index: number) => {
-    for (const side of [-1, 1]) add(`pond-${index}-${side}`, CIVIC_PARK_ASSETS.water, x + side * POND_HALF_OFFSET_M, z);
+  const pond = (x: number, z: number, index: number, halfOffsetM = POND_HALF_OFFSET_M) => {
+    for (const side of [-1, 1]) add(`pond-${index}-${side}`, CIVIC_PARK_ASSETS.water, x + side * halfOffsetM, z);
     // Water is split either side of a four-metre dry channel. The bridge
     // occupies its middle, so shared collision agrees with the visible crossing.
     path(x, z - POND_CROSSING_HALF_LENGTH_M, x, z + POND_CROSSING_HALF_LENGTH_M, true);
   };
+  if (compact) {
+    // Compact campus: a single public park fills the lot between Lobby and Town Hall (the client draws the matching lawn).
+    // Coordinates follow the original park plan, shifted into the lot and flattened to fit the civic row.
+    const lots = compactCivicLots(layout);
+    if (!lots) return;
+    const px = (value: number) => (lots.park.width / ORIGINAL_PARK_WIDTH_M) * (value - ORIGINAL_PARK_CENTRE_X_M) + lots.park.x;
+    const pz = (value: number) => value * COMPACT_PARK_SCALE_Z;
+    pond(px(-150), 0, 3, COMPACT_POND_HALF_OFFSET_M);
+    for (const [x1, z1, x2, z2] of [
+      [-170, -28, -94, -28], [-170, 28, -94, 28], [-170, -28, -170, 28], [-94, -28, -94, 28], [-170, 0, -158, 0],
+    ] as const) path(px(x1), pz(z1), px(x2), pz(z2));
+    for (const [key, tile] of surfaceTiles) add(`surface-${key}`, tile.bridge ? CIVIC_PARK_ASSETS.bridge : CIVIC_PARK_ASSETS.path, tile.x, tile.z);
+    let treeIndex = 0;
+    for (const x of [-164, -152, -140, -130] as const) for (const z of [-22, -10, 10, 22] as const) {
+      const index = treeIndex++;
+      const asset = PARK_TREE_ASSETS[(index * 7 + Math.floor(index / 3)) % PARK_TREE_ASSETS.length]!;
+      add(`west-public-park-tree-${index}`, asset, px(x), pz(z), (index % 4) * QUARTER_TURN_RAD, TREE_CLEARANCE_M);
+    }
+    for (const [index, [x, z]] of ([[-164, -16], [-164, 16], [-156, -14], [-156, 14], [-148, -14], [-148, 14]] as const).entries()) {
+      add(`west-public-park-bench-${index}`, "kit:benchcushionlow", px(x), pz(z), index % 2 ? -QUARTER_TURN_RAD : QUARTER_TURN_RAD, TREE_CLEARANCE_M);
+    }
+    for (const [index, [x, z]] of ([[-160, -6], [-160, 6], [-140, -6], [-140, 6], [-130, -6], [-130, 6]] as const).entries()) {
+      const asset = PARK_ROCK_ASSETS[(index * 5 + 2) % PARK_ROCK_ASSETS.length]!;
+      add(`west-public-park-rock-${index}`, asset, px(x), pz(z), (index % 4) * QUARTER_TURN_RAD, 0.25);
+    }
+    // Finishing touches: flower beds around the pond and at the corners, lamps and bins along the path loop, and a second
+    // row of mixed trees in the east half of the lawn.
+    for (const [index, [x, z]] of ([[-158, -11], [-142, -11], [-158, 11], [-142, 11], [-166, -24], [-98, -24], [-166, 24], [-98, 24], [-132, -16], [-132, 16]] as const).entries()) {
+      add(`west-public-park-flowerbed-${index}`, "external-city-park-and-playground-33682", px(x), pz(z), 0, 0.3);
+    }
+    for (const [index, [x, z]] of ([[-168, -26], [-96, -26], [-168, 26], [-96, 26], [-132, -26], [-132, 26], [-168, 0], [-96, 0]] as const).entries()) {
+      add(`west-public-park-light-${index}`, "kenney-city-kit-roads-light-square", px(x), pz(z), 0, 0.3);
+    }
+    for (const [index, [x, z]] of ([[-150, -22], [-114, -22], [-150, 22], [-114, 22]] as const).entries()) {
+      add(`west-public-park-bin-${index}`, "kit:trashcan", px(x), pz(z), HALF_TURN_RAD, 0.3);
+    }
+    let eastTreeIndex = 0;
+    for (const x of [-122, -112, -102] as const) for (const z of [-22, -12, 12, 22] as const) {
+      const index = eastTreeIndex++;
+      const asset = PARK_TREE_ASSETS[(index * 3 + 5) % PARK_TREE_ASSETS.length]!;
+      add(`west-public-park-grove-tree-${index}`, asset, px(x), pz(z), (index % 4) * QUARTER_TURN_RAD, TREE_CLEARANCE_M);
+    }
+    return;
+  }
   for (const [index, [x, z]] of (compact ? COMPACT_POND_CENTERS_M : GENERIC_POND_CENTERS_M).entries()) pond(x, z, index + 1);
   for (const [x1, z1, x2, z2] of compact ? COMPACT_PATH_SEGMENTS_M : GENERIC_PATH_SEGMENTS_M) path(x1, z1, x2, z2);
   for (const [key, tile] of surfaceTiles) add(`surface-${key}`, tile.bridge ? CIVIC_PARK_ASSETS.bridge : CIVIC_PARK_ASSETS.path, tile.x, tile.z);

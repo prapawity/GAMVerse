@@ -12,7 +12,7 @@ type RoadsidePlacement = Position & { id: string; width: number; depth: number; 
 export type RoadsideBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 export type RoadsideChunk<Prop> = { key: string; bounds: RoadsideBounds; props: Prop[] };
 
-/** Every layout prop is chunked; in every zone the character, not the camera, decides what is drawn. */
+/** Every layout prop is chunked; the caller supplies the player or editor-camera observer. */
 export function groupRoadsideProps<Prop extends RoadsidePlacement>(props: readonly Prop[]): RoadsideChunk<Prop>[] {
   const chunks = new Map<string, RoadsideChunk<Prop>>();
   for (const prop of props) {
@@ -87,9 +87,9 @@ export function shouldRenderRoadsideChunk(
   bounds: RoadsideBounds,
   character: RoadsideCharacter | undefined,
   wasVisible: boolean,
-  editing: boolean,
+  _editing: boolean,
 ) {
-  if (editing || !character) return true;
+  if (!character) return true;
   const dx = Math.max(bounds.minX - character.x, 0, character.x - bounds.maxX);
   const dz = Math.max(bounds.minZ - character.z, 0, character.z - bounds.maxZ);
   const radius = ROADSIDE_FRONT_M + (wasVisible ? ROADSIDE_RENDER_HYSTERESIS_M : 0);
@@ -100,9 +100,9 @@ export function shouldRenderRoadsideProp(
   bounds: RoadsideBounds,
   character: RoadsideCharacter | undefined,
   wasVisible: boolean,
-  editing: boolean,
+  _editing: boolean,
 ) {
-  if (editing || !character) return true;
+  if (!character) return true;
   return intersectsRoadsideArea(bounds, character, wasVisible ? ROADSIDE_RENDER_HYSTERESIS_M : 0);
 }
 
@@ -120,7 +120,7 @@ export class RoadsideSceneryVisibility {
   }
 
   update(character: RoadsideCharacter | undefined, editing: boolean) {
-    this.active = Boolean(character && !editing);
+    this.active = Boolean(character);
     for (const chunk of this.chunks) {
       const chunkVisible = shouldRenderRoadsideChunk(chunk.bounds, character, chunk.visible, editing);
       let anyVisible = false;

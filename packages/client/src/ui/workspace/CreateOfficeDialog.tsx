@@ -1,6 +1,7 @@
-import { useId, useRef, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import type { CampusInteriorPreset } from "@gammyverse/shared";
 import { WorkspaceDialog } from "./WorkspaceDialog";
+import { MAX_OFFICE_TEAM_COUNT, TEAM_NAME_MAX_CHARACTERS, defaultOfficeTeamName } from "./teamNames";
 import "./CreateOfficeDialog.css";
 
 const OFFICE_NAME_MIN_CHARACTERS = 2;
@@ -8,13 +9,17 @@ const OFFICE_NAME_MAX_CHARACTERS = 64;
 const PEOPLE_MIN_COUNT = 1;
 const PEOPLE_MAX_COUNT = 4_000;
 const TEAMS_MIN_COUNT = 1;
-const TEAMS_MAX_COUNT = 250;
+const TEAMS_MAX_COUNT = MAX_OFFICE_TEAM_COUNT;
 const WHOLE_NUMBER_STEP_COUNT = 1;
 const CREATE_LABEL = "Create office";
 const CLOSE_LABEL = "Close create office";
 const NAME_LABEL = "Office name";
 const PEOPLE_LABEL = "Total people";
 const TEAMS_LABEL = "Teams";
+const TEAM_NAMES_LABEL = "Team names";
+const TEAM_NAMES_HINT = "Search for a team or move through the pages. Names appear on its generated offices.";
+const REQUIRED_TEAM_NAME_LABEL = "Enter a name for every team.";
+const TEAM_NAME_PAGE_SIZE = 8;
 const INTERIORS_LABEL = "New office interiors";
 const FURNISHED_LABEL = "Furnished starter (recommended)";
 const EMPTY_LABEL = "Empty interiors";
@@ -26,14 +31,23 @@ const CANCEL_LABEL = "Cancel";
 const SUBMIT_LABEL = "Create office & map";
 const CREATING_LABEL = "Creating…";
 export interface CreateOfficeDialogProps {
-  name: string; totalPeople: number; teamCount: number; peoplePerTeam: number; inputsValid: boolean;
+  name: string; totalPeople: number; teamCount: number; teamNames: string[]; teamNamesValid: boolean; peoplePerTeam: number; inputsValid: boolean;
   interiors: CampusInteriorPreset; busy: boolean; error: string | null;
-  onNameChange(value: string): void; onTotalPeopleChange(value: number): void; onTeamCountChange(value: number): void;
+  onNameChange(value: string): void; onTotalPeopleChange(value: number): void; onTeamCountChange(value: number): void; onTeamNameChange(index: number, value: string): void;
   onInteriorsChange(value: CampusInteriorPreset): void; onSubmit(event: FormEvent<HTMLFormElement>): void; onClose(): void;
 }
 export function CreateOfficeDialog(props: CreateOfficeDialogProps) {
   const id = useId();
   const nameRef = useRef<HTMLInputElement>(null);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [teamPage, setTeamPage] = useState(0);
+  const namedTeamCount = props.teamNames.slice(0, props.teamCount).filter((name) => name.trim().length > 0).length;
+  const query = teamSearch.trim().toLocaleLowerCase();
+  const visibleTeamIndexes = Array.from({ length: Math.max(0, props.teamCount) }, (_, index) => index)
+    .filter((index) => !query || defaultOfficeTeamName(index).toLocaleLowerCase().includes(query) || props.teamNames[index]?.toLocaleLowerCase().includes(query));
+  const pageCount = Math.max(1, Math.ceil(visibleTeamIndexes.length / TEAM_NAME_PAGE_SIZE));
+  const visiblePage = Math.min(teamPage, pageCount - 1);
+  const pageTeamIndexes = visibleTeamIndexes.slice(visiblePage * TEAM_NAME_PAGE_SIZE, (visiblePage + 1) * TEAM_NAME_PAGE_SIZE);
   const close = () => { if (!props.busy) props.onClose(); };
   return <WorkspaceDialog labelledBy={`${id}-title`} onClose={close} initialFocusRef={nameRef} className="office-creation-dialog">
     <form onSubmit={props.onSubmit} aria-busy={props.busy}>
@@ -45,13 +59,24 @@ export function CreateOfficeDialog(props: CreateOfficeDialogProps) {
             <label htmlFor={`${id}-teams`}>{TEAMS_LABEL}<input id={`${id}-teams`} type="number" min={TEAMS_MIN_COUNT} max={TEAMS_MAX_COUNT} step={WHOLE_NUMBER_STEP_COUNT} value={props.teamCount} onChange={event => props.onTeamCountChange(Number(event.target.value))} /></label></div>
           {props.inputsValid ? <p>{props.peoplePerTeam} people per team · {props.totalPeople} ÷ {props.teamCount}</p> : <p role="alert">{INVALID_COUNTS_LABEL}</p>}
         </fieldset>
+        <fieldset disabled={props.busy} className="office-creation-team-names"><legend>{TEAM_NAMES_LABEL}</legend><p>{TEAM_NAMES_HINT}</p>
+          <div className="office-creation-team-name-toolbar">
+            <label htmlFor={`${id}-team-search`}>Find a team<input id={`${id}-team-search`} type="search" value={teamSearch} placeholder="Search team name or number" onChange={(event) => { setTeamSearch(event.target.value); setTeamPage(0); }} /></label>
+            <span className="office-creation-team-progress" aria-live="polite"><strong>{namedTeamCount}</strong> / {props.teamCount} named</span>
+          </div>
+          <div className="office-creation-team-progress-track" role="progressbar" aria-label="Teams named" aria-valuemin={0} aria-valuemax={Math.max(1, props.teamCount)} aria-valuenow={namedTeamCount}><span style={{ width: `${props.teamCount ? namedTeamCount / props.teamCount * 100 : 0}%` }} /></div>
+          <div className="office-creation-team-name-fields">{pageTeamIndexes.map((index) => <label key={index} htmlFor={`${id}-team-${index + 1}`}><span>{defaultOfficeTeamName(index)}</span><input id={`${id}-team-${index + 1}`} name={`team-name-${index + 1}`} required maxLength={TEAM_NAME_MAX_CHARACTERS} value={props.teamNames[index] ?? ""} onChange={event => props.onTeamNameChange(index, event.target.value)} /></label>)}</div>
+          {visibleTeamIndexes.length === 0 && <p className="office-creation-team-empty">No teams match “{teamSearch}”.</p>}
+          {visibleTeamIndexes.length > TEAM_NAME_PAGE_SIZE && <nav className="office-creation-team-pages" aria-label="Team name pages"><button type="button" disabled={visiblePage === 0} onClick={() => setTeamPage((page) => Math.max(0, page - 1))}>Previous</button><span>Page {visiblePage + 1} of {pageCount}</span><button type="button" disabled={visiblePage >= pageCount - 1} onClick={() => setTeamPage((page) => Math.min(pageCount - 1, page + 1))}>Next</button></nav>}
+          {!props.teamNamesValid && <p role="alert">{REQUIRED_TEAM_NAME_LABEL}</p>}
+        </fieldset>
         <fieldset disabled={props.busy} className="office-creation-interiors"><legend>{INTERIORS_LABEL}</legend>
           <label><input type="radio" name={`${id}-interiors`} value="furnished" checked={props.interiors === "furnished"} onChange={() => props.onInteriorsChange("furnished")} /><span><strong>{FURNISHED_LABEL}</strong><small>{FURNISHED_HINT}</small></span></label>
           <label><input type="radio" name={`${id}-interiors`} value="empty" checked={props.interiors === "empty"} onChange={() => props.onInteriorsChange("empty")} /><span><strong>{EMPTY_LABEL}</strong><small>{EMPTY_HINT}</small></span></label>
         </fieldset>
         {props.error && <p role="alert">{props.error}</p>}
       </div>
-      <footer><button type="button" disabled={props.busy} onClick={close}>{CANCEL_LABEL}</button><button className="office-creation-submit" type="submit" disabled={props.busy || !props.inputsValid}>{props.busy ? CREATING_LABEL : SUBMIT_LABEL}</button></footer>
+      <footer><button type="button" disabled={props.busy} onClick={close}>{CANCEL_LABEL}</button><button className="office-creation-submit" type="submit" disabled={props.busy || !props.inputsValid || !props.teamNamesValid}>{props.busy ? CREATING_LABEL : SUBMIT_LABEL}</button></footer>
     </form>
   </WorkspaceDialog>;
 }

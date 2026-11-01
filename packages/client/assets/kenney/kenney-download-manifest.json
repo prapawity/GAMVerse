@@ -1,0 +1,291 @@
+{
+  "Source": "https://kenney-assets.itch.io/",
+  "DownloadedUtc": "2026-11-01T11:50:35.2481669Z",
+  "ComparedAgainst": "Existing files under packages/client/assets/kenney before these additions; exact SHA-256",
+  "ArchiveDuplicateGroups": [],
+  "DuplicateSummary": {
+    "ExactDuplicateFiles": 1340.0,
+    "ByExtension": {
+      "mtl": 1273,
+      "stl": 1,
+      "png": 12,
+      "url": 54
+    },
+    "DuplicateGeometryFiles": 1,
+    "Notes": "One exact duplicate mesh file: space-kit/Models/STL format/terrain.stl matches nature-kit/Models/STL format/ground_grass.stl. Other exact duplicates are standard .mtl definitions, .url links, and colormap.png copies across export formats. No duplicate GLB, glTF, FBX, OBJ, or DAE files detected."
+  },
+  "Packs": [
+    {
+      "Pack": "car-kit",
+      "Source": "https://kenney-assets.itch.io/car-kit",
+      "Archive": "car-kit.zip",
+      "ArchiveBytes": 3668013,
+      "ArchiveSHA256": "F8A69B83FBF94C9850079BC6E078EA3D8BA4C7393DD9F57F8BA544963D1B1D14",
+      "ExtractedFiles": 234,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 45,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "castle-kit",
+      "Source": "https://kenney-assets.itch.io/castle-kit",
+      "Archive": "castle-kit.zip",
+      "ArchiveBytes": 2232589,
+      "ArchiveSHA256": "921F3F73927BB23106CAE34BC21D5AB4B033A9FC120475E96F714A406E3169DF",
+      "ExtractedFiles": 397,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 76,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "conveyor-kit",
+      "Source": "https://kenney-assets.itch.io/conveyor-kit",
+      "Archive": "conveyor-kit.zip",
+      "ArchiveBytes": 1312775,
+      "ArchiveSHA256": "5AE214FB473CC5D4AA75828DA2A61310C0F88ABEFBFB1FB6C7DA592B18D0EE50",
+      "ExtractedFiles": 317,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 61,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "graveyard-kit",
+      "Source": "https://kenney-assets.itch.io/graveyard-kit",
+      "Archive": "graveyard-kit.zip",
+      "ArchiveBytes": 2438052,
+      "ArchiveSHA256": "04A270D7D4396E3B1E15638EC470AC1BB6B01F88FFA609F36FBABCBE303266E7",
+      "ExtractedFiles": 445,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 87,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "hexagon-kit",
+      "Source": "https://kenney-assets.itch.io/hexagon-kit",
+      "Archive": "hexagon-kit.zip",
+      "ArchiveBytes": 2448931,
+      "ArchiveSHA256": "D14F7643852C4DD854C7530DE8514C9EB77314FE9963636077F0DE1DA8901236",
+      "ExtractedFiles": 374,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 72,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "marble-kit",
+      "Source": "https://kenney-assets.itch.io/marble-kit",
+      "Archive": "marble-kit.zip",
+      "ArchiveBytes": 5339532,
+      "ArchiveSHA256": "4A289FE77FA4E71B943FB9A0DF828A7987E62F665083EA9237D0BD9ACD0B6DCB",
+      "ExtractedFiles": 826,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 160,
+        "png": 3,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "mini-arcade",
+      "Source": "https://kenney-assets.itch.io/mini-arcade",
+      "Archive": "mini-arcade.zip",
+      "ArchiveBytes": 1317439,
+      "ArchiveSHA256": "2ACFE5CB44D392E834F77CF5488528C7CD45427CDF5FB941CE99856276158C19",
+      "ExtractedFiles": 114,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 17,
+        "png": 3,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "mini-arena",
+      "Source": "https://kenney-assets.itch.io/mini-arena",
+      "Archive": "mini-arena.zip",
+      "ArchiveBytes": 745274,
+      "ArchiveSHA256": "D76D5913A8A41A17FED0B9A509755E0205A2C17EFEC70B1F435DF964D94ADB23",
+      "ExtractedFiles": 120,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 22,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "minigolf-kit",
+      "Source": "https://kenney-assets.itch.io/minigolf-kit",
+      "Archive": "minigolf-kit.zip",
+      "ArchiveBytes": 3163116,
+      "ArchiveSHA256": "74B7BF5CF82BF8A5225319ADE1284600C64F9482AE66F0CCF1F22D2212D5A952",
+      "ExtractedFiles": 646,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 126,
+        "png": 3,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "mini-skate",
+      "Source": "https://kenney-assets.itch.io/mini-skate",
+      "Archive": "mini-skate.zip",
+      "ArchiveBytes": 765848,
+      "ArchiveSHA256": "BFD96BC6AEB070D0B4D29E7FDADBD4E32372E27670B35C0671F4D9907D7841E1",
+      "ExtractedFiles": 112,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 20,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "modular-buildings",
+      "Source": "https://kenney-assets.itch.io/modular-buildings",
+      "Archive": "modular-buildings.zip",
+      "ArchiveBytes": 1825490,
+      "ArchiveSHA256": "47E1614686B4C0FE55190E88B22FF2B8B10935EDF61F37F478A9B6A99477EDC6",
+      "ExtractedFiles": 554,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 108,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "platformer-kit",
+      "Source": "https://kenney-assets.itch.io/platformer-kit",
+      "Archive": "platformer-kit.zip",
+      "ArchiveBytes": 3165440,
+      "ArchiveSHA256": "872D493D29FBBAF5073E9C3DCB1E49C355CE389C14517BE3393C1BC0ADA77C4A",
+      "ExtractedFiles": 722,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 142,
+        "png": 3,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "retro-medieval-kit",
+      "Source": "https://kenney-assets.itch.io/retro-medieval-kit",
+      "Archive": "retro-medieval-kit.zip",
+      "ArchiveBytes": 2024338,
+      "ArchiveSHA256": "3575369035274195DE8E0174046886B50930279E0944A313990A4C2524745960",
+      "ExtractedFiles": 562,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "url": 3
+      }
+    },
+    {
+      "Pack": "retro-urban-kit",
+      "Source": "https://kenney-assets.itch.io/retro-urban-kit",
+      "Archive": "retro-urban-kit.zip",
+      "ArchiveBytes": 2161463,
+      "ArchiveSHA256": "19201CBCB0D90080DFC33B54F5B4BE2089DE927C2A23274180798E7166D6B6CA",
+      "ExtractedFiles": 693,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "url": 3
+      }
+    },
+    {
+      "Pack": "space-kit",
+      "Source": "https://kenney-assets.itch.io/space-kit",
+      "Archive": "space-kit.zip",
+      "ArchiveBytes": 6677531,
+      "ArchiveSHA256": "D5D7CDF2635ED5A43A9187DEAF409B6F47484E402321128341D3C3698E9EF4D9",
+      "ExtractedFiles": 1694,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "stl": 1,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "space-station-kit",
+      "Source": "https://kenney-assets.itch.io/space-station-kit",
+      "Archive": "space-station-kit.zip",
+      "ArchiveBytes": 1835875,
+      "ArchiveSHA256": "215E79BD5415CFF93665183390F0343ED9ACF87780306331013B78520170C6D8",
+      "ExtractedFiles": 497,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 97,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "survival-kit",
+      "Source": "https://kenney-assets.itch.io/survival-kit",
+      "Archive": "survival-kit.zip",
+      "ArchiveBytes": 1948174,
+      "ArchiveSHA256": "C3586341B5932C87EB43D75D915434F47DAED168B17ED36A03E8CA9977C7443E",
+      "ExtractedFiles": 412,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 80,
+        "url": 3
+      }
+    },
+    {
+      "Pack": "tower-defense-kit",
+      "Source": "https://kenney-assets.itch.io/tower-defense-kit",
+      "Archive": "tower-defense-kit.zip",
+      "ArchiveBytes": 5404433,
+      "ArchiveSHA256": "D4C887680B709218315E4E1C17AE18C160635DCDFC4199763EEBA97C02C77F00",
+      "ExtractedFiles": 812,
+      "LicenseFiles": [
+        "License.txt"
+      ],
+      "ExactDuplicateFilesByExtension": {
+        "mtl": 160,
+        "url": 3
+      }
+    }
+  ]
+}

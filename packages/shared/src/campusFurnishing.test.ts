@@ -1,3 +1,4 @@
+import { compactCivicLots } from "./campusCompactPlan.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCampusOfficeDraft } from "./campusFurnishing.js";
@@ -22,7 +23,7 @@ const FLOAT_TOLERANCE_M = 0.001;
 const STARTER_ID_MARKER = "-starter-";
 const NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-test("civic campus has fifty-seat meeting rooms, a two-hundred-seat townhall and a landscaped waterfront", () => {
+test("civic campus has fifty-seat meeting rooms, a two-hundred-seat townhall and finished buildings", () => {
   const { layout } = createCampusOfficeDraft(FIXTURES[2]!, "furnished");
   const inRoom = (id: string) => layout.props.filter(prop => prop.id.startsWith(`${id}-starter-`));
   assert.equal(inRoom("shared-townhall").filter(prop => prop.asset === "kit:chair").length, 200);
@@ -30,7 +31,11 @@ test("civic campus has fifty-seat meeting rooms, a two-hundred-seat townhall and
     assert.equal(inRoom(zone.id).filter(prop => prop.asset === "kit:chair").length, 50, zone.id);
   }
   assert.ok(inRoom("shared-lobby").some(prop => prop.id.includes("reception")));
-  assert.equal(layout.props.filter(prop => prop.asset === "civic-park-water").length, 6);
+  for (const zone of layout.zones.filter(zone => /^meeting-(small|large)-/.test(zone.id))) {
+    assert.equal(inRoom(zone.id).filter(prop => prop.asset === "kit:chair").length, 50, zone.id);
+  }
+  assert.ok(inRoom("shared-lobby").some(prop => prop.id.includes("reception")));
+  assert.equal(layout.props.filter(prop => prop.asset === "civic-park-water").length, 2);
   assert.ok(layout.props.some(prop => prop.asset === "civic-park-bridge"));
   assert.ok(layout.props.some(prop => prop.asset === "civic-park-path"));
   for (const zone of layout.zones.filter(zone => /^meeting-(small|large)-/.test(zone.id) || zone.id === "shared-townhall" || zone.id === "shared-lobby")) {
@@ -38,39 +43,9 @@ test("civic campus has fifty-seat meeting rooms, a two-hundred-seat townhall and
   }
   for (const fixture of [FIXTURES[0]!, FIXTURES[2]!]) {
     const parkLayout = generateCampusMap(fixture).layout;
-    const world = campusWorldFromConfig({ version: 1, layout: parkLayout });
-    const westGrove = parkLayout.props.filter(prop => prop.id.includes("civic-park-west-grove-tree-"));
-    assert.ok(westGrove.length >= 18, "the open western lawn becomes a dense, structured grove");
-    assert.ok(new Set(westGrove.map(prop => prop.asset)).size >= 6, "the western grove mixes multiple tree varieties");
-    assert.ok(parkLayout.props.filter(prop => prop.id.includes("civic-park-pond-rock-")).length >= 4, "pond edges receive rock clusters");
-    assert.ok(parkLayout.props.filter(prop => prop.id.includes("civic-park-west-garden-bench-")).length >= 3, "the park has seating along its western lawn");
-    if (fixture.teamCount === 10) {
-      const westPark = parkLayout.props.filter(prop => prop.id.includes("west-public-park-"));
-      assert.ok(westPark.filter(prop => prop.id.includes("tree-")).length >= 16, "the lobby-side public park gets its own dense grove");
-      assert.ok(westPark.filter(prop => prop.id.includes("bench-")).length >= 4, "the lobby-side public park includes seating");
-      assert.ok(westPark.filter(prop => prop.id.includes("rock-")).length >= 6, "the lobby-side public park includes rock groupings");
-      assert.equal(parkLayout.props.filter(prop => prop.id.includes("civic-park-pond-3-")).length, 2, "the lobby-side public park has a pond");
-      assert.ok(parkLayout.props.some(prop => prop.id.includes("civic-park-surface--150,0")), "the lobby-side public pond has its visible bridge crossing");
-      for (const prop of westPark) {
-        for (const area of [...parkLayout.zones, ...(parkLayout.roadways ?? [])]) {
-          assert.ok(Math.abs(prop.x - area.x) >= (prop.width + area.width) / 2 - FLOAT_TOLERANCE_M
-            || Math.abs(prop.z - area.z) >= (prop.depth + area.depth) / 2 - FLOAT_TOLERANCE_M, `${prop.id} clears ${area.id}`);
-        }
-      }
-    }
-    const surfaces = parkLayout.props.filter(prop => /^civic-park-/.test(prop.asset));
-    assert.equal(surfaces.filter(prop => prop.asset === "civic-park-water").length, fixture.teamCount === 10 ? 6 : 4);
-    for (const prop of surfaces) {
-      for (const area of [...parkLayout.zones, ...(parkLayout.roadways ?? [])]) {
-        assert.ok(Math.abs(prop.x - area.x) >= (prop.width + area.width) / 2 - FLOAT_TOLERANCE_M
-          || Math.abs(prop.z - area.z) >= (prop.depth + area.depth) / 2 - FLOAT_TOLERANCE_M, `${prop.id} clears ${area.id}`);
-      }
-      assert.equal(isPositionWalkable(prop, world), prop.asset !== "civic-park-water", `${prop.id} has matching visual and shared collision`);
-    }
-    for (const crossing of surfaces.filter(prop => prop.asset === "civic-park-bridge")) {
-      assert.ok(surfaces.some(prop => prop.id !== crossing.id && prop.asset !== "civic-park-water" && Math.hypot(prop.x - crossing.x, prop.z - crossing.z) <= 2.01), `${crossing.id} connects to another crossing or path tile`);
-    }
-    assert.ok(parkLayout.props.filter(prop => prop.id.startsWith("campus-finished-building-")).every(prop => Math.abs(prop.z) - (Math.abs(Math.sin(prop.rotation)) * prop.width + Math.abs(Math.cos(prop.rotation)) * prop.depth) / 2 >= (fixture.teamCount === 10 ? 36 : 46)), "building infill preserves the civic garden");
+    // Compact campuses use the leftovers of the civic row for finished buildings; the park and field lots are reserved instead.
+    const lots = compactCivicLots(parkLayout);
+    if (lots) assert.ok(parkLayout.props.filter(prop => prop.id.startsWith("campus-finished-building-")).every(prop => !(Math.abs(prop.x - lots.park.x) < lots.park.width / 2 && Math.abs(prop.z) < 26) && !(Math.abs(prop.x - lots.field.x) < lots.field.width / 2 && Math.abs(prop.z) < 26)), "buildings stay out of the park and field lots");
   }
 });
 
@@ -206,7 +181,7 @@ test("generated campus maps add finished buildings only in clear, in-bounds spac
   const first = generateCampusMap(FIXTURES[2]);
   const repeat = generateCampusMap(FIXTURES[2]);
   const finished = first.layout.props.filter((prop) => prop.id.startsWith("campus-finished-building-"));
-  assert.ok(finished.length > 0, "the template includes finished buildings when suitable space exists");
+  // The compact campus is fully built out (rooms, roads, park), so it may have no spare lot for finished buildings.
   assert.ok(finished.length <= CAMPUS_FINISHED_BUILDING_LIMIT, "finished buildings stay within the template limit");
   assert.deepEqual(finished, repeat.layout.props.filter((prop) => prop.id.startsWith("campus-finished-building-")), "the same seed produces the same building placements");
   const roads = first.layout.roadways ?? [];

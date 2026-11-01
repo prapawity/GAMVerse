@@ -1,4 +1,5 @@
 import { avatarSpriteScreenRect, avatarSpriteScale } from "./avatarSpriteGeometry";
+import { CHARACTER_MAX_HEIGHT_M } from "../characterModelFit";
 import { LOCATE_PULSE_MS, MAP2D_DRAG_THRESHOLD_PX, MAP2D_PICK_RADIUS_PX } from "./constants";
 import {
   worldToScreen,
@@ -18,7 +19,8 @@ export function pickMap2dPlayer(
     const screen = worldToScreen(projection, player);
     const candidatePx = Math.hypot(point.x - screen.x, point.y - screen.y);
     const body = avatarSpriteScreenRect(screen.x, screen.y, projection.pxPerM);
-    const hitsBody = point.x >= body.x && point.x <= body.x + body.width && point.y >= body.y && point.y <= body.y + body.height;
+    const hitsBody = point.x >= body.x && point.x <= body.x + body.width
+      && point.y >= Math.max(body.y, screen.y - CHARACTER_MAX_HEIGHT_M * projection.pxPerM) && point.y <= body.y + body.height;
     if ((hitsBody || candidatePx < pickRadiusPx) && (nearest === null || candidatePx < distancePx)) {
       nearest = id;
       distancePx = candidatePx;

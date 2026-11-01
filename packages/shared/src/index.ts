@@ -97,6 +97,12 @@ export type KenneyPetId = typeof KENNEY_PET_IDS[number];
 export const KENNEY_VEHICLE_IDS = [
   "vehicle-speedster", "vehicle-racer", "vehicle-suv", "vehicle-monster-truck", "vehicle-truck",
   "car-sedan", "car-hatchback-sports", "car-taxi", "car-kart-oopi",
+  "kenney-editor-car-kit-ambulance", "kenney-editor-car-kit-delivery-flat", "kenney-editor-car-kit-delivery",
+  "kenney-editor-car-kit-firetruck", "kenney-editor-car-kit-garbage-truck", "kenney-editor-car-kit-police",
+  "kenney-editor-car-kit-race-future", "kenney-editor-car-kit-race", "kenney-editor-car-kit-sedan-sports",
+  "kenney-editor-car-kit-suv-luxury", "kenney-editor-car-kit-suv", "kenney-editor-car-kit-tractor-police",
+  "kenney-editor-car-kit-tractor-shovel", "kenney-editor-car-kit-tractor", "kenney-editor-car-kit-truck-flat",
+  "kenney-editor-car-kit-truck", "kenney-editor-car-kit-van",
 ] as const;
 export type KenneyVehicleId = typeof KENNEY_VEHICLE_IDS[number];
 
@@ -596,4 +602,5 @@ export * from "./desks.js";
 
 
 export * from "./deskAssignmentFences.js";
-export { CIVIC_PARK_ASSETS, campusCivicParkSurfaces, type CivicParkSurface } from "./campusCivicPark.js";
+export { CIVIC_PARK_ASSETS, campusCivicParkSurfaces, COMPACT_PARK_SCALE_Z, ORIGINAL_PARK_WIDTH_M, type CivicParkSurface } from "./campusCivicPark.js";
+export { compactCivicLots, planCompactCampus, type CompactCampusPlan } from "./campusCompactPlan.js";

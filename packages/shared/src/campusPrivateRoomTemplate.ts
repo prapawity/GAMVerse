@@ -1,5 +1,6 @@
 import type { RoomLayoutZone } from "./roomLayout.js";
 import type { StarterPlacement } from "./campusFurnishingTemplates.js";
+import { applyTeamTheme } from "./campusTeamThemes.js";
 
 const DESK_ASSET = "external-pixel-modern-office-pixel-modern-office-desk-l-shaped-e63b68bc";
 const KEYBOARD_ASSET = "kit:computerkeyboard";
@@ -16,6 +17,7 @@ const KITCHEN_ASSETS = ["kit:kitchenfridge", "kit:kitchensink", "kit:kitchencabi
 const KITCHEN_KEYS = ["fridge", "sink", "counter", "stove"] as const;
 const FLOOR_LAMP_ASSET = "external-pixel-modern-office-pixel-modern-office-floor-lamp-34798ca7";
 const RUG_ASSET = "external-pixel-modern-office-pixel-modern-office-floor-tile-carpet-01352f6c";
+const STUDIO_BASE_WIDTH_M = 8;
 const QUARTER_TURN_RAD = Math.PI / 2;
 const HALF_TURN_RAD = Math.PI;
 // The entrance runs through the middle of the north and south walls, so everything lives in the two side columns.
@@ -111,6 +113,29 @@ function mirrored(placements: StarterPlacement[]): StarterPlacement[] {
   return placements.map(item => ({ ...item, xM: -item.xM, ...(item.rotationRad === undefined ? {} : { rotationRad: Math.abs(item.rotationRad) === QUARTER_TURN_RAD ? -item.rotationRad : item.rotationRad }) }));
 }
 
+/** Bookcases, a cabinet, lamp and plants along each outer wall of a wide studio, leaving a walkway beside the main columns. */
+function sideWings(widthM: number): StarterPlacement[] {
+  const wallX = widthM / 2 - 0.6;
+  const wings: StarterPlacement[] = [];
+  for (const [name, side] of [["w", -1], ["e", 1]] as const) {
+    const facing = -side * QUARTER_TURN_RAD;
+    const key = (item: string) => `wing-${name}-${item}`;
+    for (const [index, zM] of [-2.4, -1.4, -0.4].entries()) {
+      wings.push({ key: key(`storage-${index + 1}`), asset: "kit:bookcaseopenlow", xM: side * wallX, zM, rotationRad: facing });
+      if (index !== 1) wings.push({ key: key(`decor-${index + 1}`), asset: DECOR_ASSETS[index % DECOR_ASSETS.length]!, xM: side * wallX, zM, supported: true });
+    }
+    wings.push(
+      { key: key("plant-1"), asset: PLANT_ASSETS[0], xM: side * wallX, zM: -3.4 },
+      { key: key("plant-2"), asset: PLANT_ASSETS[1], xM: side * (wallX - 1.6), zM: -3.4 },
+      { key: key("cabinet"), asset: "kit:sidetabledrawers", xM: side * wallX, zM: 1.6, rotationRad: facing },
+      { key: key("decor-4"), asset: DECOR_ASSETS[1], xM: side * wallX, zM: 1.6, supported: true },
+      { key: key("sidetable"), asset: "kit:lampsquaretable", xM: side * wallX, zM: 3.4 },
+      { key: key("plant-3"), asset: PLANT_ASSETS[2], xM: side * (wallX - 1.6), zM: 3.4 },
+    );
+  }
+  return wings;
+}
+
 /**
  * Fixed 8 × 8 m studio in one of three layouts, optionally mirrored. The choice is stable per room id, and the
  * central north/south entrance aisle stays empty in every layout.
@@ -123,5 +148,10 @@ export function campusPrivateRoomPlacements(zone: RoomLayoutZone): readonly Star
     decor: DECOR_ASSETS[variant("decor") % DECOR_ASSETS.length]!,
   };
   const placements = LAYOUTS[variant("layout") % STUDIO_LAYOUT_COUNT]!(assets);
-  return variant("mirror") % 2 === 1 ? mirrored(placements) : placements;
+  const arranged = variant("mirror") % 2 === 1 ? mirrored(placements) : placements;
+  // Each team restyles its studios from its own theme first; slots the theme cannot fill keep the default furniture.
+  const team = /^team-(\d+)-office-/.exec(zone.id);
+  const themed = team ? applyTeamTheme(arranged, Number(team[1]), zone.id) : arranged;
+  // A wider studio keeps the original 8 m layout around its central entrance aisle and furnishes a side wing beyond each column.
+  return zone.width > STUDIO_BASE_WIDTH_M ? [...themed, ...sideWings(zone.width)] : themed;
 }

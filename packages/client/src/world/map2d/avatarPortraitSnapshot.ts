@@ -2,10 +2,12 @@ import * as THREE from "three";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { loadCharacterAsset, type LoadedCharacterAsset } from "../../assets/characterAssets";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type ProceduralHumanoidRig } from "../proceduralHumanoidMotion";
+import { pickCharacterClips, shouldUseProceduralRig } from "../characterClips";
+import { fitCharacterModel } from "../characterModelFit";
 import { applyLyingCharacterPose } from "../lyingCharacterPose";
 import { rememberWebglFailure, webglFailedInThisTab } from "../webglFailureSession";
 import {
-  AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_DIRECTION_COUNT, AVATAR_SPRITE_FULL_CIRCLE_RAD, AVATAR_SPRITE_POSE_COUNT,
+  AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_DIRECTION_COUNT, AVATAR_SPRITE_FULL_CIRCLE_RAD, AVATAR_SPRITE_POSE_COUNT,
   AVATAR_SPRITE_SEATED_POSE_INDEX, AVATAR_SPRITE_LYING_POSE_INDEX, AVATAR_SPRITE_TILE_HEIGHT_PX, AVATAR_SPRITE_TILE_WIDTH_PX,
   AVATAR_SPRITE_WALK_FRAME_COUNT,
 } from "./avatarSpriteGeometry";
@@ -14,9 +16,6 @@ const CAMERA_NEAR_M = 0.01;
 const CAMERA_FAR_M = 100;
 const CAMERA_DISTANCE_M = 4;
 const CAMERA_ELEVATION_M = 1.4;
-const MODEL_HEIGHT_M = 1.6;
-const MODEL_MIN_HEIGHT_M = 0.001;
-const CAMERA_TARGET_HEIGHT_M = 0.85;
 const SNAPSHOT_IDLE_TIMEOUT_MS = 1000;
 const SNAPSHOT_FALLBACK_DELAY_MS = 16;
 const PORTRAIT_LIGHT_PALETTE = { clear: 0x000000, sky: 0xeaf8ff, ground: 0x637887, key: 0xffffff };
@@ -65,15 +64,8 @@ function snapshotCamera(): THREE.OrthographicCamera {
   const halfWidthM = halfHeightM * AVATAR_SPRITE_TILE_WIDTH_PX / AVATAR_SPRITE_TILE_HEIGHT_PX;
   const camera = new THREE.OrthographicCamera(-halfWidthM, halfWidthM, halfHeightM, -halfHeightM, CAMERA_NEAR_M, CAMERA_FAR_M);
   camera.position.set(0, CAMERA_ELEVATION_M, CAMERA_DISTANCE_M);
-  camera.lookAt(0, CAMERA_TARGET_HEIGHT_M, 0);
+  camera.lookAt(0, AVATAR_SPRITE_TARGET_HEIGHT_M, 0);
   return camera;
-}
-function normalizeModel(model: THREE.Object3D): void {
-  const bounds = new THREE.Box3().setFromObject(model);
-  const center = bounds.getCenter(new THREE.Vector3());
-  const scale = MODEL_HEIGHT_M / Math.max(bounds.max.y - bounds.min.y, MODEL_MIN_HEIGHT_M);
-  model.scale.multiplyScalar(scale);
-  model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
 }
 function poseSeatedRig(rig: ProceduralHumanoidRig): void {
   for (const thigh of [rig.leftLeg, rig.rightLeg]) {
@@ -84,13 +76,12 @@ function poseSeatedRig(rig: ProceduralHumanoidRig): void {
   }
 }
 function spritePose(model: THREE.Object3D, asset: LoadedCharacterAsset, characterId: string): (poseIndex: number) => void {
-  const procedural = characterId.startsWith("character-pm-") || characterId.startsWith("character-kaykit-")
-    ? createProceduralHumanoidRig(model) : null;
+  const clips = pickCharacterClips(asset.animations, characterId.startsWith("custom-"));
+  const procedural = shouldUseProceduralRig(characterId, clips)
+    ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) : null;
   const mixer = new THREE.AnimationMixer(model);
-  const idle = asset.animations.find(clip => clip.name.toLowerCase() === "idle");
-  const walk = asset.animations.find(clip => clip.name.toLowerCase() === "walk")
-    ?? asset.animations.find(clip => clip.name.toLowerCase() === "run");
-  const sit = asset.animations.find(clip => clip.name.toLowerCase() === "sit");
+  const { idle, sit } = clips;
+  const walk = clips.walk ?? clips.run;
   return (poseIndex) => {
     const walking = poseIndex > 0 && poseIndex < AVATAR_SPRITE_SEATED_POSE_INDEX;
     const seated = poseIndex === AVATAR_SPRITE_SEATED_POSE_INDEX;
@@ -116,23 +107,23 @@ function waitForSnapshotIdle(): Promise<void> {
 }
 async function renderSprites(asset: LoadedCharacterAsset, request: SnapshotRequest): Promise<HTMLCanvasElement | null> {
   const model = SkeletonUtils.clone(asset.scene);
-  normalizeModel(model);
   const root = new THREE.Group();
-  root.add(model);
   const scene = snapshotScene(root);
-  const camera = snapshotCamera();
-  const lyingCamera = snapshotCamera();
-  lyingCamera.position.set(0, CAMERA_DISTANCE_M, 0);
-  lyingCamera.up.set(0, 0, -1);
-  lyingCamera.lookAt(0, 0, 0);
-  const restPosition = model.position.clone();
-  const restRotation = model.rotation.clone();
-  const setPose = spritePose(model, asset, request.characterId);
-  const canvas = document.createElement("canvas");
-  canvas.width = AVATAR_SPRITE_TILE_WIDTH_PX * AVATAR_SPRITE_POSE_COUNT;
-  canvas.height = AVATAR_SPRITE_TILE_HEIGHT_PX * AVATAR_SPRITE_DIRECTION_COUNT;
-  const ctx = canvas.getContext("2d");
   try {
+    fitCharacterModel(model);
+    root.add(model);
+    const camera = snapshotCamera();
+    const lyingCamera = snapshotCamera();
+    lyingCamera.position.set(0, CAMERA_DISTANCE_M, 0);
+    lyingCamera.up.set(0, 0, -1);
+    lyingCamera.lookAt(0, 0, 0);
+    const restPosition = model.position.clone();
+    const restRotation = model.rotation.clone();
+    const setPose = spritePose(model, asset, request.characterId);
+    const canvas = document.createElement("canvas");
+    canvas.width = AVATAR_SPRITE_TILE_WIDTH_PX * AVATAR_SPRITE_POSE_COUNT;
+    canvas.height = AVATAR_SPRITE_TILE_HEIGHT_PX * AVATAR_SPRITE_DIRECTION_COUNT;
+    const ctx = canvas.getContext("2d");
     for (let direction = 0; direction < AVATAR_SPRITE_DIRECTION_COUNT; direction += 1) {
       await waitForSnapshotIdle();
       if (!request.active()) return null;

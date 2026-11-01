@@ -74,7 +74,13 @@ export async function saveOfficeProps(username: string, officeId: string, value:
   if (!Array.isArray(body.props) || body.props.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
   validateOfficePropInteractions(body.props);
   const props = readRoomLayout({ layout: { props: body.props } }).props;
-  if (props.length !== body.props.length) throw new Error("Office props contain unsupported or malformed items.");
+  if (props.length !== body.props.length) {
+    // Name the first rejected item so a bad asset or id can be traced instead of guessed.
+    const accepted = new Set(props.map((prop) => prop.id));
+    const rejected = (body.props as unknown[]).find((item) => typeof item !== "object" || item === null || !accepted.has(String((item as { id?: unknown }).id)));
+    const detail = typeof rejected === "object" && rejected !== null ? ` First rejected: id "${String((rejected as { id?: unknown }).id)}", asset "${String((rejected as { asset?: unknown }).asset)}".` : "";
+    throw new Error(`Office props contain unsupported or malformed items (${body.props.length - props.length} of ${body.props.length}).${detail}`);
+  }
   const mapConfigResult = await storage.query<{ config: unknown }>("SELECT config FROM app_office_map_layouts WHERE office_id = $1", [officeId]);
   const dimensions = readRoomLayout(mapConfigResult.rows[0]?.config).dimensions ?? { width: 200, depth: 250 };
   const ids = new Set<string>();

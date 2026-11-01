@@ -1,5 +1,17 @@
 import * as THREE from "three";
 import type { RoomLayout } from "@gammyverse/shared";
+import { COMPACT_PARK_SCALE_Z, ORIGINAL_PARK_WIDTH_M, compactCivicLots } from "@gammyverse/shared";
+
+/** The football field lot is centred at x 91 and squeezed from 84 m to 68 m wide. */
+const ORIGINAL_FIELD_WIDTH_M = 84;
+/** Park and field lots of a compact campus (null for any other layout). */
+const compactLots = (layout: RoomLayout) => compactCivicLots(layout);
+/** Flatten a civic group about the map centre line so it fits the 52 m civic row. */
+function fitCivicRow<T extends THREE.Group>(group: T, dimensions: { depth: number }, shiftX: number, scaleX = 1): T {
+  group.position.set(shiftX, 0, dimensions.depth / 2 * (1 - COMPACT_PARK_SCALE_Z));
+  group.scale.set(scaleX, 1, COMPACT_PARK_SCALE_Z);
+  return group;
+}
 
 const PARK_GRASS_COLOR = 0x78b76b;
 const PARK_GROUND_Y_M = 0.003;
@@ -38,12 +50,8 @@ export function makeCivicParkGround(layout: RoomLayout, dimensions: { width: num
  * a large set of individual model requests.
  */
 export function makeWestPublicParkVisual(layout: RoomLayout, dimensions: { width: number; depth: number }): THREE.Group | null {
-  const hasWestBlock = dimensions.width <= 410 && dimensions.depth <= 314
-    && layout.roadways?.some((road) => road.id === "road-loop-side--1")
-    && layout.roadways?.some((road) => road.id === "road-major-civic--84")
-    && layout.roadways?.some((road) => road.id === "road-major-team--1")
-    && layout.roadways?.some((road) => road.id === "road-major-team-1");
-  if (!hasWestBlock) return null;
+  const lots = compactLots(layout);
+  if (!lots) return null;
 
   const park = new THREE.Group();
   park.name = "West public park visual";
@@ -123,15 +131,16 @@ export function makeWestPublicParkVisual(layout: RoomLayout, dimensions: { width
   }
   // A darker lawn island behind the pond makes the water garden legible from the overview camera.
   addBox(35, 0.018, 18, grass, 150, 0.028, 0);
-  return park;
+  // Layout x = scale * (original x + 132) + park centre; the group scales about the world origin, so add the half-width offset.
+  const parkScaleX = lots.park.width / ORIGINAL_PARK_WIDTH_M;
+  const parkShiftX = lots.park.x + parkScaleX * 132 + dimensions.width / 2 * (1 - parkScaleX);
+  return fitCivicRow(park, dimensions, parkShiftX, parkScaleX);
 }
 
 /** A compact football pitch and running track fill the formerly empty east civic block. */
 export function makeEastFootballFieldVisual(layout: RoomLayout, dimensions: { width: number; depth: number }): THREE.Group | null {
-  const isCompactCampus = dimensions.width <= 410 && dimensions.depth <= 314
-    && layout.roadways?.some((road) => road.id === "road-loop-side-1")
-    && layout.roadways?.some((road) => road.id === "road-major-civic-84");
-  if (!isCompactCampus) return null;
+  const lots = compactLots(layout);
+  if (!lots) return null;
 
   const field = new THREE.Group();
   field.name = "East football field and running track";
@@ -150,11 +159,39 @@ export function makeEastFootballFieldVisual(layout: RoomLayout, dimensions: { wi
   const foliage = [0x1f6d43, 0x367f47, 0x5a984f, 0x2d8056].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.9 }));
   const flower = [0xf4c95d, 0xe97379, 0xa785d6].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.82 }));
   const wood = new THREE.MeshStandardMaterial({ color: 0x9c7047, roughness: 0.84 });
-  // Four track bars create a rounded-stadium silhouette from the overview camera.
-  addBox(72, 0.035, 5, track, 140, 0.045, -28);
-  addBox(72, 0.035, 5, track, 140, 0.045, 28);
-  addBox(5, 0.035, 51, track, 106.5, 0.045, 0);
-  addBox(5, 0.035, 51, track, 173.5, 0.045, 0);
+  // A rounded-rectangle running track (5 m wide, two lane lines) rings the pitch.
+  const roundedRect = (target: THREE.Shape | THREE.Path, halfW: number, halfD: number, radius: number, centreX: number) => {
+    target.moveTo(centreX - halfW + radius, -halfD);
+    target.lineTo(centreX + halfW - radius, -halfD);
+    target.absarc(centreX + halfW - radius, -halfD + radius, radius, -Math.PI / 2, 0, false);
+    target.lineTo(centreX + halfW, halfD - radius);
+    target.absarc(centreX + halfW - radius, halfD - radius, radius, 0, Math.PI / 2, false);
+    target.lineTo(centreX - halfW + radius, halfD);
+    target.absarc(centreX - halfW + radius, halfD - radius, radius, Math.PI / 2, Math.PI, false);
+    target.lineTo(centreX - halfW, -halfD + radius);
+    target.absarc(centreX - halfW + radius, -halfD + radius, radius, Math.PI, Math.PI * 1.5, false);
+  };
+  const trackShape = new THREE.Shape();
+  roundedRect(trackShape, 38, 31, 14, 0);
+  const trackHole = new THREE.Path();
+  roundedRect(trackHole, 33, 26, 9.5, 0);
+  trackShape.holes.push(trackHole);
+  const trackMesh = new THREE.Mesh(new THREE.ShapeGeometry(trackShape, 24), new THREE.MeshStandardMaterial({ color: track, roughness: 0.88 }));
+  trackMesh.rotation.x = -Math.PI / 2;
+  trackMesh.position.set(x(140), 0.045, z(0));
+  trackMesh.receiveShadow = true;
+  field.add(trackMesh);
+  for (const [halfW, halfD, radius] of [[35.5, 28.5, 12], [34.2, 27.2, 10.8]] as const) {
+    const laneShape = new THREE.Shape();
+    roundedRect(laneShape, halfW, halfD, radius, 0);
+    const laneHole = new THREE.Path();
+    roundedRect(laneHole, halfW - 0.12, halfD - 0.12, radius - 0.12, 0);
+    laneShape.holes.push(laneHole);
+    const laneMesh = new THREE.Mesh(new THREE.ShapeGeometry(laneShape, 24), new THREE.MeshStandardMaterial({ color: 0xf5d8cb, roughness: 0.8 }));
+    laneMesh.rotation.x = -Math.PI / 2;
+    laneMesh.position.set(x(140), 0.052, z(0));
+    field.add(laneMesh);
+  }
   addBox(60, 0.045, 38, turf, 140, 0.058, 0);
   // Pitch boundary, halfway line and penalty areas.
   addBox(60, 0.025, 0.36, line, 140, 0.095, -19);
@@ -181,8 +218,6 @@ export function makeEastFootballFieldVisual(layout: RoomLayout, dimensions: { wi
   centreCircle.rotation.x = Math.PI / 2;
   centreCircle.position.set(x(140), 0.1, z(0));
   field.add(centreCircle);
-  // Lane dividers keep the outer loop recognisable as a running track.
-  for (const laneZ of [-26.2, -24.4, 24.4, 26.2]) addBox(58, 0.012, 0.12, 0xf5d8cb, 140, 0.075, laneZ);
 
   // A varied tree belt makes the track feel like a city park while retaining
   // the clear sight-lines across the pitch.
@@ -232,5 +267,7 @@ export function makeEastFootballFieldVisual(layout: RoomLayout, dimensions: { wi
     lamp.position.set(x(px + (index % 2 ? 3 : -3)), 0.75, z(pz));
     field.add(lamp);
   }
-  return field;
+  // Layout x = scale * original x + shift; the group is scaled about the world origin, so add the half-width offset.
+  const fieldScaleX = lots.field.width / ORIGINAL_FIELD_WIDTH_M;
+  return fitCivicRow(field, dimensions, lots.field.x - fieldScaleX * 140 + dimensions.width / 2 * (1 - fieldScaleX), fieldScaleX);
 }

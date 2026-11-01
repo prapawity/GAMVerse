@@ -11,6 +11,7 @@ export function campusLoopRoads(
   zones: readonly RoomLayoutZone[],
   dimensions: { width: number; depth: number },
   compact: boolean,
+  compactEdgeRoadZ = 94,
 ): RoomLayoutRoadway[] {
   const roads: RoomLayoutRoadway[] = [];
   const ringX = dimensions.width / 2 - MAP_EDGE_VERGE_M - AVENUE_WIDTH_M / 2;
@@ -25,8 +26,8 @@ export function campusLoopRoads(
     horizontal(`road-loop-edge-${side}`, -ringX, ringX, side * ringZ, AVENUE_WIDTH_M, "major");
     vertical(`road-loop-side-${side}`, side * ringX, -ringZ, ringZ, AVENUE_WIDTH_M, "major");
   }
-  const edgeRoadZ = compact ? 114 : 108;
-  const teamRoadZ = compact ? 40 : 50;
+  const edgeRoadZ = compact ? compactEdgeRoadZ : 108;
+  const teamRoadZ = compact ? 30 : 50;
   for (const side of [-1, 1]) {
     horizontal(`road-major-edge-${side}`, -ringX, ringX, side * edgeRoadZ, AVENUE_WIDTH_M, "major");
     horizontal(`road-major-team-${side}`, -ringX, ringX, side * teamRoadZ, AVENUE_WIDTH_M, "major");
@@ -36,7 +37,7 @@ export function campusLoopRoads(
       vertical(`road-major-avenue-0-${side}`, 0, side < 0 ? -edgeRoadZ : teamRoadZ, side < 0 ? -teamRoadZ : edgeRoadZ, AVENUE_WIDTH_M, "major");
     }
   }
-  for (const x of compact ? [-84, 84] : [0]) {
+  for (const x of compact ? [] : [0]) {
     vertical(`road-major-civic-${x}`, x, -teamRoadZ, teamRoadZ, AVENUE_WIDTH_M, "major");
   }
 

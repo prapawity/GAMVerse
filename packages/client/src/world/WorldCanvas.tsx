@@ -13,6 +13,7 @@ import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { loadCharacterAsset, petModelUrl, type LoadedCharacterAsset } from "../assets/characterAssets";
 import { loadGltfAsset, loadRoomPropAsset } from "../assets/loaders";
 import { roomPropAssetPaths } from "../assets/roomPropPaths";
+import { vehicleModelUrl } from "../assets/vehicleAssets";
 import { getRealtimeEndpoint } from "../realtimeEndpoint";
 import { createOfficePropGeometry } from "./officePropGeometry";
 import { createMapPropHitTarget } from "./mapPropHitTargets";
@@ -21,6 +22,7 @@ import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
 import { shouldShowNameTag } from "./nameTagVisibility";
 import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
+import { fitCharacterModel } from "./characterModelFit";
 import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type ProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 import { createWorldDestinationBeacon } from "./destinationBeacon";
 import { createProximityDomeSet } from "./proximityDome";
@@ -49,11 +51,11 @@ import { locateMap2d, type Map2dLocateRequest } from "./map2d/map2dInput";
 import type { Map2dDecoration } from "./map2d/map2dDynamicLayer";
 import { campusOverviewMapScalePxPerM } from "./map2d/map2dProjection";
 import { clientRuntimeMetrics } from "./clientRuntimeMetrics";
-import { makeCivicParkGround, makeEastFootballFieldVisual, makeWestPublicParkVisual } from "./civicParkSurface";
 import { CAMPUS_GRASS_COLOR, CAMPUS_STONE_COLOR, civicRoomFloorColor, ZONE_COLOR_OPACITY } from "./zoneFloorColor";
-import { PropModelVisibility } from "./propModelVisibility";
+import { PropModelVisibility, propVisibilityFocus } from "./propModelVisibility";
 import { coveredZones, isCoveredPosition, isInsideZone } from "./zoneVisibility";
 import { ZoneRoofs } from "./zoneRoofs";
+import { makeCivicParkGround, makeEastFootballFieldVisual, makeWestPublicParkVisual } from "./civicParkSurface";
 import { RoadsideSceneryVisibility } from "./roadsideScenery";
 import { createInstancedSceneryBatches, isInstancedScenery } from "./instancedScenery";
 
@@ -69,6 +71,7 @@ const MAP_GESTURE_THRESHOLD_PX = 10;
 const ROAD_SURFACE_COLOR = "#45484a";
 const ROAD_JOIN_OVERLAP_M = 0.08;
 const CHARACTER_NAME_TAG_HEIGHT_M = 1.85;
+const CHARACTER_NAME_TAG_CLEARANCE_M = 0.3;
 const VEHICLE_NAME_TAG_HEIGHT_M = 2.8;
 const PLAYER_STATUS_COLORS: Record<PlayerStatus, string> = {
   available: "#2f9e62",
@@ -437,7 +440,7 @@ function makeNameTag(name: string, color = "#123247") {
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
   sprite.scale.set(1.8, 0.45, 1);
-  sprite.position.y = 1.85;
+  sprite.position.y = CHARACTER_NAME_TAG_HEIGHT_M;
   return sprite;
 }
 
@@ -1223,7 +1226,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const mapGroundHit = new THREE.Vector3();
     let fireFirstPerson: () => void = () => undefined;
     let lastFirstPersonShotAt = 0;
-    let draggingMapProp: { id: string; pointerId: number; last: { x: number; z: number }; startPointer: { x: number; z: number }; offset: { x: number; z: number }; center: { x: number; z: number }; moved: boolean; elevation: number; pointerPlaneY: number; preview: THREE.Group; hiddenVisuals: Array<{ object: THREE.Object3D; visible: boolean }> } | null = null;
+  let draggingMapProp: { id: string; pointerId: number; last: { x: number; z: number }; startPointer: { x: number; z: number }; offset: { x: number; z: number }; center: { x: number; z: number }; moved: boolean; elevation: number; pointerPlaneY: number; preview: THREE.Group; hiddenVisuals: Array<{ object: THREE.Object3D; visible: boolean }> } | null = null;
     let zoneAreaDrag: { pointerId: number; start: { x: number; z: number } } | null = null;
     const mapPositionFromPointer = (event: { clientX: number; clientY: number }, planeY = 0) => {
       const bounds = renderer.domElement.getBoundingClientRect();
@@ -2059,6 +2062,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           proxy.userData.collision = true;
           if (catalog?.vehicleId) trackMovableVehicleHandle(prop.id, proxy);
           mapSceneLayers.collisionOverlays.add(proxy);
+          distanceCulledPropVisuals.push(proxy);
           const outline = new THREE.LineSegments(
             new THREE.EdgesGeometry(new THREE.BoxGeometry(blockerWidth, 0.02, blockerDepth)),
             new THREE.LineBasicMaterial({ color: "#26b866" }),
@@ -2068,6 +2072,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           outline.userData.mapCollisionOverlay = true;
           if (catalog?.vehicleId) trackMovableVehicleHandle(prop.id, outline);
           mapSceneLayers.collisionOverlays.add(outline);
+          distanceCulledPropVisuals.push(outline);
         }
       }
       for (const [asset, props] of sceneryByAsset) {
@@ -2249,20 +2254,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       return model;
     };
     const getPetModel = (petId: string) => loadKenneyModel(petModels, petId, petModelUrl(petId));
-    const getVehicleModel = (vehicleId: string) => {
-      const models: Record<string, string> = {
-        "vehicle-speedster": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-speedster.glb",
-        "vehicle-racer": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-racer.glb",
-        "vehicle-suv": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-suv.glb",
-        "vehicle-monster-truck": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-monster-truck.glb",
-        "vehicle-truck": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-truck.glb",
-        "car-sedan": "/assets/kenney/car-kit/Models/GLB format/sedan.glb",
-        "car-hatchback-sports": "/assets/kenney/car-kit/Models/GLB format/hatchback-sports.glb",
-        "car-taxi": "/assets/kenney/car-kit/Models/GLB format/taxi.glb",
-        "car-kart-oopi": "/assets/kenney/toy-car-kit/Models/GLB format/vehicle-racer-low.glb",
-      };
-      return loadKenneyModel(vehicleModels, vehicleId, models[vehicleId] ?? models["car-sedan"]!);
-    };
+    const getVehicleModel = (vehicleId: string) => loadKenneyModel(vehicleModels, vehicleId, vehicleModelUrl(vehicleId));
     const getCharacterModel = (characterId: CharacterModelId) => {
       let model = characterModels.get(characterId);
       if (!model) {
@@ -2554,8 +2546,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         cameraDrag = { pointerId: event.pointerId, button: event.button, mode: "pan", x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, cancelled: false };
       } else if (event.button === 2) {
         event.preventDefault();
-        // A right-button drag is always a camera gesture. It must never inherit
-        // an object drag left active by another pointer/button sequence.
+        // Right-drag rotates the editor camera in 3D; a stationary right click
+        // still opens the placed-prop action menu.
         if (draggingMapProp) endMapPropDrag(draggingMapProp);
         draggingMapProp = null;
         // An orbit releases only the behind-character heading after the
@@ -2564,9 +2556,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           if (cameraStateRef.current.following) cameraPanTarget.copy(currentLookTarget);
           dispatchCamera({ type: "manual-drag" });
         }
-        // Right-drag pans the 2D map (and map editor); in 3D it orbits the
-        // camera, including campus overview and Modify props.
-        cameraDrag = { pointerId: event.pointerId, button: event.button, mode: mapEditModeRef.current || campusOverviewRef.current && cameraStateRef.current.view === "2d" ? "pan" : "rotate", x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, cancelled: false };
+        // Right-drag pans the 2D map and orbits the camera in 3D, including
+        // Edit Map, campus overview, and Modify props.
+        cameraDrag = { pointerId: event.pointerId, button: event.button, mode: campusOverviewRef.current && cameraStateRef.current.view === "2d" ? "pan" : "rotate", x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false, cancelled: false };
       }
       if (cameraDrag) {
         renderer.domElement.setPointerCapture(event.pointerId);
@@ -3188,12 +3180,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           void getCharacterModel(characterId).then((gltf) => {
             if (disposed || avatars.get(id) !== avatarRoot) return;
             const model = SkeletonUtils.clone(gltf.scene) as THREE.Group;
-            const bounds = new THREE.Box3().setFromObject(model);
-            const size = bounds.getSize(new THREE.Vector3());
-            const center = bounds.getCenter(new THREE.Vector3());
-            const scale = 1.55 / Math.max(size.y, 0.001);
-            model.scale.setScalar(scale);
-            model.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
+            fitCharacterModel(model);
             model.traverse((child) => {
               if (child instanceof THREE.Mesh) {
                 child.castShadow = true;
@@ -3206,8 +3193,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             avatarRoot.add(model);
             fallbackRig.visible = false;
 
-            const clips = pickCharacterClips(gltf.animations);
-            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model) ?? undefined : undefined;
+            const clips = pickCharacterClips(gltf.animations, characterId.startsWith("custom-"));
+            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) ?? undefined : undefined;
             // The procedural rig owns these models' idle and movement poses.
             // Starting an asset clip as well can put the arms back in T-pose.
             const mixer = proceduralRig ? undefined : new THREE.AnimationMixer(model);
@@ -3579,8 +3566,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       camera.lookAt(visiblePose.lookAt);
       camera.updateMatrixWorld(true);
       const roofZones = coveredZones(roomLayout?.zones ?? [], localPlayerState, editing);
-      propModelVisibility.update(now, editing, localPlayerState, visiblePose.lookAt,
-        roadsideScenery, deferredPropModelLoads, distanceCulledPropVisuals, roofZones, mapOffset);
+      propModelVisibility.update(now, editing, localPlayerState, propVisibilityFocus(visiblePose.position, visiblePose.lookAt),
+        roadsideScenery, deferredPropModelLoads, distanceCulledPropVisuals, roofZones, mapOffset, buildModeRef.current && !mapEditModeRef.current, roomLayout?.zones ?? []);
       for (const parked of parkedVehicleGroups.values()) parked.visible &&= !isCoveredPosition({ x: parked.position.x - mapOffset.x, z: parked.position.z - mapOffset.z }, roofZones);
       previousCameraPose = pose;
       previousCameraMode = frame.mode;
@@ -3791,7 +3778,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
         const isDriving = Boolean(player.vehicleId);
         const nameAnchor = isDriving ? vehiclePositions.get(id) : avatars.get(id)?.position;
-        const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : CHARACTER_NAME_TAG_HEIGHT_M;
+        const characterHeightM = avatarAnimations.get(id)?.model.userData.characterHeightM as number | undefined;
+        const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : characterHeightM === undefined ? CHARACTER_NAME_TAG_HEIGHT_M : characterHeightM + CHARACTER_NAME_TAG_CLEARANCE_M;
         const showNameTag = nameAnchor !== undefined && shouldShowNameTag({
           isLocal: id === localId, map2d: showMap2d, firstPerson: firstPersonViewRef.current,
           covered: campusOverviewRef.current && isCoveredPosition(player, roofZones), distanceToCameraM: nameAnchor.distanceTo(camera.position),
@@ -3943,7 +3931,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           {!buildMode && !mapEditMode && <button type="button" onClick={retryWebglAfterReload}>Retry 3D</button>}
         </div>}
       </div>
-      {buildMode && movePropArmedId && <div className="modify-props-move-toast" role="status">Click and drag the selected prop. Right-drag pans the camera.</div>}
+      {buildMode && movePropArmedId && <div className="modify-props-move-toast" role="status">Click and drag the selected prop. Right-drag rotates the camera in 3D.</div>}
       {buildMode && propActionMenu && <div ref={propActionMenuElementRef} className="prop-action-menu" style={{ left: propActionMenu.x, top: propActionMenu.y }} role="toolbar" aria-label="Actions for selected prop" onPointerDown={(event) => event.stopPropagation()}>
         <button type="button" title="Click, then left-drag on the map to move this prop" aria-label="Move prop" onClick={() => { onSelectMapItem?.(propActionMenu.id); onPlacementComplete?.(); movePropArmedIdRef.current = propActionMenu.id; setMovePropArmedId(propActionMenu.id); setPropActionMenu(null); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7M5 5v14" /></svg><span>Move</span></button>
         <button type="button" title="Rotate prop 90 degrees" aria-label="Rotate prop 90 degrees" onClick={() => { onSelectMapItem?.(propActionMenu.id); onRotateProp?.(propActionMenu.id); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M20 12a8 8 0 1 1-2.34-5.66L20 9" /></svg><span>Rotate</span></button>

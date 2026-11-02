@@ -57,6 +57,7 @@ import { coveredZones, isCoveredPosition, isInsideZone } from "./zoneVisibility"
 import { ZoneRoofs } from "./zoneRoofs";
 import { makeCivicParkGround, makeEastFootballFieldVisual, makeWestPublicParkVisual } from "./civicParkSurface";
 import { RoadsideSceneryVisibility } from "./roadsideScenery";
+import { diffProps, isIncrementalProp, sceneStructureLayout, sceneStructureSignature } from "./props/incrementalProps";
 import { createInstancedSceneryBatches, isInstancedScenery } from "./instancedScenery";
 
 type CharacterModelId = KenneyCharacterId | `custom-${string}`;
@@ -417,6 +418,16 @@ function disposeObjectResources(root: THREE.Object3D) {
         material.dispose();
       });
     }
+  });
+}
+
+/** Dispose geometry and materials of every drawable below `root`, including lines. */
+function disposeGraphicsTree(root: THREE.Object3D) {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points)) return;
+    object.geometry.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach((material) => material.dispose());
   });
 }
 
@@ -809,8 +820,21 @@ function snapCampusPropPointInZone(
   };
 }
 
-export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, proximityGroupIdRef, headingIntentRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onModifyProps, onMapViewChange }: Props) {
+export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, proximityGroupIdRef, headingIntentRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout: fullRoomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onModifyProps, onMapViewChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // The scene is rebuilt only when this structure changes. Adding, moving or removing
+  // an ordinary prop is applied in place by `propSyncRef`, so the renderer, camera and
+  // avatars keep running for everyone else in the office.
+  const fullLayoutRef = useRef<RoomLayout | null>(fullRoomLayout);
+  fullLayoutRef.current = fullRoomLayout;
+  const stableSceneLayoutRef = useRef<{ signature: string; layout: RoomLayout | null }>({ signature: "", layout: null });
+  const sceneSignature = sceneStructureSignature(fullRoomLayout);
+  if (stableSceneLayoutRef.current.signature !== sceneSignature || (fullRoomLayout === null) !== (stableSceneLayoutRef.current.layout === null)) {
+    stableSceneLayoutRef.current = { signature: sceneSignature, layout: fullRoomLayout ? sceneStructureLayout(fullRoomLayout) : null };
+  }
+  const roomLayout = stableSceneLayoutRef.current.layout;
+  const propSyncRef = useRef<((layout: RoomLayout | null) => void) | null>(null);
+  useEffect(() => { propSyncRef.current?.(fullRoomLayout); }, [fullRoomLayout]);
   const [propActionMenu, setPropActionMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const propActionMenuRef = useRef(propActionMenu);
   propActionMenuRef.current = propActionMenu;
@@ -1008,7 +1032,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           lastLocateRequestRef.current = locate.requestId;
         }
         return {
-        presentation: mapPresentationRef.current, visible: true, view: "2d", layout: roomLayout,
+        presentation: mapPresentationRef.current, visible: true, view: "2d", layout: fullLayoutRef.current,
         widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM,
           widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
@@ -1213,7 +1237,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     }> = [];
     // Prop definitions do not change during this canvas lifetime. Resolve the
     // driveable catalog once instead of rebuilding this list every animation frame.
-    const driveableProps = (roomLayout?.props ?? []).flatMap((placed) => {
+    const driveableProps = (fullLayoutRef.current?.props ?? []).flatMap((placed) => {
       const definition = ROOM_PROP_CATALOG.find((item) => item.asset === placed.asset);
       return definition?.vehicleId && KENNEY_VEHICLE_IDS.includes(definition.vehicleId as KenneyVehicleId)
         ? [{ id: placed.id, vehicleId: definition.vehicleId as KenneyVehicleId, x: placed.x, z: placed.z, rotation: placed.rotation }]
@@ -1258,7 +1282,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         if (hit.object.userData.mapCollisionOverlay || hit.object.userData.mapPropDragHitTarget) return false;
         let node: THREE.Object3D | null = hit.object;
         while (node && node !== campusMapProps && typeof node.userData.officeMapPropId !== "string") node = node.parent;
-        const prop = roomLayout?.props.find((entry) => entry.id === node?.userData.officeMapPropId);
+        const prop = fullLayoutRef.current?.props.find((entry) => entry.id === node?.userData.officeMapPropId);
         const definition = prop && ROOM_PROP_CATALOG.find((entry) => entry.asset === prop.asset);
         if (!prop || !definition) return false;
         const compatible = item.placementClass === "small"
@@ -1274,7 +1298,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       // edge clicks cannot make a small item fall to floor level or overhang.
       let supportNode: THREE.Object3D | null = topHit.object;
       while (supportNode && supportNode !== campusMapProps && typeof supportNode.userData.officeMapPropId !== "string") supportNode = supportNode.parent;
-      const supportProp = roomLayout?.props.find((entry) => entry.id === supportNode?.userData.officeMapPropId);
+      const supportProp = fullLayoutRef.current?.props.find((entry) => entry.id === supportNode?.userData.officeMapPropId);
       const supportDefinition = supportProp && ROOM_PROP_CATALOG.find((entry) => entry.asset === supportProp.asset);
       if (!supportProp || !supportDefinition) return item.placementClass === "small" ? null : groundPoint;
 
@@ -1313,7 +1337,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       }
       const validGridPoints = nearbyGridPoints.filter((point, index, all) =>
         all.findIndex((candidate) => candidate.x === point.x && candidate.z === point.z) === index &&
-        roomPropPlacementSupport(roomLayout?.props ?? [], item.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2) !== null,
+        roomPropPlacementSupport(fullLayoutRef.current?.props ?? [], item.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2) !== null,
       );
       return validGridPoints.sort((a, b) =>
         Math.hypot(a.x - topHit.point.x, a.z - topHit.point.z) - Math.hypot(b.x - topHit.point.x, b.z - topHit.point.z),
@@ -1357,7 +1381,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     // Only visible mesh roots are culled. Collision, interaction and the
     // authoritative server map remain complete even when their model is far away.
     const distanceCulledPropVisuals: THREE.Object3D[] = [];
-    const roadsideScenery = new RoadsideSceneryVisibility(roomLayout?.props ?? []);
+    const roadsideScenery = new RoadsideSceneryVisibility(fullLayoutRef.current?.props ?? []);
     const propModelVisibility = new PropModelVisibility();
     const mapOffset = { x: mapWorld.width / 2, z: mapWorld.depth / 2 };
     const zoneRoofs = new ZoneRoofs(roomLayout?.zones ?? [], host, mapOffset, roomLayout?.walls ?? []);
@@ -1938,12 +1962,16 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       }
       const instancedSceneryAssets = new Set([...sceneryByAsset].filter(([, props]) => props.length >= 4).map(([asset]) => asset));
       const instancedSceneryIds = new Set([...sceneryByAsset].filter(([asset]) => instancedSceneryAssets.has(asset)).flatMap(([, props]) => props.map(prop => prop.id)));
-      for (const prop of roomLayout.props) {
+      type PropHandle = { removed: boolean; objects: THREE.Object3D[]; cullable: THREE.Object3D[]; onRemove: Array<() => void> };
+      const propHandles = new Map<string, PropHandle>();
+      const addPropVisuals = (prop: RoomLayoutProp) => {
         const catalog = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
         // Older saved maps may still contain individual road tiles. The
         // roadway network above is now the sole renderer for road surfaces;
         // drawing both causes coplanar z-fighting and striped intersections.
-        if (roomLayout.roadways?.length && catalog?.group === "Roads · Tiles") continue;
+        if (roomLayout.roadways?.length && catalog?.group === "Roads · Tiles") return;
+        const handle: PropHandle = { removed: false, objects: [], cullable: [], onRemove: [] };
+        propHandles.set(prop.id, handle);
         if (catalog) {
           // Raycasting the visible GLTF surface is unreliable across the prop
           // library: some tables and shelves have open frames or uneven tops.
@@ -1967,6 +1995,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             supportPlane.rotation.x = -Math.PI / 2;
             supportSurface.add(supportPlane);
             mapSceneLayers.pickTargets.add(supportSurface);
+            handle.objects.push(supportSurface);
           }
           // The saved collision shape is axis-aligned after rotating the prop.
           // Use that exact footprint for selection feedback so the orange frame
@@ -1993,6 +2022,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           selection.add(selectedFootprint, selectedBounds);
           mapSceneLayers.selections.add(selection);
           mapPropSelectionHighlights.set(prop.id, selection);
+          handle.objects.push(selection);
+          handle.onRemove.push(() => { if (mapPropSelectionHighlights.get(prop.id) === selection) mapPropSelectionHighlights.delete(prop.id); });
           // Give Move mode a generous, invisible hit target matching the
           // prop's actual footprint. Many models (chairs, screens, plants)
           // have sparse geometry, so raycasting only the visible mesh makes
@@ -2008,6 +2039,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           );
           if (catalog.vehicleId) trackMovableVehicleHandle(prop.id, dragTarget);
           mapSceneLayers.pickTargets.add(dragTarget);
+          handle.objects.push(dragTarget);
         }
         // Driveable props are rendered by the vehicle layer so they can be
         // hidden while occupied and reappear at their last parked position.
@@ -2018,7 +2050,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             if (deferredLoad.started) return;
             deferredLoad.started = true;
             loadObjModel(prop.asset, (object) => {
-              if (disposed) { disposeObjectResources(object); return; }
+              if (disposed || handle.removed) { disposeObjectResources(object); return; }
               const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
               if (!definition) { disposeObjectResources(object); return; }
               normalizeProp(object, definition.height);
@@ -2044,9 +2076,20 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
               distanceCulledPropVisuals.push(propPivot);
               if (prop.collision) cameraOcclusion.register(propPivot);
               furniturePieces.push(propPivot);
+              handle.onRemove.push(() => {
+                propPivot.removeFromParent();
+                cameraOcclusion.unregister(propPivot);
+                const piece = furniturePieces.indexOf(propPivot);
+                if (piece >= 0) furniturePieces.splice(piece, 1);
+                const culled = distanceCulledPropVisuals.indexOf(propPivot);
+                if (culled >= 0) distanceCulledPropVisuals.splice(culled, 1);
+                renderedPropScales.delete(prop.id);
+                disposeObjectResources(propPivot);
+              });
             }, (error) => console.warn(`Could not load room prop ${prop.asset}.`, error));
           };
           deferredPropModelLoads.push(deferredLoad);
+          handle.onRemove.push(() => { const pending = deferredPropModelLoads.indexOf(deferredLoad); if (pending >= 0) deferredPropModelLoads.splice(pending, 1); });
         }
         if (prop.collision && !prop.elevation) {
           // Keep the in-world proxy identical to the server's axis-aligned blocker.
@@ -2063,6 +2106,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           if (catalog?.vehicleId) trackMovableVehicleHandle(prop.id, proxy);
           mapSceneLayers.collisionOverlays.add(proxy);
           distanceCulledPropVisuals.push(proxy);
+          handle.objects.push(proxy); handle.cullable.push(proxy);
           const outline = new THREE.LineSegments(
             new THREE.EdgesGeometry(new THREE.BoxGeometry(blockerWidth, 0.02, blockerDepth)),
             new THREE.LineBasicMaterial({ color: "#26b866" }),
@@ -2073,8 +2117,33 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           if (catalog?.vehicleId) trackMovableVehicleHandle(prop.id, outline);
           mapSceneLayers.collisionOverlays.add(outline);
           distanceCulledPropVisuals.push(outline);
+          handle.objects.push(outline); handle.cullable.push(outline);
         }
-      }
+            };
+      const removePropVisuals = (propId: string) => {
+        const handle = propHandles.get(propId);
+        if (!handle) return;
+        propHandles.delete(propId);
+        handle.removed = true;
+        for (const cleanup of handle.onRemove) cleanup();
+        for (const object of handle.cullable) {
+          const index = distanceCulledPropVisuals.indexOf(object);
+          if (index >= 0) distanceCulledPropVisuals.splice(index, 1);
+        }
+        for (const object of handle.objects) { object.removeFromParent(); disposeGraphicsTree(object); }
+      };
+      const initialProps = fullLayoutRef.current?.props ?? roomLayout.props;
+      for (const prop of initialProps) addPropVisuals(prop);
+      let appliedProps: readonly RoomLayoutProp[] = initialProps;
+      const layoutHasRoadways = Boolean(roomLayout.roadways?.length);
+      const incrementalOnly = (props: readonly RoomLayoutProp[]) => props.filter((prop) => isIncrementalProp(prop, layoutHasRoadways));
+      propSyncRef.current = (next) => {
+        const nextProps = next?.props ?? [];
+        const diff = diffProps(incrementalOnly(appliedProps), incrementalOnly(nextProps));
+        appliedProps = nextProps;
+        for (const id of [...diff.removed, ...diff.changed.map((prop) => prop.id)]) { removePropVisuals(id); roadsideScenery.forget(id); }
+        for (const prop of [...diff.changed, ...diff.added]) { addPropVisuals(prop); roadsideScenery.track(prop); }
+      };
       for (const [asset, props] of sceneryByAsset) {
         if (!instancedSceneryAssets.has(asset)) continue;
         const definition = ROOM_PROP_CATALOG.find((item) => item.asset === asset);
@@ -2336,7 +2405,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const getOfficePropActionPosition = (id: string, fallbackX: number, fallbackY: number) => {
       const propObject = Array.from(mapSceneLayers.propRoots(campusMapProps)).find((child) => child.userData.officeMapPropId === id);
       if (!propObject) return { x: Math.min(fallbackX + 12, window.innerWidth - 174), y: Math.min(fallbackY + 12, window.innerHeight - 142) };
-      const prop = roomLayout?.props.find((item) => item.id === id);
+      const prop = fullLayoutRef.current?.props.find((item) => item.id === id);
       const definition = prop && ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
       const anchor = propObject.getWorldPosition(new THREE.Vector3());
       anchor.y += (definition?.height ?? 0.5) + 0.18;
@@ -2460,7 +2529,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         setPropActionMenu(null);
         const armedMoveId = movePropArmedIdRef.current;
         if (armedMoveId) {
-          const selectedProp = roomLayout?.props.find((item) => item.id === armedMoveId);
+          const selectedProp = fullLayoutRef.current?.props.find((item) => item.id === armedMoveId);
           const clickedPropId = getOfficePropIdAt(event.clientX, event.clientY);
           if (selectedProp && clickedPropId === armedMoveId) {
             const hit = getOfficePropHitAt(armedMoveId, event.clientX, event.clientY);
@@ -2491,7 +2560,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           const snapped = definition ? snapPlacementPoint(point, definition) : null;
           if (!snapped) return;
           placementGhostPosition = snapped;
-          placementGhostElevation = definition ? roomPropPlacementSupport(roomLayout?.props ?? [], definition.asset, snapped.x - mapWorld.width / 2, snapped.z - mapWorld.depth / 2)?.elevation ?? 0 : 0;
+          placementGhostElevation = definition ? roomPropPlacementSupport(fullLayoutRef.current?.props ?? [], definition.asset, snapped.x - mapWorld.width / 2, snapped.z - mapWorld.depth / 2)?.elevation ?? 0 : 0;
           hasPlacementPointer = true;
           buildCallbacksRef.current.onPlaceProp?.(asset as RoomLayoutProp["asset"], { x: snapped.x - mapWorld.width / 2, z: snapped.z - mapWorld.depth / 2, elevation: placementGhostElevation });
           // Keep floor and road tiles armed so a user can lay a continuous
@@ -2507,7 +2576,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           setPropActionMenu({ id: propId, ...getOfficePropActionPosition(propId, event.clientX, event.clientY) });
         }
         if (propId && movePropArmedIdRef.current === propId) {
-          const selectedProp = roomLayout?.props.find((item) => item.id === propId);
+          const selectedProp = fullLayoutRef.current?.props.find((item) => item.id === propId);
           if (selectedProp) {
             const hit = getOfficePropHitAt(propId, event.clientX, event.clientY);
             const pointerPlaneY = hit?.y ?? selectedProp.elevation ?? 0;
@@ -2585,7 +2654,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             hasPlacementPointer = false;
           } else {
             placementGhostPosition = snapped;
-            placementGhostElevation = roomPropPlacementSupport(roomLayout?.props ?? [], definition.asset, placementGhostPosition.x - mapWorld.width / 2, placementGhostPosition.z - mapWorld.depth / 2)?.elevation ?? 0;
+            placementGhostElevation = roomPropPlacementSupport(fullLayoutRef.current?.props ?? [], definition.asset, placementGhostPosition.x - mapWorld.width / 2, placementGhostPosition.z - mapWorld.depth / 2)?.elevation ?? 0;
             hasPlacementPointer = true;
           }
         } else if (definition) {
@@ -2610,12 +2679,12 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       if (draggingMapProp?.pointerId === event.pointerId && buildModeRef.current) {
         const rawPoint = mapPositionFromPointer(event, draggingMapProp.pointerPlaneY);
         if (!rawPoint) return;
-        const prop = roomLayout?.props.find((item) => item.id === draggingMapProp!.id);
+        const prop = fullLayoutRef.current?.props.find((item) => item.id === draggingMapProp!.id);
         const point = prop
           ? snapCampusPropPoint({ x: rawPoint.x + draggingMapProp.offset.x, z: rawPoint.z + draggingMapProp.offset.z }, prop.width, prop.depth, prop.rotation, mapWorld)
           : draggingMapProp.center;
         if (prop) {
-          const support = roomPropPlacementSupport(roomLayout?.props.filter((item) => item.id !== prop.id) ?? [], prop.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2, prop.rotation);
+          const support = roomPropPlacementSupport(fullLayoutRef.current?.props.filter((item) => item.id !== prop.id) ?? [], prop.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2, prop.rotation);
           const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
           if (definition?.placementClass === "small" && !support) return;
         }
@@ -2631,7 +2700,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           draggedVehicle.position.z = point.z;
         }
         if (prop) {
-          const elevation = roomPropPlacementSupport(roomLayout?.props.filter((item) => item.id !== prop.id) ?? [], prop.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2, prop.rotation)?.elevation ?? 0;
+          const elevation = roomPropPlacementSupport(fullLayoutRef.current?.props.filter((item) => item.id !== prop.id) ?? [], prop.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2, prop.rotation)?.elevation ?? 0;
           const elevationDelta = elevation - draggingMapProp!.elevation;
           if (elevationDelta) mapSceneLayers.moveProp(campusMapProps, draggingMapProp.id, { x: 0, y: elevationDelta, z: 0 });
           draggingMapProp!.elevation = elevation;
@@ -2700,7 +2769,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const finishedDrag = draggingMapProp;
         const movedPropId = finishedDrag.id;
         if (finishedDrag.moved) {
-          const prop = roomLayout?.props.find((item) => item.id === finishedDrag.id);
+          const prop = fullLayoutRef.current?.props.find((item) => item.id === finishedDrag.id);
           const position = {
             x: finishedDrag.center.x - mapWorld.width / 2,
             z: finishedDrag.center.z - mapWorld.depth / 2,
@@ -3276,7 +3345,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
 
         const current = positions.get(id)!;
         const sittingReference = player.sittingPropId ? parseRoomPropSeatReference(player.sittingPropId) : undefined;
-        const sittingProp = sittingReference ? roomLayout?.props.find((prop) => prop.id === sittingReference.propId) : undefined;
+        const sittingProp = sittingReference ? fullLayoutRef.current?.props.find((prop) => prop.id === sittingReference.propId) : undefined;
         const sittingDefinition = sittingProp ? ROOM_PROP_CATALOG.find((item) => item.asset === sittingProp.asset) : undefined;
         const lying = Boolean(sittingProp && isRoomPropBed(sittingProp.asset));
         const sittingAnchor = sittingProp && sittingReference
@@ -3579,7 +3648,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           actionMenuElement.style.visibility = "hidden";
         } else {
           const propObject = Array.from(mapSceneLayers.propRoots(campusMapProps)).find((child) => child.userData.officeMapPropId === actionMenu.id);
-          const prop = roomLayout?.props.find((item) => item.id === actionMenu.id);
+          const prop = fullLayoutRef.current?.props.find((item) => item.id === actionMenu.id);
           const definition = prop && ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
           if (!propObject || !prop) {
             actionMenuElement.style.visibility = "hidden";
@@ -3797,10 +3866,10 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
       }
       for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
-      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing, visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: roomLayout, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
+      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing, visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: fullLayoutRef.current, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM, widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
         players: playersRef.current, localId, speaking: speakingUsernamesRef?.current ?? new Set<string>(), decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs: performance.now(), deltaS: delta, destination: travelFeedbackRef.current?.destination ?? null, proximityDomes: sharedDomes }) ?? map2dCenterRef.current;
-      socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: roomLayout, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: !showMap2d, nowMs: performance.now() });
+      socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: fullLayoutRef.current, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: !showMap2d, nowMs: performance.now() });
       if (!showMap2d) renderer.render(scene, camera);
       if (document.visibilityState === "visible") {
         clientRuntimeMetrics.recordFrame(performance.now() - frameStartedAtMs);
@@ -3910,6 +3979,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           }
         });
       }
+      propSyncRef.current = null;
       proximityDomes.dispose();
       renderer.dispose();
       destinationBeacon.dispose();

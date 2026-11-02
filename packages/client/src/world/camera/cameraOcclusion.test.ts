@@ -250,3 +250,17 @@ test("cached static prop bounds and render matrices both follow an editor pivot 
   assert.ok(wall.material.opacity < 1);
   assert.equal(wall.matrixWorld.elements[12], 0);
 });
+
+test("unregistering an occluder restores its material and stops fading it", (t) => {
+  const { occlusion, makeWall, originalMaterial } = fixture(t);
+  const wall = makeWall();
+  occlusion.register(wall);
+  occlusion.apply(rayPose(), "tpp", STEP_SEC, false);
+  assert.notEqual(wall.material, originalMaterial, "registered walls use a private fading material");
+  occlusion.unregister(wall);
+  assert.equal(wall.material, originalMaterial, "the shared material is restored");
+  assert.equal(wall.castShadow, true);
+  for (let step = 0; step < FADE_STEPS_COUNT; step += 1) occlusion.apply(rayPose(), "tpp", STEP_SEC, false);
+  assert.equal(wall.material, originalMaterial, "it is not touched again after removal");
+  occlusion.unregister(wall);
+});

@@ -6,8 +6,10 @@ import { VehicleCollisionIndex } from "./vehicleCollisionIndex.js";
 import { deskAssignmentFences } from "./deskAssignmentFences.js";
 import { readOfficeMapProjection } from "./officeMapProjection.js";
 import { DESK_ASSIGNMENT_MAP_CHANGED_LABEL, DESK_ASSIGNMENT_MEDIA_UNAVAILABLE_LABEL, DeskAssignmentError } from "./deskAssignments.js";
-import { type DeskAssignmentFence } from "@gammyverse/shared";
+import { buildMapPropsPatch, type DeskAssignmentFence } from "@gammyverse/shared";
 import { restrictedZoneWorld, findAccessibleSpawn, isAccessibleSpawn } from "./privateMovement.js";
+import { classifyMapChange, findNearestWalkable } from "./mapChangeImpact.js";
+import { coalescedByKey } from "./coalescedRefresh.js";
 import { vehicleExitPosition } from "./vehicleExitPosition.js";
 import { PrivateConversations } from "./privateConversations.js";
 import { privateAccessFrame } from "./privateAccessFrame.js";
@@ -100,19 +102,6 @@ function routeIsWalkable(start: Position, points: Position[], world: WorldConfig
     previous = point;
   }
   return true;
-}
-
-function worldGeometrySignature(layout: RoomLayout) {
-  const byId = <T extends { id: string }>(items: T[]) => [...items].sort((first, second) => first.id.localeCompare(second.id));
-  return JSON.stringify({
-    dimensions: layout.dimensions ?? null,
-    props: byId(layout.props).map(({ id, asset, x, z, rotation, width, depth, collision, elevation }) => [id, asset, x, z, rotation, width, depth, collision, elevation ?? null]),
-    zones: byId(layout.zones).map(({ id, kind, x, z, width, depth }) => [id, kind, x, z, width, depth]),
-    walls: byId(layout.walls).map(({ id, axis, x, z, length, thickness, height, color, asset }) => [id, axis, x, z, length, thickness, height, color ?? null, asset ?? null]),
-    doors: byId(layout.doors).map(({ id, wallId, offset, width, kind, leaves, asset }) => [id, wallId, offset, width, kind ?? null, leaves ?? null, asset ?? null]),
-    roadways: byId(layout.roadways ?? []).map(({ id, x, z, width, depth, kind }) => [id, x, z, width, depth, kind]),
-    spawnPoint: layout.spawnPoint ?? null,
-  });
 }
 
 export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }> {
@@ -271,6 +260,13 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       this.sendMediaZone(client, client.sessionId);
       client.send("zone-locks", { zoneIds: [...this.lockedZoneIds] });
       client.send("map-edit-lock", { editorUsername: this.mapEditorUsername });
+    });
+    // A client that missed a props patch (version gap) asks for the full map once.
+    this.onMessage("request-office-map", (client: Client) => {
+      const now = performance.now();
+      if (now - (this.officeMapRequestAt.get(client.sessionId) ?? -Infinity) < 1000) return;
+      this.officeMapRequestAt.set(client.sessionId, now);
+      client.send("office-map", { config: this.mapConfig, configVersion: this.mapConfigVersion, revision: this.mapRevision });
     });
     this.onMessage("map-edit-lock", (client: Client, payload: unknown) => {
       if (typeof payload !== "object" || payload === null || !("active" in payload) || typeof payload.active !== "boolean") return;
@@ -725,7 +721,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     this.autoRoutes.delete(client.sessionId);
     this.pendingSitsBySessionId.delete(client.sessionId);
     this.autoSitScanAtBySessionId.delete(client.sessionId);
-    client.send("office-map", { config: this.mapConfig, configVersion: this.mapConfigVersion });
+    client.send("office-map", { config: this.mapConfig, configVersion: this.mapConfigVersion, revision: this.mapRevision });
     client.send("map-edit-lock", { editorUsername: this.mapEditorUsername });
     client.send("ghost-mode-status", { sessionId: client.sessionId, enabled: false });
     void recordOfficeActivity(this.officeId, auth.username, "office.join");
@@ -828,6 +824,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     this.autoSitScanAtBySessionId.delete(client.sessionId);
     this.lastPacketAt.delete(client.sessionId);
     this.ghostModeBySessionId.delete(client.sessionId);
+    this.officeMapRequestAt.delete(client.sessionId);
     this.ghostHintAtBySessionId.delete(client.sessionId);
     this.lastJumpAtBySessionId.delete(client.sessionId);
     this.broadcastGhostMode(client.sessionId, false);
@@ -859,6 +856,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     this.lastPacketAt.delete(client.sessionId);
     this.activityRefreshAtBySessionId.delete(client.sessionId);
     this.ghostModeBySessionId.delete(client.sessionId);
+    this.officeMapRequestAt.delete(client.sessionId);
     this.ghostHintAtBySessionId.delete(client.sessionId);
     this.lastBlasterShotAtBySessionId.delete(client.sessionId);
     this.lastWaveAtBySessionId.delete(client.sessionId);
@@ -1015,10 +1013,15 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     }
   }
 
-  static async updateMap(officeId: string) {
+  /** Saves arrive in bursts; collapse them to one in-flight read plus one trailing read per office. */
+  private static readonly refreshOfficeMap = coalescedByKey(async (officeId: string) => {
     const projection = await readOfficeMapProjection(database, officeId);
     for (const room of OfficeRoom.roomsByOffice.get(officeId) ?? []) room.applyMapConfig(projection.config, projection.configVersion);
     deskAssignmentFences.applied(officeId, projection.configVersion);
+  });
+
+  static updateMap(officeId: string) {
+    return OfficeRoom.refreshOfficeMap(officeId);
   }
 
   static updateDeskZone(officeId: string, update: { id: string; name: string; ownerUsername: string | null }) {
@@ -1048,26 +1051,38 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     this.broadcast("desk-zone-updated", { zoneId: update.id, name: update.name, ownerUsername: update.ownerUsername });
   }
 
+  private readonly officeMapRequestAt = new Map<string, number>();
+  /** Counts this room's map broadcasts. Clients order props patches by it, because a props-only save leaves the map configVersion unchanged. */
+  private mapRevision = 0;
+
   private applyMapConfig(config: unknown, configVersion = this.mapConfigVersion) {
     if (configVersion < this.mapConfigVersion) return;
-    this.invalidateRouteSearchRoom();
-    this.mapConfigVersion = configVersion;
-    this.navigationGeometryRevision += 1;
-    this.conversationActions?.mapChanged();
-    const pendingDesks = new Set(this.deskTravel?.invalidateAll());
+    const previousConfig = this.mapConfig;
     const nextLayout = this.parseMapLayout(config);
+    const impact = classifyMapChange(this.mapLayout, nextLayout);
+    const { worldGeometryChanged, navigationChanged, seatsChanged } = impact;
+    this.mapConfigVersion = configVersion;
+    // A moved decoration must not cancel everyone's walks; only changes that can
+    // invalidate a route, seat or desk walk do.
+    if (navigationChanged) {
+      this.invalidateRouteSearchRoom();
+      this.navigationGeometryRevision += 1;
+      this.conversationActions?.mapChanged();
+    }
+    const pendingDesks = new Set(navigationChanged ? this.deskTravel?.invalidateAll() : undefined);
     realtimeRuntimeMetrics.increment("mapApplies");
     const affectedOwners = affectedDeskOwners(this.mapLayout, nextLayout);
-    const worldGeometryChanged = worldGeometrySignature(this.mapLayout) !== worldGeometrySignature(nextLayout);
     this.mapConfig = config;
     this.mapLayout = nextLayout;
-    this.seatIndex = new RoomSeatIndex(nextLayout.props);
-    this.pendingSitsBySessionId.clear();
-    this.autoSitScanAtBySessionId.clear();
+    if (seatsChanged) {
+      this.seatIndex = new RoomSeatIndex(nextLayout.props);
+      this.pendingSitsBySessionId.clear();
+      this.autoSitScanAtBySessionId.clear();
+    }
     this.privacy?.mapChanged(this.privateFrame());
     const assignment = deskAssignmentFences.current(this.officeId);
     if (assignment && configVersion >= assignment.newConfigVersion) this.privacy?.releaseAssignment(assignment.operationId);
-    for (const [sessionId, route] of this.autoRoutes) {
+    if (navigationChanged) for (const [sessionId, route] of this.autoRoutes) {
       if (!route.deskZoneId) continue;
       this.autoRoutes.delete(sessionId);
       pendingDesks.add(sessionId);
@@ -1096,18 +1111,30 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       if (worldGeometryChanged) player.worldVersion = this.worldVersion;
       if (player.sittingPropId && !this.seatIndex.has(player.sittingPropId)) player.sittingPropId = "";
       if (worldGeometryChanged && !isPositionWalkable({ x: player.x, z: player.z }, this.world)) {
-        const spawn = findAccessibleSpawn(
-          [...this.state.players.entries()].filter(([otherId]) => otherId !== sessionId).map(([, other]) => ({ x: other.x, z: other.z })),
-          this.movementAccessWorld(sessionId,this.world),
-        );
+        const others = [...this.state.players.entries()].filter(([otherId]) => otherId !== sessionId).map(([, other]) => ({ x: other.x, z: other.z }));
+        const accessWorld = this.movementAccessWorld(sessionId, this.world);
+        // Step aside to the nearest free spot before falling back to a spawn point.
+        const spawn = findNearestWalkable({ x: player.x, z: player.z }, others, accessWorld) ?? findAccessibleSpawn(others, accessWorld);
         if(!spawn){player.presence="away";this.clients.find(client=>client.sessionId===sessionId)?.leave(OFFICE_ACCESS_REVOKED_CLOSE_CODE,SPAWN_ACCESS_UNAVAILABLE_LABEL);continue;}
         player.x = spawn.x;
         player.z = spawn.z;
         relocatedPlayers += 1;
       }
     }
-    logServerEvent("realtime", "office.map.applied", { roomId: this.roomId, officeId: this.officeId, worldGeometryChanged, worldVersion: this.worldVersion, playerCount: this.state.players.size, relocatedPlayers });
-    this.broadcast("office-map", { config, configVersion: this.mapConfigVersion });
+    logServerEvent("realtime", "office.map.applied", { roomId: this.roomId, officeId: this.officeId, worldGeometryChanged, navigationChanged, seatsChanged, changedPropCount: impact.changedPropIds.length, worldVersion: this.worldVersion, playerCount: this.state.players.size, relocatedPlayers });
+    // A props-only save reaches every player as a small patch; anything else (or a
+    // client that fell behind) gets the full map.
+    // Building the patch is an optimization; it must never stop the map from reaching players.
+    let patch: ReturnType<typeof buildMapPropsPatch> = null;
+    const baseRevision = this.mapRevision;
+    this.mapRevision += 1;
+    try { patch = buildMapPropsPatch(previousConfig, config, baseRevision, this.mapRevision, this.mapConfigVersion); } catch { patch = null; }
+    if (patch) {
+      realtimeRuntimeMetrics.increment("mapPropsPatches");
+      this.broadcast("props-changed", patch);
+    } else {
+      this.broadcast("office-map", { config, configVersion: this.mapConfigVersion, revision: this.mapRevision });
+    }
     this.updatePrivateMembership();
     this.updateProximity();
     sendDeskAssignmentNotices(this.clients, this.usernamesBySessionId, affectedOwners, this.officeId, this.mapConfigVersion);

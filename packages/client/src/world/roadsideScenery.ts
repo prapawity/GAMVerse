@@ -140,6 +140,38 @@ export class RoadsideSceneryVisibility {
   }
 
   /** Reports per-prop visibility to a batch whenever it changes, so instances beyond the radius are not drawn. */
+  /** Start tracking a prop added after construction. */
+  track(prop: RoadsidePlacement) {
+    this.forget(prop.id);
+    const key = `${Math.floor(prop.x / ROADSIDE_CHUNK_SIZE_M)},${Math.floor(prop.z / ROADSIDE_CHUNK_SIZE_M)}`;
+    let chunk = this.chunks.find(entry => entry.key === key);
+    if (!chunk) {
+      chunk = { ...groupRoadsideProps([prop])[0]!, visible: false, visuals: new Set<{ visible: boolean }>() };
+      this.chunks.push(chunk);
+    } else {
+      const added = groupRoadsideProps([prop])[0]!.bounds;
+      chunk.bounds.minX = Math.min(chunk.bounds.minX, added.minX);
+      chunk.bounds.maxX = Math.max(chunk.bounds.maxX, added.maxX);
+      chunk.bounds.minZ = Math.min(chunk.bounds.minZ, added.minZ);
+      chunk.bounds.maxZ = Math.max(chunk.bounds.maxZ, added.maxZ);
+      chunk.props.push(prop);
+    }
+    this.chunkByPropId.set(prop.id, chunk);
+    this.propStates.set(prop.id, { bounds: groupRoadsideProps([prop])[0]!.bounds, visible: false });
+  }
+
+  /** Stop tracking a removed prop. The chunk's bounds stay conservative. */
+  forget(propId: string) {
+    const chunk = this.chunkByPropId.get(propId);
+    if (chunk) {
+      const index = chunk.props.findIndex(prop => prop.id === propId);
+      if (index >= 0) chunk.props.splice(index, 1);
+      if (chunk.props.length === 0) this.chunks.splice(this.chunks.indexOf(chunk), 1);
+    }
+    this.chunkByPropId.delete(propId);
+    this.propStates.delete(propId);
+  }
+
   registerInstances(ids: readonly string[], apply: (visible: boolean[]) => void) {
     const listener = { ids, apply, last: "" };
     this.instanceListeners.add(listener);

@@ -49,7 +49,7 @@ class FadingOccluder {
   private readonly hitPoint = new Vector3();
   private opacityRatio = FULL_OPACITY_RATIO;
 
-  constructor(private readonly root: Object3D) {
+  constructor(readonly root: Object3D) {
     root.traverse((object) => { if (object instanceof Mesh) this.bindings.push(bindMesh(object)); });
     this.updateBounds();
   }
@@ -95,6 +95,14 @@ export class CameraOcclusion {
 
   register(root: Object3D): void {
     this.occluders.push(new FadingOccluder(root));
+  }
+
+  /** Restore the root's own materials and stop fading it, for objects removed from the scene. */
+  unregister(root: Object3D): void {
+    const index = this.occluders.findIndex((occluder) => occluder.root === root);
+    if (index < 0) return;
+    this.occluders[index]!.dispose();
+    this.occluders.splice(index, 1);
   }
 
   apply(pose: CameraPose, mode: CameraMode, deltaSec: number, snap: boolean): CameraPose {

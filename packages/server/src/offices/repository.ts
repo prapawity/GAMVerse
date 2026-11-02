@@ -5,7 +5,8 @@ import { database } from "../infra/db.js";
 import { recordAuditEvent } from "../infra/audit.js";
 import { randomBytes } from "node:crypto";
 import { MAX_OFFICE_PROPS } from "./limits.js";
-import { campusWorldFromConfig, isPositionWalkable, isValidPropInteraction, readRoomLayout, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type OfficePropsSnapshot, type RoomLayout, type RoomLayoutProp } from "@gammyverse/shared";
+import { mergePropOps, parsePropOps, type PropOp, type PropOpConflict } from "./propOps.js";
+import { campusWorldFromConfig, isPositionWalkable, isValidPropInteraction, readRoomLayout, createRoomPropSupportIndex, roomPropDefinition, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_WALL_MODEL_ASSETS, type OfficePropsSnapshot, type RoomLayout, type RoomLayoutProp } from "@gammyverse/shared";
 
 export type OfficePersistenceDependencies = {
   store: Pool | null;
@@ -64,34 +65,29 @@ export function validateOfficePropInteractions(props: unknown[]) {
   }
 }
 
-export async function saveOfficeProps(username: string, officeId: string, value: unknown, isMaintainer = false, dependencies = officePersistenceDependencies()): Promise<OfficePropsSnapshot> {
-  const storage = dependencies.store;
-  if (!storage) throw new Error("Office props require PostgreSQL.");
-  if (!(await dependencies.role(username, officeId, isMaintainer))) throw new Error("Office not found or access denied.");
-  if (typeof value !== "object" || value === null) throw new Error("Office props are invalid.");
-  const body = value as { props?: unknown; configVersion?: unknown };
-  if (!Number.isInteger(body.configVersion) || Number(body.configVersion) < 1) throw new Error("Office props version is invalid.");
-  if (!Array.isArray(body.props) || body.props.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
-  validateOfficePropInteractions(body.props);
-  const props = readRoomLayout({ layout: { props: body.props } }).props;
-  if (props.length !== body.props.length) {
+/** Validate raw props and apply the server-owned fields; throws a user-facing Error when anything is wrong. */
+async function normalizeOfficeProps(rawProps: unknown[], loadDimensions: () => Promise<{ width: number; depth: number }>): Promise<RoomLayoutProp[]> {
+  validateOfficePropInteractions(rawProps);
+  const props = readRoomLayout({ layout: { props: rawProps } }).props;
+  if (props.length !== rawProps.length) {
     // Name the first rejected item so a bad asset or id can be traced instead of guessed.
     const accepted = new Set(props.map((prop) => prop.id));
-    const rejected = (body.props as unknown[]).find((item) => typeof item !== "object" || item === null || !accepted.has(String((item as { id?: unknown }).id)));
+    const rejected = (rawProps as unknown[]).find((item) => typeof item !== "object" || item === null || !accepted.has(String((item as { id?: unknown }).id)));
     const detail = typeof rejected === "object" && rejected !== null ? ` First rejected: id "${String((rejected as { id?: unknown }).id)}", asset "${String((rejected as { asset?: unknown }).asset)}".` : "";
-    throw new Error(`Office props contain unsupported or malformed items (${body.props.length - props.length} of ${body.props.length}).${detail}`);
+    throw new Error(`Office props contain unsupported or malformed items (${rawProps.length - props.length} of ${rawProps.length}).${detail}`);
   }
-  const mapConfigResult = await storage.query<{ config: unknown }>("SELECT config FROM app_office_map_layouts WHERE office_id = $1", [officeId]);
-  const dimensions = readRoomLayout(mapConfigResult.rows[0]?.config).dimensions ?? { width: 200, depth: 250 };
+  const dimensions = await loadDimensions();
   const ids = new Set<string>();
+  // One spatial index replaces a scan of every prop for each stacked/small prop.
+  const supportIndex = createRoomPropSupportIndex(props);
   for (let index = 0; index < props.length; index += 1) {
     const prop = props[index]!;
-    const original = body.props[index];
+    const original = rawProps[index];
     if (typeof original !== "object" || original === null || !("id" in original) || typeof original.id !== "string" || original.id.length < 1 || original.id.length > 128 || ids.has(original.id)) {
       throw new Error("Every office prop needs a unique ID.");
     }
     ids.add(original.id);
-    const catalog = ROOM_PROP_CATALOG.find((entry) => entry.asset === prop.asset)!;
+    const catalog = roomPropDefinition(prop.asset)!;
     // Collision behavior and footprints are catalog-owned, so a client cannot save
     // different bounds from the preview shown to other members.
     props[index] = { ...prop, id: original.id, collision: catalog.collision, width: catalog.width, depth: catalog.depth };
@@ -101,7 +97,7 @@ export async function saveOfficeProps(username: string, officeId: string, value:
     if (typeof rawElevation !== "number" || !Number.isFinite(rawElevation) || rawElevation < 0 || rawElevation > 15) throw new Error("Office prop elevation is invalid.");
     if (catalog.placementClass === "small" || rawElevation > 0.001) {
       if (!catalog.wallMounted) {
-        const support = roomPropPlacementSupport(props.filter((candidate) => candidate.id !== prop.id), prop.asset, x, z, rotation);
+        const support = supportIndex.find(prop.asset, x, z, rotation, prop.id);
         if (!support || Math.abs(support.elevation - rawElevation) > 0.02) throw new Error("Place small props on a table or shelf, and stack shelves on another shelf.");
         props[index]!.elevation = support.elevation;
       }
@@ -114,6 +110,23 @@ export async function saveOfficeProps(username: string, officeId: string, value:
       throw new Error(`A prop is outside the ${dimensions.width} × ${dimensions.depth} m office boundary.`);
     }
   }
+  return props;
+}
+
+async function officeMapDimensions(storage: NonNullable<ReturnType<typeof officePersistenceDependencies>["store"]>, officeId: string) {
+  const mapConfigResult = await storage.query<{ config: unknown }>("SELECT config FROM app_office_map_layouts WHERE office_id = $1", [officeId]);
+  return readRoomLayout(mapConfigResult.rows[0]?.config).dimensions ?? { width: 200, depth: 250 };
+}
+
+export async function saveOfficeProps(username: string, officeId: string, value: unknown, isMaintainer = false, dependencies = officePersistenceDependencies()): Promise<OfficePropsSnapshot> {
+  const storage = dependencies.store;
+  if (!storage) throw new Error("Office props require PostgreSQL.");
+  if (!(await dependencies.role(username, officeId, isMaintainer))) throw new Error("Office not found or access denied.");
+  if (typeof value !== "object" || value === null) throw new Error("Office props are invalid.");
+  const body = value as { props?: unknown; configVersion?: unknown };
+  if (!Number.isInteger(body.configVersion) || Number(body.configVersion) < 1) throw new Error("Office props version is invalid.");
+  if (!Array.isArray(body.props) || body.props.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
+  const props = await normalizeOfficeProps(body.props, () => officeMapDimensions(storage, officeId));
 
   const client = await storage.connect();
   try {
@@ -144,6 +157,104 @@ export async function saveOfficeProps(username: string, officeId: string, value:
     return { props: readRoomLayout({ layout: { props: next.rows[0]!.props } }).props, configVersion: next.rows[0]!.config_version };
   } catch (error) {
     if (!(error instanceof OfficePropsVersionConflict)) await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+export type OfficePropOpsResult = { configVersion: number; applied: number; conflicts: PropOpConflict[] };
+
+type PropOpsStorage = NonNullable<ReturnType<typeof officePersistenceDependencies>["store"]>;
+type PropOpsRequest = { storage: PropOpsStorage; ops: PropOp[]; resolve(result: OfficePropOpsResult): void; reject(error: unknown): void };
+const propOpsQueues = new Map<string, { pending: PropOpsRequest[]; running: boolean }>();
+
+/**
+ * Merge a member's prop changes into the current props. Unlike saveOfficeProps this
+ * does not require the caller to hold the latest version: changes to different props
+ * merge, and only a prop someone else changed meanwhile is reported as a conflict.
+ *
+ * Requests for one office that arrive while a save is running are committed together
+ * in a single transaction, so a crowd of editors costs one lock, one validation and one
+ * write per batch instead of one each, and waiting requests hold no database connection.
+ */
+export async function applyOfficePropOps(username: string, officeId: string, value: unknown, isMaintainer = false, dependencies = officePersistenceDependencies()): Promise<OfficePropOpsResult> {
+  const storage = dependencies.store;
+  if (!storage) throw new Error("Office props require PostgreSQL.");
+  if (!(await dependencies.role(username, officeId, isMaintainer))) throw new Error("Office not found or access denied.");
+  if (typeof value !== "object" || value === null) throw new Error("Office props are invalid.");
+  const ops = parsePropOps((value as { ops?: unknown }).ops);
+  return new Promise<OfficePropOpsResult>((resolve, reject) => {
+    let queue = propOpsQueues.get(officeId);
+    if (!queue) { queue = { pending: [], running: false }; propOpsQueues.set(officeId, queue); }
+    queue.pending.push({ storage, ops, resolve, reject });
+    if (!queue.running) { queue.running = true; void drainPropOps(officeId, queue); }
+  });
+}
+
+async function drainPropOps(officeId: string, queue: { pending: PropOpsRequest[]; running: boolean }) {
+  try {
+    while (queue.pending.length > 0) {
+      const storage = queue.pending[0]!.storage;
+      const batch = queue.pending.filter((request) => request.storage === storage);
+      queue.pending = queue.pending.filter((request) => request.storage !== storage);
+      try {
+        const results = await runPropOpsTransaction(storage, officeId, batch.map((request) => request.ops));
+        batch.forEach((request, index) => request.resolve(results[index]!));
+      } catch (error) {
+        if (batch.length === 1) { batch[0]!.reject(error); continue; }
+        // One invalid request must not fail everyone else's save: retry them one by one.
+        for (const request of batch) {
+          try { request.resolve((await runPropOpsTransaction(storage, officeId, [request.ops]))[0]!); } catch (single) { request.reject(single); }
+        }
+      }
+    }
+  } finally {
+    queue.running = false;
+    if (queue.pending.length === 0) propOpsQueues.delete(officeId);
+  }
+}
+
+async function runPropOpsTransaction(storage: PropOpsStorage, officeId: string, opsLists: PropOp[][]): Promise<OfficePropOpsResult[]> {
+  // Read the map size before taking a connection; asking the pool for a second connection
+  // while holding one starves the pool as soon as several saves queue on the row lock.
+  const dimensions = await officeMapDimensions(storage, officeId);
+  const client = await storage.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO app_office_props(office_id, config_version, props)
+       VALUES ($1, 1, COALESCE((SELECT config #> '{layout,props}' FROM app_office_map_layouts WHERE office_id = $1), '[]'::jsonb))
+       ON CONFLICT (office_id) DO NOTHING`, [officeId],
+    );
+    const current = await client.query<{ props: unknown; config_version: number }>(
+      "SELECT props, config_version FROM app_office_props WHERE office_id = $1 FOR UPDATE", [officeId],
+    );
+    const row = current.rows[0]!;
+    let state: RoomLayoutProp[] = readRoomLayout({ layout: { props: row.props } }).props;
+    const results: { applied: number; conflicts: PropOpConflict[] }[] = [];
+    let applied = 0;
+    for (const ops of opsLists) {
+      const merged = mergePropOps(state, ops);
+      state = merged.next as RoomLayoutProp[];
+      applied += merged.applied;
+      results.push({ applied: merged.applied, conflicts: merged.conflicts });
+    }
+    if (applied === 0) {
+      await client.query("ROLLBACK");
+      return results.map((result) => ({ ...result, configVersion: row.config_version }));
+    }
+    if (state.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
+    // The merged result goes through the same validation as a full save.
+    const props = await normalizeOfficeProps(state, async () => dimensions);
+    const next = await client.query<{ config_version: number }>(
+      `UPDATE app_office_props SET config_version = config_version + 1, props = $2::jsonb, updated_at = now()
+       WHERE office_id = $1 RETURNING config_version`, [officeId, JSON.stringify(props)],
+    );
+    await client.query("UPDATE app_offices SET last_activity_at = now() WHERE id = $1", [officeId]);
+    await client.query("COMMIT");
+    return results.map((result) => ({ ...result, configVersion: next.rows[0]!.config_version }));
+  } catch (error) {
+    await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();

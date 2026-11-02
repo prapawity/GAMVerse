@@ -7,7 +7,7 @@ export const EVENT_LOOP_RESOLUTION_MS = 10;
 const EVENT_LOOP_SAMPLE_INTERVAL_MS = 5000;
 const NS_PER_MS = 1_000_000;
 const PROCESS_STARTED_AT_ISO = new Date(Date.now() - process.uptime() * 1000).toISOString();
-type Counter = "mapParses" | "mapApplies" | "vehicleWorldRebuilds" | "vehicleCollisionUpdates" | "seatCandidates" | "proximityPairChecks" | "proximityPossiblePairs" | "stationaryTickSkips" | "emptyRoomTickSkips";
+type Counter = "mapParses" | "mapApplies" | "mapPropsPatches" | "vehicleWorldRebuilds" | "vehicleCollisionUpdates" | "seatCandidates" | "proximityPairChecks" | "proximityPossiblePairs" | "stationaryTickSkips" | "emptyRoomTickSkips";
 
 class BoundedDurations {
   private readonly samples = new Float64Array(RUNTIME_SAMPLE_CAPACITY);
@@ -34,7 +34,7 @@ export class RealtimeRuntimeMetrics {
   private patchCycleCount = 0;
   private estimatedMissedIntervals = 0;
   private readonly outbound = { applicationFrameBytes: 0, frames: 0, statePatchBytes: 0, statePatchFrames: 0, stateSnapshotBytes: 0, stateSnapshotFrames: 0 };
-  private readonly counters: Record<Counter, number> = { mapParses: 0, mapApplies: 0, vehicleWorldRebuilds: 0, vehicleCollisionUpdates: 0, seatCandidates: 0, proximityPairChecks: 0, proximityPossiblePairs: 0, stationaryTickSkips: 0, emptyRoomTickSkips: 0 };
+  private readonly counters: Record<Counter, number> = { mapParses: 0, mapApplies: 0, mapPropsPatches: 0, vehicleWorldRebuilds: 0, vehicleCollisionUpdates: 0, seatCandidates: 0, proximityPairChecks: 0, proximityPossiblePairs: 0, stationaryTickSkips: 0, emptyRoomTickSkips: 0 };
   private eventLoop: { p50Ms: number; p95Ms: number; p99Ms: number; maxMs: number; sampleWindowMs: number; resolutionMs: number } | null = null;
   private stopSampling?: () => void;
 

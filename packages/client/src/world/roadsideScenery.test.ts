@@ -216,3 +216,18 @@ test("negative coordinates use distinct floor-based cells and support props span
   assert.deepEqual(chunks.map(chunk => chunk.key), ["-1,0", "0,0"]);
   assert.deepEqual(chunks[0].bounds, { minX: -2, maxX: 0, minZ: -1, maxZ: 1 });
 });
+
+test("props added or removed after construction follow the same visibility rules", () => {
+  const roadside = new RoadsideSceneryVisibility([prop("near", 0, 10)]);
+  roadside.track(prop("late-near", 5, 10));
+  roadside.track(prop("late-far", 0, R + 500));
+  roadside.update(observer, false);
+  assert.equal(roadside.visibilityFor("late-near"), true);
+  assert.equal(roadside.visibilityFor("late-far"), false);
+  roadside.forget("late-near");
+  assert.equal(roadside.visibilityFor("late-near"), undefined, "a removed prop no longer has a verdict");
+  roadside.track(prop("late-far", 0, 10));
+  roadside.update(observer, false);
+  assert.equal(roadside.visibilityFor("late-far"), true, "moving a prop re-evaluates it at the new position");
+  roadside.forget("never-existed");
+});

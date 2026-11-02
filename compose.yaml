@@ -37,6 +37,8 @@ services:
       API_PORT: "2568"
       REALTIME_INTERNAL_URL: "http://127.0.0.1:2567"
       INTERNAL_SERVICE_TOKEN: "gammyverse-dev-internal-token-change-before-production"
+      # Per-account cap on props saves (per 10 s). Raise it only for load tests.
+      OFFICE_PROPS_WRITE_LIMIT: ${OFFICE_PROPS_WRITE_LIMIT:-30}
       DEV_HOST: ${DEV_HOST:-localhost}
       CLIENT_ORIGIN: "https://${DEV_HOST:-localhost}:5173,https://localhost:5173"
       VITE_REALTIME_URL: "https://${DEV_HOST:-localhost}:2567"

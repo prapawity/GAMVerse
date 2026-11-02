@@ -957,32 +957,124 @@ export function parseRoomPropSeatReference(reference: string) {
     : { propId: reference, seatIndex: 0 };
 }
 
+const ROOM_PROP_DEFINITION_BY_ASSET: ReadonlyMap<string, RoomPropDefinition> = (() => {
+  const byAsset = new Map<string, RoomPropDefinition>();
+  // First entry wins, matching the Array.find() lookups this replaces.
+  for (const entry of ROOM_PROP_CATALOG) if (!byAsset.has(entry.asset)) byAsset.set(entry.asset, entry);
+  return byAsset;
+})();
+/** O(1) catalog lookup by asset id. */
+export function roomPropDefinition(asset: string): RoomPropDefinition | undefined {
+  return ROOM_PROP_DEFINITION_BY_ASSET.get(asset);
+}
+
+function canSupportPlacement(surface: RoomPropDefinition | undefined, placementClass: "small" | "shelf") {
+  return placementClass === "small"
+    ? surface?.supportsPlacement === "tabletop" || surface?.supportsPlacement === "shelf-top"
+    : surface?.placementClass === "shelf";
+}
+
+function placementSupportCandidate(item: RoomPropDefinition, prop: RoomLayoutProp, surface: RoomPropDefinition, x: number, z: number, rotation: number) {
+  const dx = x - prop.x;
+  const dz = z - prop.z;
+  const cos = Math.cos(prop.rotation);
+  const sin = Math.sin(prop.rotation);
+  const localX = dx * cos + dz * sin;
+  const localZ = -dx * sin + dz * cos;
+  const itemCos = Math.abs(Math.cos(rotation - prop.rotation));
+  const itemSin = Math.abs(Math.sin(rotation - prop.rotation));
+  const itemWidth = item.width * itemCos + item.depth * itemSin;
+  const itemDepth = item.depth * itemCos + item.width * itemSin;
+  // Exact-fit props (including 1 × 1 m items on a 1 × 1 m surface) are valid;
+  // allow only a tiny tolerance for floating-point rounding at the edges.
+  if (Math.abs(localX) + itemWidth / 2 > prop.width / 2 + 0.001 || Math.abs(localZ) + itemDepth / 2 > prop.depth / 2 + 0.001) return null;
+  return { prop, surface, elevation: (prop.elevation ?? 0) + surface.height, distance: Math.hypot(dx, dz) };
+}
+
+type PlacementSupport = NonNullable<ReturnType<typeof placementSupportCandidate>>;
+
 /** Return the top height for a compatible supporting prop under an object's center. */
-export function roomPropPlacementSupport(props: readonly RoomLayoutProp[], asset: string, x: number, z: number, rotation = 0) {
-  const item = ROOM_PROP_CATALOG.find((entry) => entry.asset === asset);
+export function roomPropPlacementSupport(props: readonly RoomLayoutProp[], asset: string, x: number, z: number, rotation = 0): PlacementSupport | null {
+  const item = roomPropDefinition(asset);
   if (!item || (item.placementClass !== "small" && item.placementClass !== "shelf")) return null;
-  const supports = props.flatMap((prop) => {
-    const surface = ROOM_PROP_CATALOG.find((entry) => entry.asset === prop.asset);
-    const compatible = item.placementClass === "small"
-      ? surface?.supportsPlacement === "tabletop" || surface?.supportsPlacement === "shelf-top"
-      : surface?.placementClass === "shelf";
-    if (!surface || !compatible) return [];
-    const dx = x - prop.x;
-    const dz = z - prop.z;
-    const cos = Math.cos(prop.rotation);
-    const sin = Math.sin(prop.rotation);
-    const localX = dx * cos + dz * sin;
-    const localZ = -dx * sin + dz * cos;
-    const itemCos = Math.abs(Math.cos(rotation - prop.rotation));
-    const itemSin = Math.abs(Math.sin(rotation - prop.rotation));
-    const itemWidth = item.width * itemCos + item.depth * itemSin;
-    const itemDepth = item.depth * itemCos + item.width * itemSin;
-    // Exact-fit props (including 1 × 1 m items on a 1 × 1 m surface) are valid;
-    // allow only a tiny tolerance for floating-point rounding at the edges.
-    if (Math.abs(localX) + itemWidth / 2 > prop.width / 2 + 0.001 || Math.abs(localZ) + itemDepth / 2 > prop.depth / 2 + 0.001) return [];
-    return [{ prop, surface, elevation: (prop.elevation ?? 0) + surface.height, distance: Math.hypot(dx, dz) }];
+  let best: PlacementSupport | null = null;
+  for (const prop of props) {
+    const surface = roomPropDefinition(prop.asset);
+    if (!surface || !canSupportPlacement(surface, item.placementClass)) continue;
+    const candidate = placementSupportCandidate(item, prop, surface, x, z, rotation);
+    // Highest surface wins, then the nearest; the earliest prop wins exact ties.
+    if (candidate && (!best || candidate.elevation > best.elevation || (candidate.elevation === best.elevation && candidate.distance < best.distance))) best = candidate;
+  }
+  return best;
+}
+
+const SUPPORT_INDEX_CELL = 4;
+const SUPPORT_INDEX_MAX_CELLS = 400;
+
+/**
+ * Spatial index for repeated placement-support queries over one prop array.
+ * Results match roomPropPlacementSupport() exactly, but a query only looks at
+ * props near the point instead of the whole array. The array is read live, so
+ * callers may replace entries or change elevations between queries as long as
+ * positions and assets stay the same.
+ */
+export function createRoomPropSupportIndex(props: readonly RoomLayoutProp[]) {
+  const cells = new Map<string, number[]>();
+  const supporters: number[] = [];
+  let maxRadius = 0;
+  const key = (cx: number, cz: number) => `${cx},${cz}`;
+  props.forEach((prop, slot) => {
+    const surface = roomPropDefinition(prop.asset);
+    if (!surface) return;
+    const supportsSmall = canSupportPlacement(surface, "small");
+    const supportsShelf = canSupportPlacement(surface, "shelf");
+    if (!supportsSmall && !supportsShelf) return;
+    supporters.push(slot);
+    // Entries may later be replaced with catalog-sized copies; cover both sizes.
+    const radius = Math.hypot(Math.max(prop.width, surface.width), Math.max(prop.depth, surface.depth)) / 2;
+    maxRadius = Math.max(maxRadius, radius);
+    const cellKey = key(Math.floor(prop.x / SUPPORT_INDEX_CELL), Math.floor(prop.z / SUPPORT_INDEX_CELL));
+    const bucket = cells.get(cellKey);
+    if (bucket) bucket.push(slot); else cells.set(cellKey, [slot]);
   });
-  return supports.sort((a, b) => b.elevation - a.elevation || a.distance - b.distance)[0] ?? null;
+  const reach = maxRadius + 0.01;
+
+  return {
+    find(asset: string, x: number, z: number, rotation = 0, excludeId?: string): PlacementSupport | null {
+      const item = roomPropDefinition(asset);
+      if (!item || (item.placementClass !== "small" && item.placementClass !== "shelf")) return null;
+      const minX = Math.floor((x - reach) / SUPPORT_INDEX_CELL);
+      const maxX = Math.floor((x + reach) / SUPPORT_INDEX_CELL);
+      const minZ = Math.floor((z - reach) / SUPPORT_INDEX_CELL);
+      const maxZ = Math.floor((z + reach) / SUPPORT_INDEX_CELL);
+      let slots: number[];
+      if ((maxX - minX + 1) * (maxZ - minZ + 1) > SUPPORT_INDEX_MAX_CELLS) {
+        slots = supporters;
+      } else {
+        slots = [];
+        for (let cx = minX; cx <= maxX; cx += 1) for (let cz = minZ; cz <= maxZ; cz += 1) {
+          const bucket = cells.get(key(cx, cz));
+          if (bucket) slots.push(...bucket);
+        }
+      }
+      let best: PlacementSupport | null = null;
+      let bestSlot = -1;
+      for (const slot of slots) {
+        const prop = props[slot]!;
+        if (prop.id === excludeId) continue;
+        const surface = roomPropDefinition(prop.asset)!;
+        if (!canSupportPlacement(surface, item.placementClass)) continue;
+        const candidate = placementSupportCandidate(item, prop, surface, x, z, rotation);
+        if (!candidate) continue;
+        if (!best || candidate.elevation > best.elevation
+          || (candidate.elevation === best.elevation && (candidate.distance < best.distance || (candidate.distance === best.distance && slot < bestSlot)))) {
+          best = candidate;
+          bestSlot = slot;
+        }
+      }
+      return best;
+    },
+  };
 }
 
 export function readRoomLayout(config: unknown): RoomLayout {

@@ -948,7 +948,7 @@ test("actual movement, cancel and map handlers invalidate a delayed desk lookup"
       const events: unknown[] = [];
       const client = { sessionId: SESSION_ID, send: (_event: string, payload: unknown) => { events.push(payload); } };
       const command = messages.command(client, { deskId: OFFICE_ID });
-      if (action === "map") internals.applyMapConfig({ version: 1, layout: { props: [], zones: [], walls: [], doors: [] } });
+      if (action === "map") internals.applyMapConfig({ version: 1, layout: { props: [], zones: [{ ...zone, ownerUsername: "bob" }], walls: [], doors: [] } });
       else handlers.get(action)!(client, MOVE_INTENT);
       const before = events.length;
       finish(); await command;

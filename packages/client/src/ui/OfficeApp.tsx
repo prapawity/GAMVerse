@@ -43,6 +43,7 @@ import { CreateOfficeDialog } from "./workspace/CreateOfficeDialog";
 import { areOfficeTeamNamesValid, createDefaultOfficeTeamNames, normalizeOfficeTeamNames, resizeOfficeTeamNames } from "./workspace/teamNames";
 import { DeskManagerDialog } from "./workspace/DeskManagerDialog";
 import { useDeskAssignmentNotice } from "./workspace/useDeskAssignmentNotice";
+import { diffProps } from "../world/props/incrementalProps";
 import { createCampusOfficeDraft, type CampusInteriorPreset } from "@gammyverse/shared";
 import { createOfficeWithLayout } from "./workspace/officeCreation";
 import { availabilityPolicy, USER_STATUSES, type UserStatus, type CustomStatus } from "@gammyverse/shared";
@@ -50,6 +51,7 @@ import type { PersonActionCallbacks, PersonActionContext } from "./workspace/per
 import "./social/social.css";
 import { Client, type Room } from "@colyseus/sdk";
 import { INPUT_HEARTBEAT_INTERVAL_MS, InputSendGate, type MovementInput, CAMPUS_WORLD, DEFAULT_CAMERA_YAW, DEFAULT_CHARACTER_ID, KENNEY_BLASTER_IDS, KENNEY_CHARACTER_IDS, KENNEY_PET_IDS, KENNEY_VEHICLE_IDS, OfficeState, campusWorldFromConfig, isPositionWalkable, isValidJumpEvent, readRoomLayout, roomLayoutZoneAt, roomPropPlacementSupport, roomZoneEntranceIssues, ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, type KenneyBlasterId, type KenneyCharacterId, type KenneyPetId, type KenneyVehicleId, type OfficeState as OfficeStateType, type PlayerState, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "@gammyverse/shared";
+import { createLeadingTrailingScheduler, OFFICE_MAP_APPLY_WINDOW_MS, resolvePropsPatch, sameRoomLayout } from "./officeMapUpdates";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -449,6 +451,11 @@ export function OfficeApp() {
   const [mapSaving, setMapSaving] = useState(false);
   const [mapConflictLatest, setMapConflictLatest] = useState<{ layout: RoomLayout; configVersion: number; message: string } | null>(null);
   const mapDraftDirtyRef = useRef(false);
+  const officeMapSchedulerRef = useRef<{ cancel(): void } | null>(null);
+  // The newest raw map the server sent this connection; props patches apply on top of it.
+  const lastServerMapRef = useRef<{ config: unknown; configVersion: number; revision?: number } | null>(null);
+  // The props the Modify Props editor started from; saves send only what differs from them.
+  const modifyPropsBaseRef = useRef<RoomLayoutProp[]>([]);
   const mapCommitInFlightRef = useRef(false);
   const [modifyPropsOpen, setModifyPropsOpen] = useState(false);
   const modifyPropsOpenRef = useRef(false);
@@ -1745,6 +1752,7 @@ export function OfficeApp() {
       const response = await fetch(`${endpoint}/offices/${activeOffice.id}/props`, { credentials: "include" });
       const result = await response.json() as { props?: RoomLayoutProp[]; configVersion?: number; error?: string };
       if (!response.ok || !Array.isArray(result.props)) throw new Error(result.error ?? "Could not load office props.");
+      modifyPropsBaseRef.current = result.props;
       setModifyPropsDraft(result.props);
       setModifyPropsVersion(result.configVersion ?? 1);
       setSelectedModifyPropId(null);
@@ -1760,16 +1768,47 @@ export function OfficeApp() {
   const saveModifyProps = async (props: RoomLayoutProp[]) => {
     if (!activeOffice) return;
     setModifyPropsError(null);
-    const response = await fetch(`${endpoint}/offices/${activeOffice.id}/props`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ props, configVersion: modifyPropsVersion }) });
-    const result = await response.json() as { props?: RoomLayoutProp[]; configVersion?: number; error?: string };
-    if (!response.ok || !Array.isArray(result.props)) {
-      const message = response.status === 409 ? "Another member saved office props while you were editing. Close and reopen the editor to load their changes." : result.error ?? "Could not save office props.";
+    const base = new Map(modifyPropsBaseRef.current.map((prop) => [prop.id, prop]));
+    const diff = diffProps(modifyPropsBaseRef.current, props);
+    // Send only what this editor changed, each with the copy it started from, so
+    // other members' edits to other props merge instead of blocking the save.
+    const ops = [
+      ...diff.added.map((prop) => ({ op: "upsert", prop })),
+      ...diff.changed.map((prop) => ({ op: "upsert", prop, base: base.get(prop.id) })),
+      ...diff.removed.map((id) => ({ op: "remove", id, base: base.get(id) })),
+    ];
+    if (ops.length === 0) {
+      setModifyPropsOpen(false);
+      setSelectedModifyPropAsset(null);
+      return;
+    }
+    const conflictIds = new Set<string>();
+    let latestVersion = modifyPropsVersion;
+    for (let offset = 0; offset < ops.length; offset += 500) {
+      const response = await fetch(`${endpoint}/offices/${activeOffice.id}/props/ops`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: ops.slice(offset, offset + 500) }) });
+      const result = await response.json() as { configVersion?: number; conflicts?: { id: string }[]; error?: string };
+      if (!response.ok) {
+        const message = response.status === 429 ? "You are saving too quickly. Wait a few seconds and save again." : result.error ?? "Could not save office props.";
+        setModifyPropsError(message);
+        throw new Error(message);
+      }
+      latestVersion = result.configVersion ?? latestVersion;
+      for (const conflict of result.conflicts ?? []) conflictIds.add(conflict.id);
+    }
+    setModifyPropsVersion(latestVersion);
+    if (conflictIds.size > 0) {
+      // Everything else was saved. Reload so the contested props show the other member's version.
+      const response = await fetch(`${endpoint}/offices/${activeOffice.id}/props`, { credentials: "include" });
+      const latest = await response.json() as { props?: RoomLayoutProp[]; configVersion?: number };
+      if (response.ok && Array.isArray(latest.props)) {
+        modifyPropsBaseRef.current = latest.props;
+        setModifyPropsDraft(latest.props);
+        setModifyPropsVersion(latest.configVersion ?? latestVersion);
+      }
+      const message = `${ops.length - conflictIds.size} change${ops.length - conflictIds.size === 1 ? "" : "s"} saved. ${conflictIds.size} prop${conflictIds.size === 1 ? " was" : "s were"} changed by another member at the same time and now show their version.`;
       setModifyPropsError(message);
       throw new Error(message);
     }
-    setModifyPropsVersion(result.configVersion ?? modifyPropsVersion + 1);
-    setModifyPropsDraft(result.props);
-    setOfficeMapLayout((layout) => layout ? { ...layout, props: result.props! } : layout);
     setModifyPropsOpen(false);
     setSelectedModifyPropAsset(null);
   };
@@ -2452,19 +2491,39 @@ export function OfficeApp() {
             setMeetingZoneActive(payload.active);
           }
         });
+        officeMapSchedulerRef.current?.cancel();
+        lastServerMapRef.current = null;
+        const officeMapScheduler = createLeadingTrailingScheduler<{ config: unknown; configVersion: number }>((update) => {
+          if (update.configVersion < mapConfigVersionRef.current) return;
+          if (!mapEditModeRef.current || !mapDraftDirtyRef.current && !mapCommitInFlightRef.current) {
+            setMapConfigVersion(update.configVersion);
+            const incomingLayout = readRoomLayout(update.config);
+            setOfficeMapLayout((current) => sameRoomLayout(current, incomingLayout) ? current : incomingLayout);
+            if (mapEditModeRef.current) setMapEditBaseline(incomingLayout);
+          }
+          void refreshDesksRef.current();
+        }, OFFICE_MAP_APPLY_WINDOW_MS);
+        officeMapSchedulerRef.current = officeMapScheduler;
         room.onMessage("office-map", (payload: unknown) => {
           if (typeof payload !== "object" || payload === null || !("config" in payload) || !("configVersion" in payload)
             || typeof payload.configVersion !== "number" || !Number.isInteger(payload.configVersion)
             || payload.configVersion < mapConfigVersionRef.current) return;
+          lastServerMapRef.current = { config: payload.config, configVersion: payload.configVersion, revision: "revision" in payload && typeof payload.revision === "number" ? payload.revision : undefined };
           // Preserve the editor's private draft while tracking the current server revision.
           recordMapServerVersion(payload.configVersion);
-          if (!mapEditModeRef.current || !mapDraftDirtyRef.current && !mapCommitInFlightRef.current) {
-            setMapConfigVersion(payload.configVersion);
-            const incomingLayout = readRoomLayout(payload.config);
-            setOfficeMapLayout(incomingLayout);
-            if (mapEditModeRef.current) setMapEditBaseline(incomingLayout);
-          }
-          void refreshDesksRef.current();
+          // Every layout change rebuilds the 3D scene, so a burst of saves is applied
+          // once per window and an update that changes nothing keeps the old layout.
+          officeMapScheduler.push({ config: payload.config, configVersion: payload.configVersion });
+        });
+        // A props-only save arrives as a small patch. If it does not fit what this client
+        // holds (a missed version), ask the server for the full map instead of guessing.
+        room.onMessage("props-changed", (payload: unknown) => {
+          const outcome = resolvePropsPatch(lastServerMapRef.current, payload);
+          if (outcome.kind === "stale") return;
+          if (outcome.kind === "resync") { room.send("request-office-map", {}); return; }
+          lastServerMapRef.current = outcome.next;
+          recordMapServerVersion(outcome.next.configVersion);
+          officeMapScheduler.push(outcome.next);
         });
         room.onMessage("map-edit-lock", (payload: unknown) => {
           if (typeof payload !== "object" || payload === null || !("editorUsername" in payload)) return;
@@ -2689,6 +2748,8 @@ export function OfficeApp() {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("pagehide", persistCurrentOfficePosition);
       persistCurrentOfficePosition();
+      officeMapSchedulerRef.current?.cancel();
+      officeMapSchedulerRef.current = null;
       const room = roomRef.current;
       roomRef.current = null;
       if (room?.connection.isOpen) void room.leave();

@@ -19,9 +19,13 @@ import { getRecentServerErrorCount, logServerError, logServerEvent } from "../in
 import { getPlatformOperationsCounts } from "../infra/operations.js";
 import { listOfficeActivity, startOfficeActivityCleanup } from "../offices/activity.js";
 import { MAX_OFFICE_MAP_REQUEST_BYTES, MAX_OFFICE_PROPS_REQUEST_BYTES } from "../offices/limits.js";
-import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, getOfficeProps, getOfficeRole, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
+import { createWriteRateLimiter } from "../http/writeRateLimit.js";
+import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, applyOfficePropOps, getOfficeProps, getOfficeRole, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
 import { errorMessage, jsonBodyParser, originGuard, requestSession, sessionFromCookie, type HttpRequest as AuthRequest, type HttpResponse as AuthResponse, type Next } from "../http/middleware.js";
 
+// Props saves hold a row lock and re-validate every prop, so cap how fast one person can send them.
+const propWriteLimit = Number(process.env.OFFICE_PROPS_WRITE_LIMIT);
+const propWriteLimiter = createWriteRateLimiter(Number.isFinite(propWriteLimit) && propWriteLimit >= 1 ? Math.floor(propWriteLimit) : 30, 10_000);
 const port = Number(process.env.API_PORT ?? 2568);
 const clientOrigins = new Set((process.env.CLIENT_ORIGIN ?? "http://localhost:5173").split(",").map((origin) => origin.trim()).filter(Boolean));
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("API_PORT must be a valid port.");
@@ -66,7 +70,7 @@ function configureApi() {
       app.use(originGuard(clientOrigins, ["/auth", "/offices", "/office-invites", "/maintainer", "/media"], ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]));
       app.use((request: AuthRequest, response: AuthResponse, next: Next) => {
         const isCharacterUpload = isCharacterModelUpload(request);
-        const requestLimit = request.path.endsWith("/props") ? MAX_OFFICE_PROPS_REQUEST_BYTES : request.path.endsWith("/map") ? MAX_OFFICE_MAP_REQUEST_BYTES : 8_192;
+        const requestLimit = request.path.endsWith("/props") || request.path.endsWith("/props/ops") ? MAX_OFFICE_PROPS_REQUEST_BYTES : request.path.endsWith("/map") ? MAX_OFFICE_MAP_REQUEST_BYTES : 8_192;
         if (!isCharacterUpload && ["/auth", "/offices", "/office-invites", "/maintainer", "/media"].some((path) => request.path.startsWith(path)) && Number(request.headers["content-length"] ?? 0) > requestLimit) {
           response.status(413).json({ error: "Request is too large." });
           return;
@@ -75,7 +79,7 @@ function configureApi() {
       });
       app.use(["/auth", "/offices", "/office-invites", "/maintainer", "/media"], jsonBodyParser({
         methods: ["POST", "PATCH", "PUT"],
-        maxBytes: (request) => request.path.endsWith("/props") ? MAX_OFFICE_PROPS_REQUEST_BYTES : request.path.endsWith("/map") ? MAX_OFFICE_MAP_REQUEST_BYTES : 8_192,
+        maxBytes: (request) => request.path.endsWith("/props") || request.path.endsWith("/props/ops") ? MAX_OFFICE_PROPS_REQUEST_BYTES : request.path.endsWith("/map") ? MAX_OFFICE_MAP_REQUEST_BYTES : 8_192,
         // Express trims the mounted `/auth` prefix from `request.path` inside this middleware.
         skip: (request) => request.method === "POST" && ["/models", "/auth/models"].includes(request.path.replace(/\/+$/, "")),
       }));
@@ -395,18 +399,63 @@ function configureApi() {
           response.status(message.includes("access denied") ? 403 : 503).json({ error: message });
         }
       });
+      app.post("/offices/:officeId/props/ops", async (request: AuthRequest, response: AuthResponse) => {
+        const session = await requestSession(request);
+        if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        const retryAfter = propWriteLimiter.check(session.username);
+        if (retryAfter > 0) { response.setHeader("Retry-After", String(retryAfter)); response.status(429).json({ error: "You are saving too quickly. Try again in a moment." }); return; }
+        try {
+          const saveStartedAt = performance.now();
+          const result = await applyOfficePropOps(session.username, request.params.officeId, request.body, session.role === "maintainer");
+          const saveMs = Math.round(performance.now() - saveStartedAt);
+          let notifyMs = 0;
+          if (result.applied > 0) {
+            const notifyStartedAt = performance.now();
+            await notifyRealtime("offices/map", { officeId: request.params.officeId });
+            notifyMs = Math.round(performance.now() - notifyStartedAt);
+          }
+          logServerEvent("api", "office.props.ops.applied", {
+            officeId: request.params.officeId,
+            username: session.username,
+            configVersion: result.configVersion,
+            applied: result.applied,
+            conflictCount: result.conflicts.length,
+            saveMs,
+            notifyMs,
+          });
+          response.setHeader("Server-Timing", `save;dur=${saveMs}, notify;dur=${notifyMs}`);
+          response.setHeader("Timing-Allow-Origin", "*");
+          response.setHeader("Cache-Control", "no-store");
+          response.json(result);
+        } catch (error) {
+          const message = errorMessage(error);
+          logServerError("api", "office.props.ops.failed", error, { officeId: request.params.officeId, username: session.username });
+          response.status(message.includes("access denied") ? 403 : message.includes("PostgreSQL") ? 503 : 400).json({ error: message });
+        }
+      });
       app.put("/offices/:officeId/props", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        const retryAfter = propWriteLimiter.check(session.username);
+        if (retryAfter > 0) { response.setHeader("Retry-After", String(retryAfter)); response.status(429).json({ error: "You are saving too quickly. Try again in a moment." }); return; }
         try {
+          const saveStartedAt = performance.now();
           const result = await saveOfficeProps(session.username, request.params.officeId, request.body, session.role === "maintainer");
+          const saveMs = Math.round(performance.now() - saveStartedAt);
+          const notifyStartedAt = performance.now();
+          await notifyRealtime("offices/map", { officeId: request.params.officeId });
+          const notifyMs = Math.round(performance.now() - notifyStartedAt);
           logServerEvent("api", "office.props.saved", {
             officeId: request.params.officeId,
             username: session.username,
             configVersion: result.configVersion,
+            saveMs,
+            notifyMs,
             ...summarizeOfficeProps(result),
           });
-          await notifyRealtime("offices/map", { officeId: request.params.officeId });
+          // Lets the browser's Resource Timing show where a slow save went.
+          response.setHeader("Server-Timing", `save;dur=${saveMs}, notify;dur=${notifyMs}`);
+          response.setHeader("Timing-Allow-Origin", "*");
           response.setHeader("Cache-Control", "no-store");
           response.json(result);
         } catch (error) {

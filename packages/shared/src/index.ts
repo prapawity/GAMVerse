@@ -24,7 +24,7 @@ export { roomBoundaryWalls, roomWallSolidSegments } from "./roomWallSegments.js"
 export { isRoomWallProp } from "./roomWallProps.js";
 export { CAMPUS_COUNTS, CAMPUS_LAYOUT, campusPropPlacements, legacyPortalToCampus } from "./campusLayout.js";
 export type { CampusPropPlacement, CampusRoom, CampusRoomKind } from "./campusLayout.js";
-export { ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_BLOCK_SIZE_M, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, isRoomPropBed, parseRoomPropSeatReference, readRoomLayout, roomPropBlockFootprint, roomPropCollisionClearanceRadius, roomPropCollisionFootprint, roomPropPlacementSupport, roomPropSeatAnchors, roomPropSeatReference, type RoomLayoutRoadway, type RoomPropEditorRole, type RoomPropSeatAnchor } from "./roomLayout.js";
+export { ROOM_DOOR_FRAME_ASSETS, ROOM_PROP_BLOCK_SIZE_M, ROOM_PROP_CATALOG, ROOM_WALL_MODEL_ASSETS, isRoomPropBed, parseRoomPropSeatReference, readRoomLayout, roomPropBlockFootprint, roomPropCollisionClearanceRadius, roomPropCollisionFootprint, createRoomPropSupportIndex, roomPropDefinition, roomPropPlacementSupport, roomPropSeatAnchors, roomPropSeatReference, type RoomLayoutRoadway, type RoomPropEditorRole, type RoomPropSeatAnchor } from "./roomLayout.js";
 export { campusRoomStyle, type CampusRoomStyle } from "./campusRoomStyles.js";
 export { generateCampusMap, TEMPLATE_PRIVATE_WALL_ASSETS, templatePrivateWallAsset, type CampusMapGeneratorInputs, type GeneratedCampusMap } from "./campusMapGenerator.js";
 export { createCampusOfficeDraft, type CampusInteriorPreset } from "./campusFurnishing.js";
@@ -604,3 +604,4 @@ export * from "./desks.js";
 export * from "./deskAssignmentFences.js";
 export { CIVIC_PARK_ASSETS, campusCivicParkSurfaces, COMPACT_PARK_SCALE_Z, ORIGINAL_PARK_WIDTH_M, type CivicParkSurface } from "./campusCivicPark.js";
 export { compactCivicLots, planCompactCampus, type CompactCampusPlan } from "./campusCompactPlan.js";
+export { applyMapPropsPatch, buildMapPropsPatch, MAP_PROPS_PATCH_MAX_CHANGES, type MapPropsPatch, type ServerMapState } from "./mapPropsPatch.js";

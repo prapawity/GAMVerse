@@ -3,11 +3,14 @@
   --workspace-glass: linear-gradient(145deg, color-mix(in srgb, var(--color-surface) 88%, transparent), color-mix(in srgb, var(--color-surface-soft) 78%, transparent));
   --workspace-glass-edge: color-mix(in srgb, var(--color-border) 82%, transparent);
   --workspace-glass-shadow: 0 16px 42px color-mix(in srgb, var(--color-ink) 15%, transparent);
-  --workspace-chrome-surface: var(--workspace-glass);
+  --workspace-nav-glass: linear-gradient(145deg, color-mix(in srgb, var(--color-surface) 75%, transparent), color-mix(in srgb, var(--color-surface-soft) 75%, transparent));
+  --workspace-nav-edge: color-mix(in srgb, var(--color-surface) 48%, var(--color-border));
+  --workspace-nav-shadow: 0 12px 34px color-mix(in srgb, var(--color-ink) 10%, transparent), inset 0 1px 0 color-mix(in srgb, var(--color-surface) 70%, transparent);
+  --workspace-chrome-surface: var(--workspace-nav-glass);
   --workspace-chrome-solid: var(--workspace-surface);
-  --workspace-chrome-edge: var(--workspace-glass-edge);
-  --workspace-chrome-shadow: var(--workspace-glass-shadow);
-  --workspace-chrome-filter: blur(14px) saturate(135%);
+  --workspace-chrome-edge: var(--workspace-nav-edge);
+  --workspace-chrome-shadow: var(--workspace-nav-shadow);
+  --workspace-chrome-filter: blur(26px) saturate(170%);
   --workspace-surface: var(--color-surface);
   --workspace-subtle: var(--color-surface-soft);
   --workspace-hover: color-mix(in srgb, var(--color-secondary) 14%, var(--color-surface));
@@ -18,9 +21,21 @@
   --workspace-accent: var(--color-primary);
   --workspace-focus: var(--color-primary);
   --workspace-action: var(--color-primary);
-  --workspace-on-action: #f1eadc;
+  --workspace-on-action: var(--color-on-primary, #f1eadc);
   --workspace-warning: color-mix(in srgb, var(--color-accent) 25%, var(--workspace-surface));
   --workspace-danger: #a34d42;
+}
+:root[data-app-theme="dark"] {
+  --workspace-nav-glass: linear-gradient(145deg,
+    color-mix(in srgb, color-mix(in srgb, var(--color-surface) 84%, white 16%) 75%, transparent),
+    color-mix(in srgb, color-mix(in srgb, var(--color-surface-soft) 84%, white 16%) 75%, transparent));
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-app-theme="system"] {
+    --workspace-nav-glass: linear-gradient(145deg,
+      color-mix(in srgb, color-mix(in srgb, var(--color-surface) 84%, white 16%) 75%, transparent),
+      color-mix(in srgb, color-mix(in srgb, var(--color-surface-soft) 84%, white 16%) 75%, transparent));
+  }
 }
 :root .office-experience {
   --office-ink: var(--workspace-ink);
@@ -38,6 +53,10 @@
   -webkit-backdrop-filter: var(--workspace-chrome-filter);
   backdrop-filter: var(--workspace-chrome-filter);
 }
+:root .office-experience :is(.office-rail, .office-header, .office-sidebar, .character-drawer) {
+  background-clip: padding-box;
+  box-shadow: var(--workspace-chrome-shadow), inset 0 1px 0 color-mix(in srgb, var(--workspace-surface) 62%, transparent);
+}
 :root .office-experience .office-rail { border-right-color: var(--workspace-chrome-edge); }
 :root .office-experience .office-header { border-bottom-color: var(--workspace-chrome-edge); }
 :root .office-experience .office-sidebar { border-right-color: var(--workspace-chrome-edge); }
@@ -46,13 +65,30 @@
 :root .office-experience .office-rail-item:hover,
 :root .office-experience .office-panel-header > button:hover,
 :root .office-experience .dock-button:hover:not(:disabled) { background: var(--workspace-hover); color: var(--workspace-ink); }
-:root .office-experience .office-rail-item.is-active,
+:root .office-experience .office-rail-item.is-active { background: color-mix(in srgb, var(--workspace-selected) 72%, transparent); color: var(--workspace-ink); }
 :root .office-experience .dock-button.active { background: var(--workspace-selected); color: var(--workspace-ink); }
+:root .office-experience .office-rail-item.is-active {
+  border: 1px solid color-mix(in srgb, var(--workspace-surface) 52%, var(--workspace-edge));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--workspace-selected) 82%, transparent), color-mix(in srgb, var(--workspace-selected) 58%, transparent));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--workspace-surface) 72%, transparent), 0 3px 12px color-mix(in srgb, var(--workspace-ink) 8%, transparent);
+  color: var(--workspace-ink);
+}
+:root .office-experience .office-rail-item { transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease; }
+:root .office-experience .office-rail-item:hover { background: color-mix(in srgb, var(--workspace-hover) 68%, transparent); }
+:root .office-experience .bottom-dock {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--workspace-surface) 60%, transparent), color-mix(in srgb, var(--workspace-subtle) 60%, transparent));
+  border-color: color-mix(in srgb, var(--workspace-edge) 82%, transparent);
+  box-shadow: 0 16px 42px color-mix(in srgb, var(--workspace-ink) 15%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  backdrop-filter: blur(14px) saturate(135%);
+}
+:root .office-experience :is(.camera-view-control, .edit-map-control, .modify-props-control, .world-control-trigger) {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--workspace-surface) 60%, transparent), color-mix(in srgb, var(--workspace-subtle) 60%, transparent));
+}
 :root .office-experience .office-space-card { background: transparent; color: var(--workspace-ink); }
 :root .office-experience .office-rail-brand { color: var(--workspace-accent); }
 :root .office-experience .settings-character-summary,
 :root .office-experience .settings-menu-row,
-:root .office-experience .settings-dialog,
 :root .office-experience .profile-edit-dialog,
 :root .office-experience .settings-dialog .profile-dialog-footer,
 :root .office-experience .profile-edit-dialog .profile-dialog-footer,
@@ -60,9 +96,15 @@
 :root .office-experience .profile-edit-dialog .profile-dialog-header,
 :root .office-experience .nickname-settings input,
 :root .office-experience .sound-device-field select {
-  background: var(--workspace-surface);
+  background: color-mix(in srgb, var(--workspace-surface) 48%, transparent);
   color: var(--workspace-ink);
   border-color: var(--workspace-edge);
+}
+:root .office-experience .settings-section-nav {
+  background: color-mix(in srgb, var(--workspace-subtle) 44%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-edge) 72%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(155%);
+  backdrop-filter: blur(16px) saturate(155%);
 }
 :root .office-experience .device-settings-preview,
 :root .office-experience .sound-device-test {

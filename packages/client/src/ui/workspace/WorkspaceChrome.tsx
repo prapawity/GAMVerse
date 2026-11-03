@@ -48,13 +48,14 @@ export function WorkspaceChrome(props: WorkspaceChromeProps) {
   const palette = useCommandPalette();
   const [menuOpen, setMenuOpen] = useState(false);
   const blocked = menuOpen || palette.open;
+  const officeName = props.offices.find(office => office.id === props.officeId)?.name ?? "Office";
   useEffect(() => { props.onInputBlocked(blocked); }, [blocked, props.onInputBlocked]);
   const commands = buildCommandCatalog({ people: props.people, rooms: props.rooms,
     disabledReason: props.navigationDisabled ? LIVE_ACTIONS_UNAVAILABLE_LABEL : undefined });
   return <>
     <OfficeNavigation panel={props.panel} open={props.panelOpen} unread={props.unread} onSelect={props.onSelectPanel}
       mainMenu={<OfficeMainMenu offices={props.offices} currentOfficeId={props.officeId} onSwitchOffice={props.onSwitchOffice} onOpenChange={setMenuOpen} />} />
-    <OfficeHeader username={props.username} onlineCount={props.onlineCount} accountOpen={props.accountOpen} onAccount={props.onAccount} />
+    <OfficeHeader officeName={officeName} username={props.username} onlineCount={props.onlineCount} accountOpen={props.accountOpen} onAccount={props.onAccount} />
     <CommandPalette commands={commands} open={palette.open} onClose={palette.closePalette} onExecute={command => executeWorkspaceCommand(command, props)} />
   </>;
 }

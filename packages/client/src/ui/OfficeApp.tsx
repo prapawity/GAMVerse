@@ -1,4 +1,6 @@
 import { VoiceMediaWorkspace } from "./media/VoiceMediaWorkspace";
+import { BrandMark } from "./BrandMark";
+import { BrandWordmark } from "./BrandWordmark";
 import { LocalMediaPreview, type LocalPreviewTile } from "./media/LocalMediaPreview";
 import { useRemoteMediaViewer } from "./media/useRemoteMediaViewer";
 import { readVoiceRosterActivity } from "./media/voiceRosterActivity";
@@ -2768,7 +2770,7 @@ export function OfficeApp() {
   }
 
   if (resetLinkToken) {
-    return <><main className="auth-shell"><form className="auth-card" onSubmit={(event) => void submitPasswordReset(event)}><span className="brand-mark">G</span><span className="eyebrow">ACCOUNT RECOVERY</span><h1>{resetDone ? "Password updated" : "Set a new password"}</h1><p>{resetDone ? "You can now sign in with your new password." : "This one-time reset link expires after 15 minutes."}</p>{!resetDone && <><label>New password<input data-tutorial-target="reset-password" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} /></label>{resetError && <p className="auth-error" role="alert">{resetError}</p>}<button data-tutorial-target="reset-submit" className="auth-submit" type="submit" disabled={resetBusy}>{resetBusy ? "Please wait…" : "Set password"}</button></>}<a className="auth-switch" href="/">Back to sign in</a></form></main><PageTutorial page="password-reset" />{resetBusy && <FullScreenLoading label="Updating your password…" />}</>;
+    return <><main className="auth-shell"><form className="auth-card" onSubmit={(event) => void submitPasswordReset(event)}><BrandMark /><span className="eyebrow">ACCOUNT RECOVERY</span><h1>{resetDone ? "Password updated" : "Set a new password"}</h1><p>{resetDone ? "You can now sign in with your new password." : "This one-time reset link expires after 15 minutes."}</p>{!resetDone && <><label>New password<input data-tutorial-target="reset-password" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} /></label>{resetError && <p className="auth-error" role="alert">{resetError}</p>}<button data-tutorial-target="reset-submit" className="auth-submit" type="submit" disabled={resetBusy}>{resetBusy ? "Please wait…" : "Set password"}</button></>}<a className="auth-switch" href="/">Back to sign in</a></form></main><PageTutorial page="password-reset" />{resetBusy && <FullScreenLoading label="Updating your password…" />}</>;
   }
 
   if (!authUser) {
@@ -2776,7 +2778,7 @@ export function OfficeApp() {
       <>
       <main className="auth-shell">
         <form className="auth-card" onSubmit={(event) => void submitAuth(event)}>
-          <span className="brand-mark">G</span>
+          <BrandMark />
           <span className="eyebrow">{maintainerPortal ? "PLATFORM OPERATIONS" : "YOUR WORKSPACE"}</span>
           <h1>{maintainerPortal ? "Maintainer sign in" : authMode === "login" ? "Welcome back" : "Create your account"}</h1>
           <p>{(inviteLinkToken || getOfficeShareRouteToken(routePath)) ? "You’ve been invited to an office. Create an account or sign in to join." : maintainerPortal ? "Sign in to manage GAMVerse and its offices." : "Sign in with your office username and password."}</p>
@@ -2841,7 +2843,7 @@ export function OfficeApp() {
       <main className="lobby-shell">
         <header className="topbar">
           <div className="topbar-side topbar-side-left" aria-hidden="true" />
-          <div className="topbar-title"><span className="brand-mark" aria-hidden="true">G</span><strong>GAMVerse</strong></div>
+          <div className="topbar-title"><BrandMark /><BrandWordmark /></div>
           <div className="topbar-side topbar-side-right">
             <button type="button" className={`right-character-tab${characterPanelOpen ? " selected" : ""}`} aria-label={characterPanelOpen ? "Hide user settings" : "Open user settings"} aria-expanded={characterPanelOpen} aria-controls="character-drawer" title="User settings" onClick={() => { setCharacterPanelOpen((open) => !open); setCharacterError(null); }}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.25" stroke="currentColor" strokeWidth="1.7"/><path d="M5.5 20c.3-3.5 2.8-5.6 6.5-5.6s6.2 2.1 6.5 5.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>

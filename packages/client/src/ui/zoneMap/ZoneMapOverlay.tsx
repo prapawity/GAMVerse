@@ -42,7 +42,7 @@ export function ZoneMapOverlay({ layout, playersRef, localSessionIdRef, onClose 
 
   return (
     <div className="zone-map-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="zone-map" role="dialog" aria-label="Zone map">
+      <section className="zone-map" role="dialog" aria-modal="true" aria-label="Zone map">
         <header className="zone-map-header">
           <h2>Zone map</h2>
           {location && <span className="zone-map-location">You are in: <strong>{location}</strong></span>}

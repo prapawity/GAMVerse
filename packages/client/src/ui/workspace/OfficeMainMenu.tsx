@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { BrandMark } from "../BrandMark";
 import { WorkspaceDialog } from "./WorkspaceDialog";
 
 interface OfficeMainMenuProps {
@@ -14,8 +15,8 @@ export function OfficeMainMenu({ offices, currentOfficeId, onSwitchOffice, onOpe
   const dialogId = useId();
   const changeOpen = (next: boolean) => { setOpen(next); onOpenChange?.(next); };
   return <>
-    <button type="button" className="office-rail-brand office-main-menu-trigger" aria-label="Open main menu"
-      aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined} onClick={() => changeOpen(true)}>G</button>
+    <button type="button" className="office-rail-brand office-main-menu-trigger" aria-label="Open office menu" title="Open office menu"
+      aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? dialogId : undefined} onClick={() => changeOpen(true)}><BrandMark /></button>
     {open && <WorkspaceDialog labelledBy={titleId} onClose={() => changeOpen(false)}>
       <section id={dialogId} className="office-main-menu">
         <header><h2 id={titleId}>Main menu</h2><button type="button" aria-label="Close main menu" onClick={() => changeOpen(false)}>×</button></header>

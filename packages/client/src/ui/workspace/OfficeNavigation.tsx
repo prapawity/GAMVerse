@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BrandMark } from "../BrandMark";
 import "./OfficeNavigation.css";
 
 export type OfficePanel = "workspace" | "people" | "chat" | "activity";
@@ -26,7 +27,7 @@ interface NavigationProps {
 
 export function OfficeNavigation({ panel, open, unread, onSelect, mainMenu }: NavigationProps) {
   return <nav className="office-rail" aria-label="Office navigation" data-tutorial-target="office-navigation">
-    {mainMenu ?? <span className="office-rail-brand" title="GAMVerse" aria-label="GAMVerse">G</span>}
+    {mainMenu ?? <span className="office-rail-brand" title="GAMVerse" aria-label="GAMVerse"><BrandMark /></span>}
     {PANEL_ORDER.map((item) => <button key={item} id={`office-nav-${item}`} type="button"
       className={`office-rail-item${open && panel === item ? " is-active" : ""}`}
       aria-label={item === "chat" && unread > 0 ? `Chat, ${unread} unread messages` : PANEL_LABELS[item]}
@@ -40,6 +41,7 @@ export function OfficeNavigation({ panel, open, unread, onSelect, mainMenu }: Na
 }
 
 interface HeaderProps {
+  officeName: string;
   username: string;
   onlineCount: number;
   accountOpen: boolean;
@@ -48,7 +50,10 @@ interface HeaderProps {
 
 export function OfficeHeader(props: HeaderProps) {
   return <header className="office-header">
-    <div className="office-header-brand" aria-label={`GAMVerse, ${props.onlineCount} online`}><strong>GAMVerse</strong><span className="office-online-status"><i aria-hidden="true" />{props.onlineCount} online</span></div>
+    <div className="office-header-context" aria-label={`${props.officeName}, ${props.onlineCount} online`}>
+      <span className="office-header-office-name" title={props.officeName}>{props.officeName}</span>
+      <span className="office-online-status"><i aria-hidden="true" />{props.onlineCount} online</span>
+    </div>
     <div className="office-header-actions">
       <button type="button" className="office-account-button" aria-label="Account and settings" title="Account and settings" aria-expanded={props.accountOpen} aria-controls={props.accountOpen ? "character-drawer" : undefined} onClick={props.onAccount}>{props.username.slice(0, 1).toUpperCase()}</button>
     </div>

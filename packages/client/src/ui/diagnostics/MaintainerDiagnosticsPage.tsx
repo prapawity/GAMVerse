@@ -1,9 +1,11 @@
 import { MaintainerDiagnosticsPanel } from "./MaintainerDiagnosticsPanel";
+import { BrandMark } from "../BrandMark";
+import { BrandWordmark } from "../BrandWordmark";
 
 export function MaintainerDiagnosticsPage({ endpoint, allowed }: { endpoint: string; allowed: boolean }) {
   return <main className="lobby-shell diagnostics-page">
     <header className="diagnostics-topbar">
-      <a className="diagnostics-brand" href="/" aria-label="GAMVerse lobby"><span className="brand-mark" aria-hidden="true">G</span><strong>GAMVerse</strong></a>
+      <a className="diagnostics-brand" href="/" aria-label="GAMVerse lobby"><BrandMark /><BrandWordmark /></a>
       <span className="diagnostics-access">Maintainer workspace</span>
     </header>
     <div className="diagnostics-content">

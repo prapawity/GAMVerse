@@ -28,6 +28,7 @@
     "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^5.0.4",
     "typescript": "^5.9.3",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vite-plugin-pwa": "2.0.0"
   }
 }

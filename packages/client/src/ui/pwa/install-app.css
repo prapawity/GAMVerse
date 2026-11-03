@@ -1,0 +1,49 @@
+.install-app-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, #8077e8 32%, var(--color-border, #d8dceb));
+  border-radius: 10px;
+  background: color-mix(in srgb, #8077e8 9%, var(--color-surface, #fff));
+  color: var(--color-ink, #282c59);
+  font: 650 12px "DM Sans", sans-serif;
+  cursor: pointer;
+}
+
+.install-app-button:hover { background: color-mix(in srgb, #8077e8 15%, var(--color-surface, #fff)); }
+.install-app-button:focus-visible { outline: 3px solid color-mix(in srgb, #8077e8 42%, transparent); outline-offset: 2px; }
+.install-app-button svg { flex: 0 0 auto; color: #7067d5; }
+
+.auth-app-entry { display: flex; flex-direction: column; align-items: center; width: min(100%, 390px); }
+.auth-app-entry .auth-card { width: 100%; }
+.auth-shell .install-app-button { margin-top: 12px; align-self: center; }
+
+.network-status-banner {
+  position: fixed;
+  z-index: 10000;
+  inset: max(12px, env(safe-area-inset-top)) 12px auto;
+  width: fit-content;
+  max-width: min(560px, calc(100vw - 24px));
+  margin-inline: auto;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 12px;
+  background: #24294d;
+  color: #f7f7ff;
+  box-shadow: 0 8px 28px rgba(16, 19, 49, .22);
+  font: 500 12px/1.45 "DM Sans", sans-serif;
+  text-align: center;
+}
+
+.network-status-banner strong { font-weight: 750; }
+
+@media (max-width: 560px) {
+  .install-app-button { min-height: 38px; padding-inline: 10px; }
+  .auth-shell .install-app-button { margin-top: 14px; }
+  .lobby-intro-heading { flex-wrap: wrap; }
+  .lobby-intro-heading h1 { flex: 1 0 100%; }
+  .lobby-intro-actions { width: 100%; flex-wrap: wrap; }
+}

@@ -57,6 +57,8 @@ See [PROJECT_DOCS.md](PROJECT_DOCS.md) for architecture, data flow, deployment n
 
 The API and realtime processes are separate. They share the server package and PostgreSQL; there is no distributed presence service or multi-host room routing yet.
 
+The web client is installable as a Progressive Web App (PWA) in supported browsers when served over HTTPS. Use **Install GAMVerse** from the sign-in page or office lobby when the browser offers installation, or use the browser's install command. The installed app opens in its own window and still needs an internet connection to sign in, enter offices, and use voice or video. Only static app-shell files are cached; account and room data are not stored for offline use. App updates wait for open windows to close so a running office session is not forced to reload.
+
 ## Run locally
 
 Docker Desktop or Docker Engine with the Compose plugin is the supported way to run the complete local stack:

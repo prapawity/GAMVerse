@@ -88,6 +88,8 @@ import { clientRuntimeMetrics } from "../world/clientRuntimeMetrics";
 import { recentLockedRotation, type LockedTurnState } from "../world/camera/lockedMovement";
 import { resolveHeldMovement } from "../world/camera/heldMovement";
 import { FullScreenLoading } from "./FullScreenLoading";
+import { InstallAppButton } from "./pwa/InstallAppButton";
+import { usePwaInstall } from "./pwa/usePwaInstall";
 import { ModifyPropsEditor } from "./ModifyPropsEditor";
 import { MapBuildingPicker } from "./MapBuildingPicker";
 import { PropModelPreview } from "./PropModelPreview";
@@ -323,6 +325,7 @@ const getOfficeRouteId = (path = window.location.pathname) => path.match(/^\/off
 
 export function OfficeApp() {
   const workspaceTheme = useWorkspaceTheme();
+  const pwaInstall = usePwaInstall();
   const [routePath, setRoutePath] = useState(() => window.location.pathname);
   const [meetingEntry, setMeetingEntry] = useState(() => Boolean(getMeetingRouteOfficeId(window.location.pathname)));
   const routePathRef = useRef(routePath);
@@ -2777,6 +2780,7 @@ export function OfficeApp() {
     return (
       <>
       <main className="auth-shell">
+        <div className="auth-app-entry">
         <form className="auth-card" onSubmit={(event) => void submitAuth(event)}>
           <BrandMark />
           <span className="eyebrow">{maintainerPortal ? "PLATFORM OPERATIONS" : "YOUR WORKSPACE"}</span>
@@ -2792,6 +2796,8 @@ export function OfficeApp() {
           </button>}
           <a className="auth-switch" href={maintainerPortal ? "/" : "/maintainer"}>{maintainerPortal ? "Regular user sign in" : "Maintainer sign in"}</a>
         </form>
+        <InstallAppButton {...pwaInstall} />
+        </div>
       </main>
       {authBusy && <FullScreenLoading label={authMode === "register" ? "Creating your account…" : "Signing in…"} />}
       </>
@@ -2857,7 +2863,7 @@ export function OfficeApp() {
           <footer className="character-drawer-footer"><button type="button" className="right-drawer-map-mode" aria-label={map2dViewActive ? "Switch to 3D view" : "Switch to 2D view"} onClick={() => map2dToggleRef.current()}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 7 6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z"/><path d="M9 4v13m6-10v13"/></svg><span>{map2dViewActive ? "Switch to 3D" : "Switch to 2D"}</span></button><button type="button" className="account-action signout" onClick={signOut.request}>Sign out</button></footer>
         </aside>}
         <section className="lobby-content">
-          <div className="lobby-intro"><span className="eyebrow">YOUR WORKSPACE</span><div className="lobby-intro-heading"><h1>{authUser.role === "maintainer" ? "Manage offices" : "Choose an office"}</h1><button data-tutorial-target="lobby-create-office" className="lobby-button primary" type="button" onClick={() => { setLobbyError(null); setCreateOfficeDialogOpen(true); }}>＋ Create office</button></div><p>Enter an office you belong to, accept an invitation, or start a new office.</p></div>
+          <div className="lobby-intro"><span className="eyebrow">YOUR WORKSPACE</span><div className="lobby-intro-heading"><h1>{authUser.role === "maintainer" ? "Manage offices" : "Choose an office"}</h1><div className="lobby-intro-actions"><InstallAppButton {...pwaInstall} /><button data-tutorial-target="lobby-create-office" className="lobby-button primary" type="button" onClick={() => { setLobbyError(null); setCreateOfficeDialogOpen(true); }}>＋ Create office</button></div></div><p>Enter an office you belong to, accept an invitation, or start a new office.</p></div>
           {authUser.role === "maintainer" && <>
             <a className="lobby-diagnostics-entry" href="/maintainer/diagnostics">
               <span className="lobby-diagnostics-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg></span>

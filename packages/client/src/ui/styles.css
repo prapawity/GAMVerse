@@ -47,6 +47,7 @@ button:focus-visible { outline: 3px solid var(--color-focus, #5b52d6); outline-o
 .lobby-account { display: flex; align-items: center; gap: 14px; color: #66756d; font-size: 12px; }
 .lobby-content { width: min(1060px, calc(100% - 40px)); margin: 48px auto; }
 .lobby-intro-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lobby-intro-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .lobby-intro h1 { margin: 7px 0; font: 800 28px "Manrope", sans-serif; letter-spacing: -.8px; }
 .lobby-intro p { margin: 0; color: #7e8a82; font-size: 13px; }
 .lobby-create-office-action { display: flex; justify-content: flex-start; margin: 28px 0; }

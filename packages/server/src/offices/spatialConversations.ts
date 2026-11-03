@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { SpatialConversationInputs } from "./spatialConversationInputs.js";
 import type { Conversation, ConversationKind, ConversationMember, ConversationSnapshot, ConversationMediaTarget } from "@gammyverse/shared";
 export type SpatialConversationMember = ConversationMember & { kind: ConversationKind; targetId: string; mediaTarget?: ConversationMediaTarget; admissionLeaseId?: string };
 type Candidate = { kind: ConversationKind; targetId: string; mediaTarget?: ConversationMediaTarget; members: ConversationMember[] };
@@ -34,14 +35,17 @@ export class SpatialConversations {
   private conversations: Conversation[] = [];
   private signature = "";
   private readonly leases = new Map<string,string>();
+  private readonly inputs = new SpatialConversationInputs();
   constructor(readonly officeId: string) {}
   reconcile(members: SpatialConversationMember[]): boolean {
+    if (this.inputs.unchanged(members)) return false;
     this.leases.clear();
     for(const member of members)if(member.admissionLeaseId)this.leases.set(member.sessionId,member.admissionLeaseId);
     const groups = candidates(members);
     const continuity = assignContinuity(groups, this.conversations);
     const next = groups.map(group => this.project(group, continuity.get(group)));
     const signature = JSON.stringify([next,[...this.leases].sort()]);
+    this.inputs.remember(members);
     if (signature === this.signature) return false;
     this.signature = signature;
     this.conversations = next;

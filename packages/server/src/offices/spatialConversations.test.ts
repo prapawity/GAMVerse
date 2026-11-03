@@ -4,6 +4,39 @@ import { SpatialConversations, type SpatialConversationMember } from "./spatialC
 function person(id: string, targetId: string, kind: SpatialConversationMember["kind"] = "proximity"): SpatialConversationMember {
   return {id, username: id, sessionId: `${id}-session`, mediaIdentity: `${id}-media`, displayName: id, characterId: "character-female-a", kind, targetId};
 }
+
+test("unchanged movement projections skip conversation grouping and retain stable media identity", () => {
+  const state = new SpatialConversations("office");
+  const seam = state as unknown as { project: (...args: unknown[]) => unknown };
+  const original = seam.project.bind(state);
+  let projections = 0;
+  seam.project = (...args) => { projections++; return original(...args); };
+  const members = [person("alice", "ab"), person("bob", "ab")];
+  state.reconcile(members);
+  const snapshot = state.snapshot("alice-session");
+  for (let tick = 0; tick < 100; tick++) assert.equal(state.reconcile(members.map(member => ({ ...member }))), false);
+  assert.equal(projections, 1);
+  assert.deepEqual(state.snapshot("alice-session"), snapshot);
+});
+
+test("projection input cache observes in-place metadata, media readiness, lease and removal changes", () => {
+  const state = new SpatialConversations("office");
+  const alice = { ...person("alice", "desk", "private"), mediaTarget: { id: "desk", generation: 1, available: true }, admissionLeaseId: "lease-1" };
+  state.reconcile([alice]);
+  const original = state.snapshot("alice-session");
+  alice.displayName = "Alice changed";
+  assert.equal(state.reconcile([alice]), true);
+  alice.mediaTarget.available = false;
+  assert.equal(state.reconcile([alice]), true);
+  alice.admissionLeaseId = "lease-2";
+  assert.equal(state.reconcile([alice]), true);
+  const current = state.snapshot("alice-session");
+  assert.equal(current.conversation!.id, original.conversation!.id);
+  assert.equal(current.conversation!.mediaTarget.available, false);
+  assert.equal(current.admissionLeaseId, "lease-2");
+  assert.equal(state.reconcile([]), true);
+  assert.equal(state.snapshot("alice-session").conversation, null);
+});
 test("three-person merge and split retain one logical identity and rotate transport generation", () => {
   const state = new SpatialConversations("office");
   state.reconcile([person("alice", "ab"), person("bob", "ab")]);

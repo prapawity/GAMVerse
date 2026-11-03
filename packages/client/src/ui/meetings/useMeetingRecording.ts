@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Room } from "@colyseus/sdk";
 import type { OfficeState } from "@gammyverse/shared";
+import { BoundedRecordingBuffer, canStartRecording, MAX_LOCAL_RECORDING_BYTES, RecordingCaptureEpoch, recordingCompletion, type RecordingLimitReason } from "./boundedRecordingBuffer";
 
 type OfficeRoom = Pick<Room<OfficeState>, "sessionId" | "send" | "onMessage"> | null;
-type RecordingState = "idle" | "awaiting-consent" | "consent-progress" | "recording";
+type RecordingState = "idle" | "awaiting-consent" | "consent-progress" | "recording" | "finalizing";
 type ConsentRequest = { requestId: string; zoneId: string; requesterName: string };
 type ServerMessage = { zoneId?: unknown; requestId?: unknown; status?: unknown; requesterSessionId?: unknown; requesterName?: unknown; participantCount?: unknown; acceptedCount?: unknown; declinedBy?: unknown; message?: unknown };
+const MAX_LOCAL_RECORDING_DURATION_MS = 60 * 60 * 1000;
+const MAX_LOCAL_RECORDING_MB = MAX_LOCAL_RECORDING_BYTES / (1024 * 1024);
+const MAX_LOCAL_RECORDING_DURATION_MINUTES = MAX_LOCAL_RECORDING_DURATION_MS / 60_000;
 
 function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach(track => track.stop());
@@ -21,18 +25,63 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
   const requestIdRef = useRef<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const captureEpochRef = useRef(new RecordingCaptureEpoch());
+  const limitReachedRef = useRef(false);
+  const rejectedChunkRef = useRef(false);
+  const limitReasonRef = useRef<RecordingLimitReason>(null);
+  const durationTimerRef = useRef<number | null>(null);
   const requesterRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const permissionRequestEpochRef = useRef<number | null>(null);
+  const recordingScopeRef = useRef({ room, zoneId });
+  const latestRecordingContextRef = useRef({ room, zoneId, active, connected });
+  latestRecordingContextRef.current = { room, zoneId, active, connected };
 
   const clearCapture = useCallback(() => {
+    captureEpochRef.current.invalidate();
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder && recorder.state !== "inactive") recorder.stop();
     const stream = streamRef.current;
     streamRef.current = null;
     stopTracks(stream);
+    if (durationTimerRef.current !== null) window.clearTimeout(durationTimerRef.current);
+    durationTimerRef.current = null;
   }, []);
+
+  useEffect(() => {
+    const previous = recordingScopeRef.current;
+    if (previous.room !== room || previous.zoneId !== zoneId) {
+      const requestId = requestIdRef.current;
+      if (requestId && requesterRef.current && previous.room && previous.zoneId) {
+        previous.room.send("meeting-recording-control", { action: "stop", zoneId: previous.zoneId, requestId });
+      }
+      permissionRequestEpochRef.current = null;
+      requestIdRef.current = null;
+      requesterRef.current = false;
+      clearCapture();
+      setState("idle");
+      setPendingConsent(null);
+      setConsentCounts(null);
+      setRequesterName("");
+      setError(null);
+      setNotice(null);
+      stopRequestedRef.current = false;
+    }
+    recordingScopeRef.current = { room, zoneId };
+  }, [clearCapture, room, zoneId]);
+
+  useEffect(() => () => {
+    const requestId = requestIdRef.current;
+    const { room: activeRoom, zoneId: activeZoneId } = recordingScopeRef.current;
+    if (requestId && requesterRef.current && activeRoom && activeZoneId) {
+      activeRoom.send("meeting-recording-control", { action: "stop", zoneId: activeZoneId, requestId });
+    }
+    permissionRequestEpochRef.current = null;
+    requestIdRef.current = null;
+    requesterRef.current = false;
+    clearCapture();
+  }, [clearCapture]);
 
   const startRecorder = useCallback((requestId: string) => {
     const stream = streamRef.current;
@@ -54,18 +103,51 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
     }
     try {
       const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data); };
+      const captureEpoch = captureEpochRef.current.begin();
+      const captureStream = stream;
+      const recordingBuffer = new BoundedRecordingBuffer();
+      let captureDurationTimer: number | null = null;
+      limitReachedRef.current = false;
+      rejectedChunkRef.current = false;
+      limitReasonRef.current = null;
+      const stopForLimit = (reason: Exclude<RecordingLimitReason, null>) => {
+        if (limitReachedRef.current) return;
+        limitReachedRef.current = true;
+        limitReasonRef.current = reason;
+        room?.send("meeting-recording-control", { action: "stop", zoneId, requestId });
+        if (recorder.state !== "inactive") recorder.stop();
+      };
+      recorder.ondataavailable = event => {
+        if (!captureEpochRef.current.isCurrent(captureEpoch) || recorderRef.current !== recorder) return;
+        if (!event.data.size) return;
+        const result = recordingBuffer.append(event.data);
+        if (!result.accepted) rejectedChunkRef.current = true;
+        if (!result.accepted || result.shouldStop) stopForLimit("bytes");
+      };
       recorder.onerror = () => {
+        if (!captureEpochRef.current.isCurrent(captureEpoch) || recorderRef.current !== recorder) return;
         setError("Recording stopped because the browser couldn’t continue capturing.");
         room?.send("meeting-recording-control", { action: "stop", zoneId, requestId });
         clearCapture();
         setState("idle");
       };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        chunksRef.current = [];
-        if (blob.size > 0) {
+        if (captureDurationTimer !== null) window.clearTimeout(captureDurationTimer);
+        if (durationTimerRef.current === captureDurationTimer) durationTimerRef.current = null;
+        const currentCapture = captureEpochRef.current.isCurrent(captureEpoch) && recorderRef.current === recorder;
+        if (!currentCapture) {
+          recordingBuffer.clear();
+          stopTracks(captureStream);
+          return;
+        }
+        const blob = recordingBuffer.toBlob(mimeType);
+        const completion = recordingCompletion(rejectedChunkRef.current, blob.size, limitReasonRef.current);
+        recordingBuffer.clear();
+        rejectedChunkRef.current = false;
+        limitReasonRef.current = null;
+        if (completion.kind === "failed") {
+          setError(`Recording could not be finalized within the ${MAX_LOCAL_RECORDING_MB} MB size limit. No file was downloaded.`);
+        } else if (completion.kind === "download") {
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           const slug = officeName.trim().replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") || "meeting";
@@ -76,23 +158,36 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
           link.click();
           link.remove();
           window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-          setNotice("Recording downloaded to this device.");
+          const limitNotice = completion.reason === "duration"
+            ? `Recording reached the ${MAX_LOCAL_RECORDING_DURATION_MINUTES}-minute limit and was downloaded.`
+            : completion.reason === "bytes" ? `Recording reached the ${MAX_LOCAL_RECORDING_MB} MB limit and was downloaded.` : null;
+          setNotice(limitNotice ?? "Recording downloaded to this device.");
         }
-        stopTracks(streamRef.current);
-        streamRef.current = null;
+        stopTracks(captureStream);
+        if (streamRef.current === captureStream) streamRef.current = null;
         recorderRef.current = null;
+        if (requestIdRef.current === requestId) requestIdRef.current = null;
+        requesterRef.current = false;
         setState("idle");
       };
       recorder.start(1000);
       recorderRef.current = recorder;
+      captureDurationTimer = window.setTimeout(() => {
+        if (!captureEpochRef.current.isCurrent(captureEpoch) || recorderRef.current !== recorder || recorder.state === "inactive") return;
+        stopForLimit("duration");
+      }, MAX_LOCAL_RECORDING_DURATION_MS);
+      durationTimerRef.current = captureDurationTimer;
       room?.send("meeting-recording-control", { action: "started", zoneId, requestId });
       setState("recording");
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) videoTrack.onended = () => {
-        if (recorderRef.current === recorder && !stopRequestedRef.current) {
+        if (captureEpochRef.current.isCurrent(captureEpoch) && recorderRef.current === recorder && !stopRequestedRef.current) {
+          stopRequestedRef.current = true;
           room?.send("meeting-recording-control", { action: "stop", zoneId, requestId });
-          clearCapture();
-          setState("idle");
+          setState("finalizing");
+          // The browser may still deliver a final dataavailable event after
+          // the user stops sharing. Keep this capture epoch alive until onstop.
+          if (recorder.state !== "inactive") recorder.stop();
         }
       };
     } catch {
@@ -104,19 +199,41 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
   }, [clearCapture, officeName, room, zoneId]);
 
   const requestRecording = useCallback(async () => {
-    if (!room || !zoneId || !active || !connected || state !== "idle") return;
+    if (!room || !zoneId || !active || !connected ||
+      !canStartRecording(state === "idle", recorderRef.current !== null, permissionRequestEpochRef.current !== null)) return;
     setError(null); setNotice(null);
     if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
       setError("Local screen recording isn’t supported by this browser.");
       return;
     }
+    const permissionEpoch = captureEpochRef.current.begin();
+    permissionRequestEpochRef.current = permissionEpoch;
+    const contextIsCurrent = () => {
+      const latest = latestRecordingContextRef.current;
+      return latest.room === room && latest.zoneId === zoneId && latest.active && latest.connected;
+    };
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
     catch (cause) {
-      if (cause instanceof DOMException && cause.name === "NotAllowedError") setError("Screen capture was cancelled.");
-      else setError("Couldn’t capture this screen. Try a browser tab and enable tab audio.");
+      if (captureEpochRef.current.isCurrent(permissionEpoch) && contextIsCurrent()) {
+        permissionRequestEpochRef.current = null;
+        if (cause instanceof DOMException && cause.name === "NotAllowedError") setError("Screen capture was cancelled.");
+        else setError("Couldn’t capture this screen. Try a browser tab and enable tab audio.");
+      } else if (permissionRequestEpochRef.current === permissionEpoch) {
+        permissionRequestEpochRef.current = null;
+        captureEpochRef.current.invalidate();
+      }
       return;
     }
+    if (!captureEpochRef.current.isCurrent(permissionEpoch) || !contextIsCurrent()) {
+      stopTracks(stream);
+      if (permissionRequestEpochRef.current === permissionEpoch) {
+        permissionRequestEpochRef.current = null;
+        captureEpochRef.current.invalidate();
+      }
+      return;
+    }
+    permissionRequestEpochRef.current = null;
     if (!stream.getAudioTracks().length || !stream.getVideoTracks().length) {
       stopTracks(stream);
       setError("Choose a screen or browser tab and enable its audio to record the meeting.");
@@ -133,8 +250,14 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
     stream.getVideoTracks()[0]!.onended = () => {
       if (requestIdRef.current === requestId) {
         room.send("meeting-recording-control", { action: "stop", zoneId, requestId });
-        clearCapture();
-        setState("idle");
+        if (recorderRef.current) {
+          stopRequestedRef.current = true;
+          if (recorderRef.current.state !== "inactive") recorderRef.current.stop();
+          setState("finalizing");
+        } else {
+          clearCapture();
+          setState("idle");
+        }
       }
     };
   }, [active, clearCapture, connected, room, state, zoneId]);
@@ -151,7 +274,7 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
     stopRequestedRef.current = true;
     room.send("meeting-recording-control", { action: "stop", zoneId, requestId });
     const recorder = recorderRef.current;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
+    if (recorder && recorder.state !== "inactive") { recorder.stop(); setState("finalizing"); }
     else { clearCapture(); setState("idle"); }
   }, [clearCapture, room, zoneId]);
 
@@ -190,16 +313,23 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
           ? `${typeof data.declinedBy === "string" ? data.declinedBy : "A participant"} declined the recording request.`
           : data.status === "expired" ? "The recording request expired."
             : data.status === "cancelled" ? (typeof data.message === "string" ? data.message : "Recording was cancelled.") : null;
+        let finalizing = false;
         if (isCurrent) {
-          requestIdRef.current = null;
-          requesterRef.current = false;
-          clearCapture();
+          if (data.status === "stopped" && requesterRef.current && recorderRef.current) {
+            finalizing = true;
+            stopRequestedRef.current = true;
+            if (recorderRef.current.state !== "inactive") recorderRef.current.stop();
+          } else {
+            requestIdRef.current = null;
+            requesterRef.current = false;
+            if (data.status !== "stopped") clearCapture();
+          }
         }
-        setState("idle"); setConsentCounts(null);
+        setState(finalizing ? "finalizing" : "idle"); setConsentCounts(null);
         if (message) setError(message);
         setPendingConsent(null);
         if (data.status === "cancelled") setRequesterName("");
-        if (data.status === "stopped") setNotice("The local recording ended.");
+        if (data.status === "stopped" && !finalizing) setNotice("The local recording ended.");
       }
     });
     return () => { removeConsent(); removeState(); };
@@ -207,6 +337,7 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
 
   useEffect(() => {
     if (active) return;
+    permissionRequestEpochRef.current = null;
     const requestId = requestIdRef.current;
     if (requestId && requesterRef.current && room && zoneId) room.send("meeting-recording-control", { action: "stop", zoneId, requestId });
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
@@ -219,11 +350,13 @@ export function useMeetingRecording({ room, zoneId, active, connected, officeNam
   }, [active, clearCapture, room, zoneId]);
 
   useEffect(() => {
-    if (connected || state === "idle" || !requesterRef.current) return;
+    const permissionPending = permissionRequestEpochRef.current !== null;
+    if (connected || (!permissionPending && (state === "idle" || !requesterRef.current))) return;
     const requestId = requestIdRef.current;
     if (requestId && requesterRef.current && room && zoneId) room.send("meeting-recording-control", { action: "stop", zoneId, requestId });
     if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
     else clearCapture();
+    permissionRequestEpochRef.current = null;
     requestIdRef.current = null; requesterRef.current = false;
     setState("idle"); setPendingConsent(null); setConsentCounts(null);
     setError("Recording ended because the meeting audio disconnected.");

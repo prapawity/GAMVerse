@@ -4,10 +4,10 @@ import type { WorkspaceTheme } from "./workspaceTheme";
 const SurfaceMaterialPreview = lazy(() => import("./SurfaceMaterialPreview").then(({ SurfaceMaterialPreview: Preview }) => ({ default: Preview })));
 
 const THEME_CHOICES: readonly { id: WorkspaceTheme; label: string; description: string; colors: readonly string[] }[] = [
-  { id: "app", label: "App", description: "Eucalyptus, oat and terracotta", colors: ["#DCE8DE", "#E7EEE7", "#293A32", "#B86F53"] },
-  { id: "light", label: "Light", description: "Oat, warm stone and clay", colors: ["#E7DFD1", "#EEE6D9", "#3C362E", "#A9634E"] },
-  { id: "dark", label: "Dark", description: "Deep eucalyptus and apricot clay", colors: ["#202B28", "#303D37", "#ECE4D5", "#D79A78"] },
-  { id: "system", label: "System", description: "Follow your device appearance", colors: ["#DCE8DE", "#E7EEE7", "#293A32", "#B86F53"] },
+  { id: "app", label: "Cosmic dusk", description: "Plum space, starlight, and violet", colors: ["#120B1D", "#21132F", "#F4EDFB", "#9166D8"] },
+  { id: "light", label: "Moonlight", description: "Soft lavender, lunar white, and violet", colors: ["#F4EEF9", "#FCF9FF", "#30203F", "#7046A5"] },
+  { id: "dark", label: "Deep space", description: "Dark plum, aurora blue, and lilac", colors: ["#0C0715", "#1B1026", "#FAF6FF", "#A57BE9"] },
+  { id: "system", label: "System", description: "Follow your device in cosmic colors", colors: ["#F4EEF9", "#21132F", "#F4EDFB", "#68B9CE"] },
 ];
 
 interface OfficeThemeSettingsProps {

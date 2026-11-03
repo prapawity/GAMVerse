@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
+      includeAssets: ["favicon.svg"],
       manifest: {
         id: "/",
         name: "GAMVerse",
@@ -16,11 +16,10 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         display: "standalone",
-        background_color: "#11152d",
-        theme_color: "#11152d",
+        background_color: "#120b1d",
+        theme_color: "#120b1d",
         icons: [
-          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
         ],
       },
       workbox: {

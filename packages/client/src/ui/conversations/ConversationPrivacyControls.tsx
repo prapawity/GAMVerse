@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { privateActionEnabled } from "./conversationAccessState";
 import type { ConversationAccessModel } from "./useConversationAccess";
 import "./ConversationAccess.css";
@@ -10,16 +11,24 @@ const LOCKED_LABEL = "Locked. Guests need admission.";
 const OPEN_LABEL = "Open. Normal room entry applies.";
 const ROTATING_LABEL = "Updating private audio. Audio is paused until the new session is ready.";
 const UNAVAILABLE_LABEL = "Private audio is unavailable. An authorized occupant can retry when the retry control becomes available.";
+const LOCK_REASON_LABEL = "Reason guests need admission (optional)";
 export function ConversationPrivacyControls({ access, connected }: { access: ConversationAccessModel; connected: boolean }) {
+  const [lockReason, setLockReason] = useState("");
   const snapshot = access.snapshot;
   if (!snapshot) return null;
   const action = snapshot.locked ? { action: "unlock" as const } : { action: "lock" as const };
   const canLock = snapshot.capabilities.lock || snapshot.capabilities.unlock;
+  const lock = () => {
+    access.command({ action: "lock", ...(lockReason.trim() ? { reason: lockReason.trim() } : {}) });
+    setLockReason("");
+  };
   return <section className="conversation-privacy-controls" aria-label={PRIVACY_LABEL}>
     <p>{snapshot.locked ? LOCKED_LABEL : OPEN_LABEL}</p>
+    {snapshot.locked && snapshot.lockReason && <p className="private-lock-reason"><strong>Access note:</strong> {snapshot.lockReason}</p>}
     {snapshot.transportState !== "ready" && <p role="status">{snapshot.transportState === "rotating" ? ROTATING_LABEL : UNAVAILABLE_LABEL}</p>}
     <div className="conversation-access-actions">
-      {canLock && <button type="button" aria-pressed={snapshot.locked} disabled={!connected || !privateActionEnabled(snapshot, action, access.pending, access.nowMs)} onClick={() => access.command(action)}>{snapshot.locked ? UNLOCK_LABEL : LOCK_LABEL}</button>}
+      {canLock && !snapshot.locked && <label className="private-lock-reason-field">{LOCK_REASON_LABEL}<input value={lockReason} maxLength={160} onChange={event => setLockReason(event.target.value)} /></label>}
+      {canLock && <button type="button" aria-pressed={snapshot.locked} disabled={!connected || !privateActionEnabled(snapshot, action, access.pending, access.nowMs)} onClick={() => snapshot.locked ? access.command(action) : lock()}>{snapshot.locked ? UNLOCK_LABEL : LOCK_LABEL}</button>}
       {snapshot.capabilities.retryMedia && <button type="button" disabled={!connected || access.pending} onClick={() => access.command({ action: "retry-media" })}>{RETRY_LABEL}</button>}
     </div>
   </section>;

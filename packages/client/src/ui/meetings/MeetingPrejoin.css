@@ -1,0 +1,18 @@
+.lobby-shell .meeting-prejoin-card { width: min(960px, 100%); margin: clamp(28px, 7vh, 64px) auto 32px; padding: clamp(22px, 3vw, 32px); border: 1px solid var(--color-border); border-radius: 18px; background: color-mix(in srgb, var(--color-surface) 96%, transparent); color: var(--color-ink); box-shadow: var(--glass-shadow); }
+.lobby-shell .meeting-prejoin-card h1 { max-width: 24ch; margin: 0; color: var(--color-ink); font-size: clamp(22px, 3vw, 27px); line-height: 1.2; text-wrap: balance; }
+.lobby-shell .meeting-prejoin-card > p { margin: 7px 0 18px; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+.meeting-prejoin-devices { border-top: 1px solid var(--color-border); padding-top: 14px; }
+.meeting-prejoin-device-heading { margin: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
+.meeting-prejoin-device-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding: 14px 0 8px; }
+.meeting-prejoin-card .meeting-prejoin-preview { min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.meeting-prejoin-card .prejoin-skip-option { display: flex; min-height: 44px; align-items: center; gap: 9px; margin: 10px 0 2px; padding: 0 2px; color: var(--color-muted); font-size: 12px; cursor: pointer; }
+.meeting-prejoin-card .prejoin-skip-option input { width: 17px; height: 17px; flex: 0 0 auto; margin: 0; accent-color: var(--color-secondary); }
+.meeting-prejoin-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 12px; }
+.meeting-prejoin-actions > button { min-width: 88px; min-height: 44px; }
+.meeting-prejoin-card .lobby-button.primary { min-height: 44px; padding-inline: 22px; }
+@media (max-width: 760px) {
+  .lobby-shell .meeting-prejoin-card { margin-top: 20px; padding: 20px; }
+  .meeting-prejoin-device-settings { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .meeting-prejoin-actions { flex-direction: row; }
+  .meeting-prejoin-actions > button { flex: 1; }
+}

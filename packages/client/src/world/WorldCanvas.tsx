@@ -1,4 +1,5 @@
 import { StaticSceneGroup } from "./staticSceneGroup";
+import { renderQualitySettings } from "./renderQuality";
 import { OfficeMapSceneLayers } from "./officeMapSceneLayers";
 import { playerName } from "../identity/playerName";
 import { isRoomPropBed, zoneAtWithExitMargin } from "@gammyverse/shared";
@@ -124,6 +125,7 @@ interface Props {
   inboundAudioMuted?: boolean;
   appPaused?: boolean;
   idleAnimationsEnabled?: boolean;
+  powerSaverEnabled?: boolean;
   ghostSessionIds?: ReadonlySet<string>;
   mapEditMode?: boolean;
   spawnPlacementMode?: boolean;
@@ -161,6 +163,7 @@ interface Props {
   mapEditorUsername?: string | null;
   mapEditLockPending?: boolean;
   onEditMap?: () => void;
+  onReserveMeetingRoom?: () => void;
   onModifyProps?: () => void;
   onMapViewChange?: (isMap2d: boolean) => void;
 }
@@ -820,8 +823,10 @@ function snapCampusPropPointInZone(
   };
 }
 
-export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, proximityGroupIdRef, headingIntentRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout: fullRoomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onModifyProps, onMapViewChange }: Props) {
+export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, playersRef, localSessionIdRef, localPetIdRef, speakingUsernamesRef, proximityGroupIdRef, headingIntentRef, heldKeysRef, cameraYawRef, cameraBehindCharacterRef, firstPersonViewRef, map2dDecorationsRef, map2dViewRef, map2dToggleRef, locateRequestRef, travelFeedback = null, travelRequesting = false, onCancelTravel, propsConfigVersion = 0, roomPortals = [], roomLayout: fullRoomLayout, personalDeskZone = null, onReturnToDesk, currentPrivateZoneId = null, inboundAudioMuted = false, appPaused = false, idleAnimationsEnabled = true, powerSaverEnabled = false, ghostSessionIds = new Set<string>(), mapEditMode = false, spawnPlacementMode = false, onMoveSpawnPoint, zoneDrawing = false, onZoneAreaDrawn, onSelectDeskZone, onSelectMapZone, selectedMapZoneId = null, lockedZoneIds = [], onClaimDeskZone, canClaimDesk = true, deskClaimingZoneId = null, buildMode = false, buildTool = "select", selectedAsset = null, onPlaceProp, onPlacementComplete, onMoveProp, onRotateProp, onDeleteProp, onSelectMapItem, selectedMapItemId = null, onDrawPrivateZone, onAutoMove, onSelectPlayer, onGhostModeChange, onBlasterShot, onWeaponEquip, blasterEventsRef, jumpStartedAtRef, onJump, onVehicleInteract, canEditMap = false, mapEditorUsername = null, mapEditLockPending = false, onEditMap, onReserveMeetingRoom, onModifyProps, onMapViewChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const currentPrivateZoneIdRef = useRef(currentPrivateZoneId);
+  currentPrivateZoneIdRef.current = currentPrivateZoneId;
   // The scene is rebuilt only when this structure changes. Adding, moving or removing
   // an ordinary prop is applied in place by `propSyncRef`, so the renderer, camera and
   // avatars keep running for everyone else in the office.
@@ -850,6 +855,17 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
   const appPausedRef = useRef(appPaused);
   appPausedRef.current = appPaused;
   const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const powerSaverRef = useRef(powerSaverEnabled);
+  powerSaverRef.current = powerSaverEnabled;
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const quality = renderQualitySettings(window.devicePixelRatio, powerSaverEnabled);
+    renderer.setPixelRatio(quality.pixelRatio);
+    renderer.shadowMap.enabled = quality.shadows;
+    renderer.shadowMap.needsUpdate = true;
+  }, [powerSaverEnabled]);
   const webglCreationFailedRef = useRef(webglFailedInThisTab());
   const idleAnimationsEnabledRef = useRef(idleAnimationsEnabled);
   idleAnimationsEnabledRef.current = idleAnimationsEnabled;
@@ -1065,8 +1081,10 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       return showMap2dFallback();
     }
     setWebglUnavailable(false);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
-    renderer.shadowMap.enabled = true;
+    rendererRef.current = renderer;
+    const quality = renderQualitySettings(window.devicePixelRatio, powerSaverRef.current);
+    renderer.setPixelRatio(quality.pixelRatio);
+    renderer.shadowMap.enabled = quality.shadows;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     const onWebglContextLost = (event: Event) => {
       event.preventDefault();
@@ -3636,7 +3654,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       camera.updateMatrixWorld(true);
       const roofZones = coveredZones(roomLayout?.zones ?? [], localPlayerState, editing);
       propModelVisibility.update(now, editing, localPlayerState, propVisibilityFocus(visiblePose.position, visiblePose.lookAt),
-        roadsideScenery, deferredPropModelLoads, distanceCulledPropVisuals, roofZones, mapOffset, buildModeRef.current && !mapEditModeRef.current, roomLayout?.zones ?? []);
+        roadsideScenery, deferredPropModelLoads, distanceCulledPropVisuals, roofZones, mapOffset, buildModeRef.current && !mapEditModeRef.current, roomLayout?.zones ?? [], currentPrivateZoneIdRef.current);
       for (const parked of parkedVehicleGroups.values()) parked.visible &&= !isCoveredPosition({ x: parked.position.x - mapOffset.x, z: parked.position.z - mapOffset.z }, roofZones);
       previousCameraPose = pose;
       previousCameraMode = frame.mode;
@@ -3990,6 +4008,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       scene.clear();
       deskClaimLayer.remove();
       renderer.domElement.remove();
+      if (rendererRef.current === renderer) rendererRef.current = null;
     };
   }, [playersRef, localSessionIdRef, cameraYawRef, firstPersonViewRef, activeRoomKey, roomLayout, webglUnavailable]);
 
@@ -4021,6 +4040,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         onToggleWeaponInventory={() => { setWeaponInventoryOpen((open) => !open); if (!weaponInventoryOpen && document.pointerLockElement) document.exitPointerLock(); }}
         toggleCameraView={toggleCameraView} dispatchCamera={dispatchCamera}
         onGoToDesk={() => { setActiveFloatingGroup(null); onReturnToDesk?.(); }}
+        onReserveMeetingRoom={onReserveMeetingRoom}
         tppZoomMaxDistanceM={tppZoomMaxDistanceM}
       />}
       {campusOverview && firstPersonView && !buildMode && <span className="camera-aim-reticle" aria-hidden="true" />}

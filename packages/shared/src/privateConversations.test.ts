@@ -22,7 +22,7 @@ test("availability and actor lease extensions are optional and strictly typed", 
 });
 test("access snapshot does not accept malformed capabilities or unbounded request queues", () => {
   const capabilities = {lock:false,unlock:false,knock:true,cancelKnock:false,admit:false,revoke:false,retryMedia:false};
-  const snapshot = {officeId:"office",roomIncarnationId:"room",zoneId:"zone",revision:1,locked:true,transportState:"ready",access:"blocked",leaseExpiresAtMs:null,capabilities,ownKnock:null,pendingKnocks:[],revocableGuests:[]};
+  const snapshot = {officeId:"office",roomIncarnationId:"room",zoneId:"zone",revision:1,locked:true,lockReason:null,transportState:"ready",access:"blocked",leaseExpiresAtMs:null,capabilities,ownKnock:null,pendingKnocks:[],revocableGuests:[]};
   assert.equal(isValidPrivateZoneAccessSnapshot(snapshot),true);
   assert.equal(isValidPrivateZoneAccessSnapshot({...snapshot,capabilities:{...capabilities,admit:"yes"}}),false);
   assert.equal(isValidPrivateZoneAccessSnapshot({...snapshot,pendingKnocks:[{id:"bad"}]}),false);

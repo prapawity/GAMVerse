@@ -1,0 +1,29 @@
+.maintainer-workspace-heading { display: grid; gap: 5px; margin: 8px 0 24px; }
+.maintainer-workspace-heading h1 { margin: 0; color: var(--color-ink, #252742); font: 750 clamp(26px, 3vw, 34px)/1.12 "Manrope", sans-serif; letter-spacing: -.04em; }
+.maintainer-workspace-heading p { margin: 0; color: var(--color-muted, #59617b); font-size: 14px; line-height: 1.55; }
+.maintainer-workspace-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px; padding: 5px; border-bottom: 1px solid var(--color-border, #c8cee5); }
+.maintainer-workspace-nav a { display: inline-flex; min-height: 42px; align-items: center; padding: 0 14px; border-radius: 10px 10px 0 0; color: var(--color-muted, #59617b); font-size: 13px; font-weight: 650; text-decoration: none; transition: color 160ms ease, background-color 160ms ease; }
+.maintainer-workspace-nav a:hover { background: color-mix(in srgb, var(--color-primary, #5b52d6) 8%, transparent); color: var(--color-ink, #252742); }
+.maintainer-workspace-nav a[aria-current="page"] { position: relative; background: color-mix(in srgb, var(--color-primary, #5b52d6) 11%, transparent); color: var(--color-primary, #5b52d6); }
+.maintainer-workspace-nav a[aria-current="page"]::after { position: absolute; right: 10px; bottom: -6px; left: 10px; height: 2px; border-radius: 2px; background: var(--color-primary, #5b52d6); content: ""; }
+.maintainer-workspace-nav a:focus-visible { outline: 3px solid var(--color-focus, #5b52d6); outline-offset: 2px; }
+.maintainer-workspace-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.maintainer-workspace-shortcut { display: flex; min-height: 90px; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--color-border, #c8cee5); border-radius: 14px; background: var(--color-surface, #f8f8fe); color: var(--color-ink, #252742); text-decoration: none; transition: border-color 160ms ease, transform 160ms ease; }
+.maintainer-workspace-shortcut:hover { transform: translateY(-1px); border-color: var(--color-primary, #5b52d6); }
+.maintainer-workspace-shortcut > span:first-child { display: grid; gap: 5px; }
+.maintainer-workspace-shortcut strong { font-size: 14px; }
+.maintainer-workspace-shortcut small { color: var(--color-muted, #59617b); font-size: 12px; }
+.maintainer-workspace-shortcut > span:last-child { color: var(--color-primary, #5b52d6); font-size: 22px; }
+.maintainer-offices-actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 0 0 16px; }
+.maintainer-offices-actions p { margin: 0; color: var(--color-muted, #59617b); font-size: 13px; line-height: 1.5; }
+@media (max-width: 640px) {
+  .maintainer-workspace-heading { margin-bottom: 18px; }
+  .maintainer-workspace-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .maintainer-workspace-nav a { justify-content: center; padding-inline: 7px; border-radius: 8px; font-size: 12px; }
+  .maintainer-workspace-nav a[aria-current="page"]::after { display: none; }
+  .maintainer-workspace-shortcuts { grid-template-columns: 1fr; }
+  .maintainer-offices-actions { align-items: stretch; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maintainer-workspace-nav a, .maintainer-workspace-shortcut { transition-duration: .01ms; }
+}

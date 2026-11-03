@@ -5,6 +5,7 @@ import { registerDeskAssignmentEndpoints } from "../http/deskAssignmentEndpoints
 import { lobbyPageEndpoint } from "../http/lobbyEndpoints.js";
 import { requestRealtimeControl } from "../infra/realtimeControl.js";
 import { registerDeskEndpoints } from "../http/deskEndpoints.js";
+import { registerMeetingReservationEndpoints } from "../http/meetingReservationEndpoints.js";
 import { chatHistoryEndpoint } from "./chatHistoryEndpoint.js";
 import { accountRoleEndpoint } from "./accountRoleEndpoint.js";
 import { accountSuspensionEndpoint } from "./accountSuspensionEndpoint.js";
@@ -15,12 +16,13 @@ import { changeAccountPassword, completePasswordReset, createPasswordResetLink, 
 import { deleteUserCharacterModel, getCharacterModel, listUserCharacterModels, uploadUserCharacterModel } from "../auth/characterModels.js";
 import { database, databaseIsReady, initializeDatabase } from "../infra/db.js";
 import { listMaintainerAuditEvents } from "../infra/audit.js";
+import { readPlatformFeatureFlags, setPlatformFeatureFlag } from "../infra/platformFeatures.js";
 import { getRecentServerErrorCount, logServerError, logServerEvent } from "../infra/logger.js";
 import { getPlatformOperationsCounts } from "../infra/operations.js";
 import { listOfficeActivity, startOfficeActivityCleanup } from "../offices/activity.js";
 import { MAX_OFFICE_MAP_REQUEST_BYTES, MAX_OFFICE_PROPS_REQUEST_BYTES } from "../offices/limits.js";
 import { createWriteRateLimiter } from "../http/writeRateLimit.js";
-import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, applyOfficePropOps, getOfficeProps, getOfficeRole, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
+import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, applyOfficePropOps, getOfficeProps, getOfficeRole, isOfficeMapInitialized, isOfficePropsInitialized, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
 import { errorMessage, jsonBodyParser, originGuard, requestSession, sessionFromCookie, type HttpRequest as AuthRequest, type HttpResponse as AuthResponse, type Next } from "../http/middleware.js";
 
 // Props saves hold a row lock and re-validate every prop, so cap how fast one person can send them.
@@ -223,6 +225,28 @@ function configureApi() {
           },
         });
       });
+      app.get("/offices/platform-features", async (request: AuthRequest, response: AuthResponse) => {
+        const session = await requestSession(request);
+        if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        response.setHeader("Cache-Control", "no-store");
+        try { response.json(await readPlatformFeatureFlags()); }
+        catch { response.status(503).json({ error: "Could not load platform features." }); }
+      });
+      app.patch("/maintainer/features/:feature", async (request: AuthRequest, response: AuthResponse) => {
+        const session = await requestSession(request);
+        if (!session || session.role !== "maintainer") { response.status(403).json({ error: "Maintainer access required." }); return; }
+        const feature = request.params.feature;
+        const key = feature === "map-editing" ? "mapEditing" : feature === "prop-editing" ? "propEditing" : null;
+        if (!key || typeof request.body?.enabled !== "boolean") { response.status(400).json({ error: "A valid feature and enabled value are required." }); return; }
+        try {
+          const flags = await setPlatformFeatureFlag(key, request.body.enabled);
+          try { await notifyRealtime("platform/features", { mapEditing: String(flags.mapEditing), propEditing: String(flags.propEditing) }); }
+          catch (error) { logServerError("api", "maintainer.feature.broadcast.failed", error, { feature }); }
+          logServerEvent("api", "maintainer.feature.updated", { actor: session.username, feature, enabled: request.body.enabled });
+          response.setHeader("Cache-Control", "no-store");
+          response.json(flags);
+        } catch { response.status(503).json({ error: "Could not update platform feature." }); }
+      });
       app.post("/maintainer/users/:username/password-reset", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session || session.role !== "maintainer") { response.status(403).json({ error: "Maintainer access required." }); return; }
@@ -402,6 +426,8 @@ function configureApi() {
       app.post("/offices/:officeId/props/ops", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        try { if (!(await readPlatformFeatureFlags()).propEditing) { response.status(423).json({ error: "Prop editing is disabled platform-wide." }); return; } }
+        catch { response.status(503).json({ error: "Could not verify platform feature settings." }); return; }
         const retryAfter = propWriteLimiter.check(session.username);
         if (retryAfter > 0) { response.setHeader("Retry-After", String(retryAfter)); response.status(429).json({ error: "You are saving too quickly. Try again in a moment." }); return; }
         try {
@@ -436,6 +462,12 @@ function configureApi() {
       app.put("/offices/:officeId/props", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        try {
+          const flags = await readPlatformFeatureFlags();
+          const starterProps = request.body?.configVersion === 1 && !(await isOfficePropsInitialized(request.params.officeId));
+          if (!flags.propEditing && !starterProps) { response.status(423).json({ error: "Prop editing is disabled platform-wide." }); return; }
+        }
+        catch { response.status(503).json({ error: "Could not verify platform feature settings." }); return; }
         const retryAfter = propWriteLimiter.check(session.username);
         if (retryAfter > 0) { response.setHeader("Retry-After", String(retryAfter)); response.status(429).json({ error: "You are saving too quickly. Try again in a moment." }); return; }
         try {
@@ -482,6 +514,7 @@ function configureApi() {
       });
       registerDeskAssignmentEndpoints(app);
       registerDeskEndpoints(app, officeId => notifyRealtime("offices/map", { officeId }));
+      registerMeetingReservationEndpoints(app);
       app.post("/offices/:officeId/desk-zones/:zoneId/claim", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
@@ -519,6 +552,12 @@ function configureApi() {
       app.put("/offices/:officeId/map", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+        try {
+          const flags = await readPlatformFeatureFlags();
+          const starterMap = request.body?.configVersion === 1 && !(await isOfficeMapInitialized(request.params.officeId));
+          if (!flags.mapEditing && !starterMap) { response.status(423).json({ error: "Map editing is disabled platform-wide." }); return; }
+        }
+        catch { response.status(503).json({ error: "Could not verify platform feature settings." }); return; }
         try {
           const result = await saveOfficeMapLayout(session.username, session.role === "maintainer", request.params.officeId, request.body);
           await notifyRealtime("offices/map", { officeId: request.params.officeId });
@@ -598,7 +637,7 @@ async function startApi() {
   server.listen(port, "0.0.0.0", () => logServerEvent("api", "service.listening", { port, nodeEnv: process.env.NODE_ENV ?? "development" }));
 }
 
-async function notifyRealtime(action: string, body: Record<string, string>): Promise<void> {
+async function notifyRealtime(action: string, body: Record<string, unknown>): Promise<void> {
   await requestRealtimeControl(action, body);
 }
 

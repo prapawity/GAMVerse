@@ -1,4 +1,5 @@
 import type { RoomLayoutProp, RoomPropDefinition, RoomPropEditorRole } from "./roomPropTypes.js";
+import { formatTemplateRoadways } from "./templateRoadwayFormat.js";
 import { readRoomLayoutProps, roomPropBlockFootprint } from "./roomLayoutProps.js";
 import { EXTERNAL_ROOM_PROP_CATALOG, EXTERNAL_WALL_ASSET_IDS } from "./externalRoomProps.js";
 import { NATURE_ROOM_PROP_CATALOG } from "./natureRoomProps.js";
@@ -1132,5 +1133,6 @@ export function readRoomLayout(config: unknown): RoomLayout {
     if (typeof road.id !== "string" || ![road.x, road.z, road.width, road.depth].every(Number.isFinite) || Number(road.width) < 1 || Number(road.depth) < 1) return [];
     return [{ id: road.id, x: Number(road.x), z: Number(road.z), width: Number(road.width), depth: Number(road.depth), kind: road.kind === "small" ? "small" as const : "major" as const }];
   }).slice(0, 500) : [];
-  return { version: 1, props, zones, walls, doors, ...(roadways.length ? { roadways } : {}), ...(dimensions ? { dimensions } : {}), ...(spawnPoint ? { spawnPoint } : {}) };
+  const formattedRoadways = formatTemplateRoadways(roadways);
+  return { version: 1, props, zones, walls, doors, ...(formattedRoadways.length ? { roadways: formattedRoadways } : {}), ...(dimensions ? { dimensions } : {}), ...(spawnPoint ? { spawnPoint } : {}) };
 }

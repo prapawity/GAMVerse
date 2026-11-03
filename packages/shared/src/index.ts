@@ -597,6 +597,8 @@ export function isValidMovementInput(value: unknown): value is MovementInput {
 }
 
 export { normalizeAccountUsername } from "./accountUsername.js";
+export { isCreateMeetingReservation, MEETING_RESERVATION_MAX_AHEAD_MS, MEETING_RESERVATION_MIN_DURATION_MS, MEETING_RESERVATION_MAX_DURATION_MS, MEETING_RESERVATION_MAX_TITLE_CHARS, MEETING_RESERVATION_MAX_ATTENDEES, type CreateMeetingReservation } from "./meetingReservations.js";
+export { countMeetingRoomSeats, countMeetingRoomSeatsFromConfig } from "./meetingRoomCapacity.js";
 
 export * from "./desks.js";
 

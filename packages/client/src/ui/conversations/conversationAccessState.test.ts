@@ -7,7 +7,7 @@ import type { ConversationTransport } from "../media/conversationState";
 const NOW_MS = 1_000;
 const EXPIRES_AT_MS = 2_000;
 const KNOCK = { id: "knock", username: "requester", sessionId: "requester-session", displayName: "Requester", createdAtMs: NOW_MS, expiresAtMs: EXPIRES_AT_MS, state: "pending" as const };
-const SNAPSHOT: PrivateZoneAccessSnapshot = { officeId: "office", roomIncarnationId: "incarnation", zoneId: "zone", revision: 1, locked: true, transportState: "ready", access: "blocked", leaseExpiresAtMs: null,
+const SNAPSHOT: PrivateZoneAccessSnapshot = { officeId: "office", roomIncarnationId: "incarnation", zoneId: "zone", revision: 1, locked: true, lockReason: null, transportState: "ready", access: "blocked", leaseExpiresAtMs: null,
   capabilities: { lock: false, unlock: false, knock: false, cancelKnock: true, admit: false, revoke: false, retryMedia: false }, ownKnock: KNOCK, pendingKnocks: [], revocableGuests: [] };
 const MODERATOR: PrivateZoneAccessSnapshot = { ...SNAPSHOT, access: "admitted", capabilities: { ...SNAPSHOT.capabilities, unlock: true, admit: true, revoke: true }, ownKnock: null, pendingKnocks: [KNOCK],
   revocableGuests: [{ sessionId: "guest", username: "guest", displayName: "Guest", expiresAtMs: EXPIRES_AT_MS }] };

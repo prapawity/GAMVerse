@@ -1,0 +1,27 @@
+.meeting-recording-control { position: relative; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.meeting-recording-button { position: relative; display: grid; place-items: center; flex: 0 0 38px; width: 38px; min-width: 38px; height: 38px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--workspace-muted); cursor: pointer; }
+.meeting-recording-button:hover { border-color: var(--workspace-accent); background: var(--workspace-hover); }
+.meeting-recording-button.is-recording { color: #a92d48; }
+.meeting-recording-button:disabled { opacity: .48; cursor: not-allowed; }
+.meeting-recording-button > i,.meeting-recording-live i { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #df4058; box-shadow: 0 0 0 3px color-mix(in srgb, #df4058 14%, transparent); }
+.meeting-recording-live { position: relative; display: grid; place-items: center; min-width: 36px; height: 36px; color: #a92d48; font-size: 8px; font-weight: 900; letter-spacing: .04em; }
+.meeting-recording-live.is-waiting { color: var(--workspace-muted); }
+.meeting-recording-live.is-waiting i { background: #e6a23c; }
+.meeting-recording-message { position: absolute; right: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(280px, calc(100vw - 32px)); padding: 8px 10px; border: 1px solid var(--workspace-edge); border-radius: 9px; background: var(--workspace-surface); color: var(--workspace-muted); box-shadow: 0 8px 24px rgb(13 11 32 / 18%); font-size: 10px; line-height: 1.4; }
+.meeting-recording-message.is-error { color: var(--workspace-danger); }
+.meeting-recording-dialog { width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--workspace-edge); border-radius: 20px; background: var(--workspace-surface); color: var(--workspace-ink); box-shadow: 0 24px 80px rgb(13 11 32 / 30%); }
+.meeting-recording-dialog::backdrop { background: rgb(10 8 26 / 56%); backdrop-filter: blur(5px); }
+.meeting-recording-dialog header { display: grid; gap: 8px; }
+.meeting-recording-dialog .eyebrow { color: var(--workspace-accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.meeting-recording-dialog h2 { margin: 0; font-size: 20px; line-height: 1.2; }
+.meeting-recording-dialog header p,.meeting-recording-disclosure p { margin: 0; color: var(--workspace-muted); font-size: 12px; line-height: 1.55; }
+.meeting-recording-disclosure { display: grid; gap: 6px; margin: 18px 0; padding: 14px; border: 1px solid var(--workspace-edge); border-radius: 12px; background: var(--workspace-subtle); font-size: 12px; }
+.meeting-recording-dialog footer { display: flex; justify-content: flex-end; gap: 9px; }
+.meeting-recording-dialog .workspace-button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--workspace-edge); border-radius: 10px; background: var(--workspace-subtle); color: var(--workspace-ink); font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease; }
+.meeting-recording-dialog .workspace-button:hover { border-color: color-mix(in srgb, var(--workspace-accent) 54%, var(--workspace-edge)); background: var(--workspace-hover); }
+.meeting-recording-dialog .workspace-button:active { transform: translateY(1px); }
+.meeting-recording-dialog .workspace-button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
+.meeting-recording-dialog .workspace-button.primary { border-color: transparent; background: var(--workspace-accent); color: #fff; }
+.meeting-recording-dialog .workspace-button.primary:hover { background: color-mix(in srgb, var(--workspace-accent) 84%, #17102d); }
+.meeting-recording-dialog footer { align-items: center; }
+@media (max-width: 560px) { .meeting-recording-message { max-width: min(230px, calc(100vw - 32px)); } }

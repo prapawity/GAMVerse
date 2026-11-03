@@ -278,6 +278,20 @@ export async function createOffice(username: string, nameValue: unknown): Promis
   return { id: office.id, name: office.name, ownerUsername: office.owner_username, role: "owner" };
 }
 
+/** New offices have no stored map until their generated starter layout is saved. */
+export async function isOfficeMapInitialized(officeId: string): Promise<boolean> {
+  if (!database) throw new Error("Office maps require PostgreSQL.");
+  const result = await database.query("SELECT 1 FROM app_office_map_layouts WHERE office_id = $1", [officeId]);
+  return result.rows.length > 0;
+}
+
+/** New offices have no props row until their generated starter props are saved. */
+export async function isOfficePropsInitialized(officeId: string): Promise<boolean> {
+  if (!database) throw new Error("Office props require PostgreSQL.");
+  const result = await database.query("SELECT 1 FROM app_office_props WHERE office_id = $1", [officeId]);
+  return result.rows.length > 0;
+}
+
 export async function markOfficeActive(officeId: string, now = Date.now()) {
   if (!database) return;
   if (now - (officeActivityWriteAt.get(officeId) ?? 0) < activityWriteIntervalMs) return;
@@ -381,6 +395,12 @@ export async function saveOfficeMapLayout(actor: string, isMaintainer: boolean, 
     }
   }
   if (raw.roadways !== undefined && (!Array.isArray(raw.roadways) || raw.roadways.length > 500)) throw new Error("Map roadways limit exceeded.");
+  const rawRoadways = Array.isArray(raw.roadways) ? raw.roadways : [];
+  if (rawRoadways.some((item) => typeof item !== "object" || item === null || typeof (item as Record<string, unknown>).id !== "string"
+      || ![(item as Record<string, unknown>).x, (item as Record<string, unknown>).z, (item as Record<string, unknown>).width, (item as Record<string, unknown>).depth].every(Number.isFinite)
+      || Number((item as Record<string, unknown>).width) < 1 || Number((item as Record<string, unknown>).depth) < 1)) {
+    throw new Error("Map contains unsupported or malformed roadways.");
+  }
   const wallInputs = Array.isArray(raw.walls) ? raw.walls : [];
   if (wallInputs.some((item) => typeof item === "object" && item !== null && "asset" in item && !ROOM_WALL_MODEL_ASSETS.some((asset) => asset === item.asset))) throw new Error("This wall model is not supported.");
   if (wallInputs.some((item) => typeof item === "object" && item !== null && "color" in item && (typeof item.color !== "string" || !/^#[0-9a-f]{6}$/i.test(item.color)))) throw new Error("Wall color must be a hex color.");
@@ -394,8 +414,7 @@ export async function saveOfficeMapLayout(actor: string, isMaintainer: boolean, 
   const config = { version: 1, layout };
   if (layout.zones.length !== (Array.isArray(raw.zones) ? raw.zones.length : 0) ||
       layout.walls.length !== (Array.isArray(raw.walls) ? raw.walls.length : 0) ||
-      layout.doors.length !== (Array.isArray(raw.doors) ? raw.doors.length : 0) ||
-      (layout.roadways?.length ?? 0) !== (Array.isArray(raw.roadways) ? raw.roadways.length : 0)) {
+      layout.doors.length !== (Array.isArray(raw.doors) ? raw.doors.length : 0)) {
     throw new Error("Map contains unsupported or malformed items.");
   }
   if (raw.spawnPoint !== undefined && !layout.spawnPoint) throw new Error("Spawn point is invalid.");

@@ -6,6 +6,9 @@
 .conversation-access-panel button { align-self: flex-start; border: 1px solid var(--workspace-edge); border-radius: 7px; padding: 8px 10px; background: var(--workspace-subtle); color: inherit; font: inherit; cursor: pointer; }
 .conversation-access-panel button:disabled { opacity: .55; cursor: default; }
 .conversation-access-panel :focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+.private-lock-reason-field { display: grid; flex: 1 1 100%; gap: 5px; color: var(--workspace-muted); font-size: 11px; }
+.private-lock-reason-field input { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--workspace-edge); border-radius: 7px; background: var(--workspace-surface); color: var(--workspace-ink); font: inherit; }
+.private-lock-reason { padding: 8px 10px; border-left: 3px solid var(--workspace-accent); border-radius: 0 7px 7px 0; background: var(--workspace-subtle); }
 .conversation-access-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .private-knock-queue ul, .private-guest-list ul { display: flex; flex-direction: column; gap: 8px; padding: 0; list-style: none; }
 .private-knock-queue li, .private-guest-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px; border: 1px solid var(--workspace-edge); border-radius: 8px; overflow-wrap: anywhere; }

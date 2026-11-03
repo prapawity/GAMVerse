@@ -20,6 +20,7 @@ type Overview = {
   recentErrors?: { count?: number | null; windowMinutes?: number | null; complete?: boolean | null } | null;
 };
 type OverviewResponse = Overview & { error?: string };
+type FeatureFlags = { mapEditing: boolean; propEditing: boolean };
 
 function availableCount(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value.toLocaleString() : "Unavailable";
@@ -50,12 +51,15 @@ async function fetchOverview(endpoint: string, signal: AbortSignal) {
   return result;
 }
 
-export function MaintainerSystemPanel({ endpoint }: { endpoint: string }) {
+export function MaintainerSystemPanel({ endpoint, view = "overview" }: { endpoint: string; view?: "overview" | "platform" }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [features, setFeatures] = useState<FeatureFlags | null>(null);
+  const [featureError, setFeatureError] = useState<string | null>(null);
+  const [savingFeature, setSavingFeature] = useState<string | null>(null);
   const inFlightRef = useRef(false);
   const mountedRef = useRef(false);
 
@@ -84,6 +88,7 @@ export function MaintainerSystemPanel({ endpoint }: { endpoint: string }) {
   }, [endpoint]);
 
   useEffect(() => {
+    if (view !== "overview") return;
     mountedRef.current = true;
     const controller = new AbortController();
     void refresh(controller.signal, true);
@@ -94,7 +99,7 @@ export function MaintainerSystemPanel({ endpoint }: { endpoint: string }) {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, view]);
 
   const services = overview?.services;
   const counts = overview?.counts;
@@ -110,37 +115,63 @@ export function MaintainerSystemPanel({ endpoint }: { endpoint: string }) {
     { label: "Active offices", value: counts?.activeOffices },
     { label: "Office activity · 24h", value: counts?.officeActivity24h },
   ];
+  const refreshFeatures = useCallback(async () => {
+    try {
+      const response = await fetch(`${endpoint}/offices/platform-features`, { credentials: "include", cache: "no-store" });
+      const result = await response.json() as FeatureFlags & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not load feature switches.");
+      setFeatures(result);
+      setFeatureError(null);
+    } catch (cause) { setFeatureError(cause instanceof Error ? cause.message : "Could not load feature switches."); }
+  }, [endpoint]);
+  useEffect(() => { if (view === "platform") void refreshFeatures(); }, [refreshFeatures, view]);
+  const toggleFeature = async (feature: "mapEditing" | "propEditing") => {
+    if (!features || savingFeature) return;
+    const featurePath = feature === "mapEditing" ? "map-editing" : "prop-editing";
+    setSavingFeature(feature);
+    setFeatureError(null);
+    try {
+      const currentResponse = await fetch(`${endpoint}/offices/platform-features`, { credentials: "include", cache: "no-store" });
+      const current = await currentResponse.json() as FeatureFlags & { error?: string };
+      if (!currentResponse.ok) throw new Error(current.error ?? "Could not check the current feature setting.");
+      const response = await fetch(`${endpoint}/maintainer/features/${featurePath}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !current[feature] }) });
+      const result = await response.json() as FeatureFlags & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not update feature.");
+      setFeatures(result);
+    } catch (cause) { setFeatureError(cause instanceof Error ? cause.message : "Could not update feature."); }
+    finally { setSavingFeature(null); }
+  };
 
   return <section className="lobby-panel maintainer-system-panel" aria-labelledby="maintainer-system-title">
-    <div className="card-heading">
-      <div><span className="eyebrow">OPERATIONS</span><h2 id="maintainer-system-title">System overview</h2></div>
-      <div className="maintainer-system-refresh-meta">
-        <span>{refreshing ? "Refreshing…" : `Updated ${formatTimestamp(lastUpdated)}`}</span>
-        <button type="button" className="lobby-button quiet" disabled={loading || refreshing} onClick={() => void refresh(undefined, !overview)}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+    {view === "overview" ? <>
+      <div className="card-heading">
+        <div><span className="eyebrow">OPERATIONS</span><h2 id="maintainer-system-title">Service health</h2></div>
+        <div className="maintainer-system-refresh-meta">
+          <span>{refreshing ? "Refreshing…" : `Updated ${formatTimestamp(lastUpdated)}`}</span>
+          <button type="button" className="lobby-button quiet" disabled={loading || refreshing} onClick={() => void refresh(undefined, !overview)}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+        </div>
       </div>
-    </div>
-    {error && <div className="maintainer-system-error" role="alert"><span>{error}</span><button type="button" className="lobby-button quiet" disabled={refreshing} onClick={() => void refresh(undefined, !overview)}>Retry</button></div>}
-    {loading && !overview ? <p className="empty-people" role="status">Loading system status…</p> : <>
-      <div className="maintainer-system-services" aria-label="Service health">
-        {serviceCards.map((service) => <article className="maintainer-system-card" key={service.key} aria-label={`${service.title} service status`}>
-          <span className="eyebrow">{service.title}</span>
-          <span className={`maintainer-system-status is-${statusTone(service.status)}`} role="status"><i aria-hidden="true" />{statusLabel(service.status)}</span>
-          {service.key === "realtime" && <div className="maintainer-system-service-details">
-            <span><strong>{availableCount(service.rooms)}</strong> active rooms</span>
-            <span><strong>{availableCount(service.participants)}</strong> participants</span>
-          </div>}
-        </article>)}
-      </div>
-      <div className="maintainer-system-counts" aria-label="Platform counts">
-        {countCards.map((item) => <article className="maintainer-system-count" key={item.label}>
-          <span>{item.label}</span><strong>{availableCount(item.value)}</strong>
-        </article>)}
-        <article className="maintainer-system-count">
-          <span>Server errors · {availableCount(overview?.recentErrors?.windowMinutes)} min</span>
-          <strong>{overview?.recentErrors?.complete === false ? `Partial · ${availableCount(overview?.recentErrors?.count)}` : availableCount(overview?.recentErrors?.count)}</strong>
-        </article>
-      </div>
-      {!overview && !error && <p className="empty-people">System status has not been returned yet.</p>}
+      {error && <div className="maintainer-system-error" role="alert"><span>{error}</span><button type="button" className="lobby-button quiet" disabled={refreshing} onClick={() => void refresh(undefined, !overview)}>Retry</button></div>}
+      {loading && !overview ? <p className="empty-people" role="status">Loading system status…</p> : <>
+        <div className="maintainer-system-services" aria-label="Service health">
+          {serviceCards.map((service) => <article className="maintainer-system-card" key={service.key} aria-label={`${service.title} service status`}>
+            <span className="eyebrow">{service.title}</span>
+            <span className={`maintainer-system-status is-${statusTone(service.status)}`} role="status"><i aria-hidden="true" />{statusLabel(service.status)}</span>
+            {service.key === "realtime" && <div className="maintainer-system-service-details"><span><strong>{availableCount(service.rooms)}</strong> active rooms</span><span><strong>{availableCount(service.participants)}</strong> participants</span></div>}
+          </article>)}
+        </div>
+        <div className="maintainer-system-counts" aria-label="Platform counts">
+          {countCards.map((item) => <article className="maintainer-system-count" key={item.label}><span>{item.label}</span><strong>{availableCount(item.value)}</strong></article>)}
+          <article className="maintainer-system-count"><span>Server errors · {availableCount(overview?.recentErrors?.windowMinutes)} min</span><strong>{overview?.recentErrors?.complete === false ? `Partial · ${availableCount(overview?.recentErrors?.count)}` : availableCount(overview?.recentErrors?.count)}</strong></article>
+        </div>
+        {!overview && !error && <p className="empty-people">System status has not been returned yet.</p>}
+      </>}
+    </> : <>
+      <div className="card-heading"><div><span className="eyebrow">PLATFORM CONTROLS</span><h2 id="maintainer-system-title">Feature availability</h2><p>Changes take effect across offices as soon as they are saved.</p></div></div>
+      <section className="maintainer-feature-toggles" aria-label="Platform feature switches">
+        {([ ["mapEditing", "Edit map", "Allow office admins to change shared map layout."], ["propEditing", "Edit props", "Allow office members with access to place and modify props."] ] as const).map(([key, title, description]) => <div className="maintainer-feature-row" key={key}><span><strong>{title}</strong><small>{description}</small></span><button type="button" role="switch" aria-checked={features?.[key] ?? false} aria-label={`${title} ${features?.[key] ? "on" : "off"}`} disabled={!features || Boolean(savingFeature)} onClick={() => void toggleFeature(key)}>{savingFeature === key ? "Saving…" : features?.[key] ? "On" : "Off"}</button></div>)}
+        {featureError && <p className="maintainer-system-error" role="alert">{featureError}</p>}
+      </section>
     </>}
   </section>;
 }

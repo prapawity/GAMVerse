@@ -17,7 +17,7 @@ export function KnockStatusCard({ access, connected }: { access: ConversationAcc
   const expiredLease = snapshot.leaseExpiresAtMs !== null && snapshot.leaseExpiresAtMs <= access.nowMs;
   const stateLabel = expiredPending ? EXPIRED_PENDING_LABEL : own ? PRIVATE_KNOCK_STATE_LABELS[own.state] : null;
   return <section className="knock-status-card" aria-label={OWN_STATUS_LABEL}>
-    {snapshot.access === "blocked" && <p>{BLOCKED_LABEL}</p>}
+    {snapshot.access === "blocked" && <><p>{BLOCKED_LABEL}</p>{snapshot.lockReason && <p className="private-lock-reason"><strong>Access note:</strong> {snapshot.lockReason}</p>}</>}
     {stateLabel && <p role="status">{stateLabel}</p>}
     {own?.state === "pending" && !expiredPending && <small>{remainingAccessTime(own.expiresAtMs, access.nowMs, "knock")}</small>}
     {snapshot.leaseExpiresAtMs !== null && <p role={expiredLease ? "status" : undefined}>{expiredLease ? LEASE_EXPIRED_LABEL : remainingAccessTime(snapshot.leaseExpiresAtMs, access.nowMs, "guest")}</p>}

@@ -3,7 +3,7 @@ import { worldToScreen, type Map2dProjection } from "./map2dProjection";
 import { map2dHeadRadiusPx } from "./avatarPortraitGeometry";
 import type { AvatarPortraits } from "./avatarPortraits";
 import type { Map2dPlayer, Map2dAvatarVisual } from "./map2dAvatarVisual";
-import { avatarSpriteScreenRect, avatarSpriteSourceRect, avatarSpriteScale } from "./avatarSpriteGeometry";
+import { avatarSpriteScreenRect, avatarSpriteSourceRect, avatarSpriteScale, avatarFallbackScale, avatarMarkerScale } from "./avatarSpriteGeometry";
 import { drawAvatarFallback } from "./avatarSpriteFallback";
 
 const FULL_CIRCLE_RAD = Math.PI * 2;
@@ -15,6 +15,10 @@ const STATUS_DOT_RADIUS_PX = 3;
 const HAND_GLYPH = "✋";
 const HAND_OFFSET_PX = 10;
 const HAND_FONT_PX = 13;
+const AVATAR_SHADOW_COLOR = "rgba(31, 25, 57, 0.42)";
+const AVATAR_SHADOW_BLUR_MAX_PX = 2;
+const AVATAR_SHADOW_BLUR_PER_M = 0.04;
+const AVATAR_SHADOW_OFFSET_MAX_PX = 2;
 type DrawablePlayer = Map2dPlayer & { visual?: Map2dAvatarVisual };
 
 function drawRaisedHand(ctx: CanvasRenderingContext2D, xPx: number, yPx: number, radiusPx: number, scale: number): void {
@@ -34,26 +38,38 @@ export function drawMap2dAvatar(
   ctx: CanvasRenderingContext2D, p: Map2dProjection, player: DrawablePlayer,
   local: boolean, speaking: boolean, portraits: Pick<AvatarPortraits, "get"> | undefined, immersive: boolean, lying = false,
 ): void {
-  const screen = worldToScreen(p, player);
+  const screen = worldToScreen(p, player, player.renderElevationM);
   const radiusPx = map2dHeadRadiusPx(p.pxPerM);
   const sprite = portraits?.get(player.characterId);
   const visual: Map2dAvatarVisual = lying ? { motion: "lying", stridePhaseRad: 0 }
     : player.visual ?? { motion: player.sittingPropId ? "seated" : "idle", stridePhaseRad: 0 };
+  // The small full-body sprites can disappear against pale floors and busy
+  // prop textures. A restrained contact shadow keeps their silhouette legible
+  // without changing their world-sized footprint.
+  ctx.save();
+  ctx.shadowColor = AVATAR_SHADOW_COLOR;
+  ctx.shadowBlur = Math.min(AVATAR_SHADOW_BLUR_MAX_PX, Math.max(1, p.pxPerM * AVATAR_SHADOW_BLUR_PER_M));
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.min(AVATAR_SHADOW_OFFSET_MAX_PX, Math.max(1, p.pxPerM * 0.035));
   if (sprite) {
     const source = avatarSpriteSourceRect(player.rotation, visual);
     const target = avatarSpriteScreenRect(screen.x, screen.y, p.pxPerM);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(sprite, source.x, source.y, source.width, source.height, target.x,
       lying ? screen.y - target.height / 2 : target.y, target.width, target.height);
-  } else drawAvatarFallback(ctx, screen.x, screen.y, player, visual, avatarSpriteScale(p.pxPerM));
-  const notchRadiusPx = outerRingRadiusPx(radiusPx, local, speaking, avatarSpriteScale(p.pxPerM));
-  if (immersive) drawFacing(ctx, screen.x, screen.y, notchRadiusPx, player.rotation, avatarSpriteScale(p.pxPerM));
+  } else drawAvatarFallback(ctx, screen.x, screen.y, player, visual, avatarFallbackScale(p.pxPerM));
+  ctx.restore();
+  const markerScale = avatarMarkerScale(p.pxPerM);
+  const notchRadiusPx = outerRingRadiusPx(radiusPx, local, speaking, markerScale);
+  if (immersive) drawFacing(ctx, screen.x, screen.y, notchRadiusPx, player.rotation, markerScale);
 }
 /** Indicators form a separate pass so later portraits cannot cover active participants. */
 export function drawMap2dAvatarIndicators(ctx: CanvasRenderingContext2D, p: Map2dProjection,
   player: Map2dPlayer, local: boolean, speaking: boolean): void {
-  const screen = worldToScreen(p, player);
+  const screen = worldToScreen(p, player, player.renderElevationM);
   const radiusPx = map2dHeadRadiusPx(p.pxPerM);
-  const scale = avatarSpriteScale(p.pxPerM);
+  const scale = avatarMarkerScale(p.pxPerM);
   if (local) drawPlayerRing(ctx, screen.x, screen.y, radiusPx + AVATAR_RING_GAP_PX * scale, MAP2D_COLORS.local, scale);
   if (speaking) drawPlayerRing(ctx, screen.x, screen.y, radiusPx + AVATAR_RING_GAP_PX * 2 * scale, MAP2D_COLORS.speaking, scale);
   ctx.beginPath();

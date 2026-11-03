@@ -3,7 +3,7 @@ import { advanceMap2dAvatarVisual, createMap2dAvatarVisual, type Map2dPlayer, ty
 
 function sameMetadata(current: Map2dPlayer, target: Map2dPlayer): boolean {
   return current.displayName === target.displayName && current.username === target.username && current.isMaintainer === target.isMaintainer &&
-    current.status === target.status && current.handRaised === target.handRaised && current.characterId === target.characterId && current.sittingPropId === target.sittingPropId &&
+    current.status === target.status && current.handRaised === target.handRaised && current.characterId === target.characterId && current.petId === target.petId && current.sittingPropId === target.sittingPropId &&
     current.vehicleId === target.vehicleId && current.vehiclePropId === target.vehiclePropId && current.vehiclePropX === target.vehiclePropX &&
     current.vehiclePropZ === target.vehiclePropZ && current.vehiclePropRotation === target.vehiclePropRotation;
 }
@@ -14,6 +14,7 @@ function writeMetadata(current: Map2dPlayer, target: Map2dPlayer): void {
   current.status = target.status;
   current.handRaised = target.handRaised;
   current.characterId = target.characterId;
+  current.petId = target.petId;
   current.sittingPropId = target.sittingPropId;
   current.vehicleId = target.vehicleId;
   current.vehiclePropId = target.vehiclePropId;

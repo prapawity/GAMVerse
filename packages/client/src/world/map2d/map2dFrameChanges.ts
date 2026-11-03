@@ -3,6 +3,7 @@ import type { Map2dDecoration } from "./map2dDynamicLayer";
 import type { Map2dPoint, Map2dProjection } from "./map2dProjection";
 
 import type { Map2dPresentation } from "./map2dPresentation";
+import type { DomeEntry } from "../proximityGroupShape";
 
 type FrameInputs = {
   presentation?: Map2dPresentation;
@@ -17,6 +18,7 @@ type FrameInputs = {
   speaking: ReadonlySet<string>;
   decorations: readonly Map2dDecoration[];
   nowMs: number;
+  proximityDomes?: readonly DomeEntry[];
 };
 export function writeMap2dFollowProjection(output: Map2dProjection, input: Map2dProjection,
   following: boolean, local: Map2dPoint | undefined): void {
@@ -55,6 +57,7 @@ export class Map2dFrameChanges {
   private portraitRevision = 0;
   private destinationX: number | undefined;
   private destinationZ: number | undefined;
+  private readonly domeEntries: Array<{ key: string; own: boolean; x: number; z: number; radius: number }> = [];
   private readonly speaking = new Set<string>();
   readonly activeDecorations: Map2dDecoration[] = [];
   invalidate(): void { this.invalidated = true; }
@@ -76,6 +79,29 @@ export class Map2dFrameChanges {
     const changed = this.destinationX !== destination?.x || this.destinationZ !== destination?.z;
     this.destinationX = destination?.x;
     this.destinationZ = destination?.z;
+    return changed;
+  }
+  private domesChanged(input: readonly DomeEntry[] | undefined): boolean {
+    const entries = input ?? [];
+    let changed = entries.length !== this.domeEntries.length;
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index]!;
+      let previous = this.domeEntries[index];
+      if (!previous) {
+        previous = { key: entry.key, own: entry.own, x: entry.shape.x, z: entry.shape.z, radius: entry.shape.radius };
+        this.domeEntries.push(previous);
+        changed = true;
+        continue;
+      }
+      if (previous.key !== entry.key || previous.own !== entry.own || previous.x !== entry.shape.x ||
+        previous.z !== entry.shape.z || previous.radius !== entry.shape.radius) changed = true;
+      previous.key = entry.key;
+      previous.own = entry.own;
+      previous.x = entry.shape.x;
+      previous.z = entry.shape.z;
+      previous.radius = entry.shape.radius;
+    }
+    if (this.domeEntries.length > entries.length) this.domeEntries.length = entries.length;
     return changed;
   }
   private speakingChanged(input: ReadonlySet<string>): boolean {
@@ -110,6 +136,7 @@ export class Map2dFrameChanges {
     changed = !sameProjection(this.projection, projection) || changed;
     writeMap2dFollowProjection(this.projection, projection, false, undefined);
     changed = this.destinationChanged(input.destination) || changed;
+    changed = this.domesChanged(input.proximityDomes) || changed;
     changed = this.speakingChanged(input.speaking) || changed;
     changed = this.decorationsChanged(input.decorations, input.nowMs) || changed;
     changed = this.staticRevision !== staticRevision || this.portraitRevision !== portraitRevision || changed;

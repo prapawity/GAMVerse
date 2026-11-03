@@ -1,5 +1,4 @@
-import { avatarSpriteScreenRect, avatarSpriteScale } from "./avatarSpriteGeometry";
-import { CHARACTER_MAX_HEIGHT_M } from "../characterModelFit";
+import { AVATAR_SPRITE_TARGET_HEIGHT_M } from "./avatarSpriteGeometry";
 import { LOCATE_PULSE_MS, MAP2D_DRAG_THRESHOLD_PX, MAP2D_PICK_RADIUS_PX } from "./constants";
 import {
   worldToScreen,
@@ -7,20 +6,27 @@ import {
   type Map2dProjection,
   type ScreenPoint,
 } from "./map2dProjection";
+import type { Map2dAvatarVisual } from "./map2dAvatarVisual";
+
+type PickableMap2dPlayer = Map2dPoint & { renderElevationM?: number; visual?: Map2dAvatarVisual };
 export function pickMap2dPlayer(
   projection: Map2dProjection,
-  players: ReadonlyMap<string, Map2dPoint>,
+  players: ReadonlyMap<string, PickableMap2dPlayer>,
   point: ScreenPoint,
 ): string | null {
   let nearest: string | null = null;
-  const pickRadiusPx = MAP2D_PICK_RADIUS_PX * avatarSpriteScale(projection.pxPerM);
+  const pickRadiusPx = MAP2D_PICK_RADIUS_PX;
   let distancePx = pickRadiusPx;
   for (const [id, player] of players) {
-    const screen = worldToScreen(projection, player);
+    const screen = worldToScreen(projection, player, player.renderElevationM);
     const candidatePx = Math.hypot(point.x - screen.x, point.y - screen.y);
-    const body = avatarSpriteScreenRect(screen.x, screen.y, projection.pxPerM);
-    const hitsBody = point.x >= body.x && point.x <= body.x + body.width
-      && point.y >= Math.max(body.y, screen.y - CHARACTER_MAX_HEIGHT_M * projection.pxPerM) && point.y <= body.y + body.height;
+    const bodyWidthPx = Math.max(12, 0.8 * projection.pxPerM);
+    const bodyHeightPx = AVATAR_SPRITE_TARGET_HEIGHT_M * projection.pxPerM;
+    const lying = player.visual?.motion === "lying";
+    const bodyTopPx = lying ? screen.y - bodyHeightPx / 2 : screen.y - bodyHeightPx;
+    const bodyBottomPx = lying ? screen.y + bodyHeightPx / 2 : screen.y + 4;
+    const hitsBody = point.x >= screen.x - bodyWidthPx / 2 && point.x <= screen.x + bodyWidthPx / 2
+      && point.y >= bodyTopPx && point.y <= bodyBottomPx;
     if ((hitsBody || candidatePx < pickRadiusPx) && (nearest === null || candidatePx < distancePx)) {
       nearest = id;
       distancePx = candidatePx;

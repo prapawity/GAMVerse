@@ -1,26 +1,7 @@
-import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutProp } from "@gammyverse/shared";
+import { type RoomLayout } from "@gammyverse/shared";
 import { MAP2D_COLORS } from "./constants";
 import { worldToScreen, type Map2dProjection } from "./map2dProjection";
-import { drawMap2dWalls } from "./map2dWallDrawing";
-import { drawMap2dProp } from "./map2dPropDrawing";
 import { mapZoneFloorColor } from "../zoneFloorColor";
-import { PROP_TOPDOWN_ASSETS } from "./propTopdownAssets";
-const PROP_OUTLINE_WIDTH_PX = 1;
-const THUMBNAIL_ASSETS = new Set([...PROP_TOPDOWN_ASSETS, ...ROOM_PROP_CATALOG.filter(item => item.vehicleId || item.editorRole === "building-prefab").map(item => item.asset)]);
-function drawProp(ctx: CanvasRenderingContext2D, p: Map2dProjection, prop: RoomLayoutProp): void {
-  const point = worldToScreen(p, prop);
-  const widthPx = prop.width * p.pxPerM;
-  const depthPx = prop.depth * p.pxPerM;
-  ctx.save();
-  ctx.translate(point.x, point.y);
-  ctx.rotate(-prop.rotation);
-  ctx.fillStyle = MAP2D_COLORS.prop;
-  ctx.strokeStyle = MAP2D_COLORS.wall;
-  ctx.lineWidth = PROP_OUTLINE_WIDTH_PX;
-  ctx.fillRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx);
-  ctx.strokeRect(-widthPx / 2, -depthPx / 2, widthPx, depthPx);
-  ctx.restore();
-}
 export function drawMap2dSimplified(ctx: CanvasRenderingContext2D, p: Map2dProjection, layout: RoomLayout): void {
   for (const road of layout.roadways ?? []) {
     const point = worldToScreen(p, road);
@@ -34,9 +15,4 @@ export function drawMap2dSimplified(ctx: CanvasRenderingContext2D, p: Map2dProje
     ctx.fillRect(point.x - zone.width * p.pxPerM / 2, point.y - zone.depth * p.pxPerM / 2,
       zone.width * p.pxPerM, zone.depth * p.pxPerM);
   }
-  for (const prop of layout.props) {
-    if (THUMBNAIL_ASSETS.has(prop.asset)) drawMap2dProp(ctx, p, prop);
-    else drawProp(ctx, p, prop);
-  }
-  drawMap2dWalls(ctx, p, layout);
 }

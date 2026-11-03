@@ -1,3 +1,5 @@
+import { proximityComponent, proximityDomeComponents, proximityDomeNeighborGraph } from "./proximityDomeNeighbors";
+
 const PROXIMITY_DOME_MEMBER_MARGIN_M = 3;
 const PROXIMITY_DOME_MIN_RADIUS_M = 4;
 const PROXIMITY_DOME_SMOOTHING_PER_SECOND = 8;
@@ -9,18 +11,7 @@ export type DomeShape = { x: number; z: number; radius: number };
 
 /** Everyone reachable from `startId` through hops of at most `linkRadiusM`, the same chaining the server uses for proximity groups. */
 export function proximityGroupMembers(startId: string, points: ReadonlyMap<string, GroundPoint>, linkRadiusM: number): string[] {
-  if (!points.has(startId)) return [];
-  const members = new Set([startId]);
-  const queue = [startId];
-  for (let head = 0; head < queue.length; head++) {
-    const from = points.get(queue[head]!)!;
-    for (const [id, point] of points) {
-      if (members.has(id) || Math.hypot(point.x - from.x, point.z - from.z) > linkRadiusM) continue;
-      members.add(id);
-      queue.push(id);
-    }
-  }
-  return [...members];
+  return proximityComponent(startId, proximityDomeNeighborGraph(points, linkRadiusM).neighbors);
 }
 
 /** Ritter's bounding circle: close to minimal, which is plenty for a decorative dome. */
@@ -62,13 +53,9 @@ export type DomeEntry = { key: string; shape: DomeShape; own: boolean };
  * `inOwnGroup` keeps a fallback dome around the player while the server says they are grouped but neighbors are not visible yet.
  */
 export function proximityDomeEntries(localId: string | null, points: ReadonlyMap<string, GroundPoint>, linkRadiusM: number, inOwnGroup: boolean): DomeEntry[] {
-  const seen = new Set<string>();
   const entries: DomeEntry[] = [];
-  for (const id of points.keys()) {
-    if (seen.has(id)) continue;
-    const memberIds = proximityGroupMembers(id, points, linkRadiusM);
-    memberIds.forEach(member => seen.add(member));
-    if (memberIds.length < 2) continue;
+  const components = proximityDomeComponents(proximityDomeNeighborGraph(points, linkRadiusM).neighbors);
+  for (const memberIds of components) {
     entries.push({ key: [...memberIds].sort()[0]!, shape: shapeForMembers(memberIds, points), own: localId !== null && memberIds.includes(localId) });
   }
   const local = localId ? points.get(localId) : undefined;
@@ -77,9 +64,11 @@ export function proximityDomeEntries(localId: string | null, points: ReadonlyMap
 }
 
 /** Eases each dome toward its target so it glides as people walk; both the 3D and 2D views draw the same shapes. */
-export function createDomeSmoothers(): (entries: readonly DomeEntry[], nowMs: number) => DomeEntry[] {
+export type DomeSmoother = ((entries: readonly DomeEntry[], nowMs: number) => DomeEntry[]) & { clear(): void };
+
+export function createDomeSmoothers(): DomeSmoother {
   const byKey = new Map<string, { current: DomeShape; lastMs: number }>();
-  return (entries, nowMs) => {
+  const smooth: DomeSmoother = Object.assign((entries: readonly DomeEntry[], nowMs: number) => {
     const live = new Set(entries.map(entry => entry.key));
     for (const key of byKey.keys()) if (!live.has(key)) byKey.delete(key);
     return entries.map(entry => {
@@ -91,5 +80,6 @@ export function createDomeSmoothers(): (entries: readonly DomeEntry[], nowMs: nu
       state.lastMs = nowMs;
       return { ...entry, shape: state.current };
     });
-  };
+  }, { clear: () => byKey.clear() });
+  return smooth;
 }

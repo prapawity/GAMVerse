@@ -26,6 +26,7 @@ interface WorldControlsProps {
   toggleCameraView: () => void;
   dispatchCamera: (event: CameraEvent) => void;
   onGoToDesk: () => void;
+  onReserveMeetingRoom?: () => void;
   tppZoomMaxDistanceM: number;
   travelFeedback?: Map2dTravelFeedback | null;
   onCancelTravel?: () => void;
@@ -113,6 +114,13 @@ function ZoomControls(props: WorldControlsProps) {
   </div>;
 }
 
+function MeetingScheduleControl({ appPaused, onReserveMeetingRoom }: Pick<WorldControlsProps, "appPaused" | "onReserveMeetingRoom">) {
+  if (!onReserveMeetingRoom) return null;
+  return <button type="button" className="world-control-trigger" aria-label="Reserve a meeting room" title="Reserve a meeting room" disabled={appPaused} onClick={onReserveMeetingRoom}>
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18m-13 4h3m3 0h3m-9 3h3"/></svg>
+  </button>;
+}
+
 export function WorldControls(props: WorldControlsProps) {
   const { cameraState, appPaused, personalDeskZone, currentPrivateZoneId, setActiveFloatingGroup, dispatchCamera, onGoToDesk } = props;
   if (cameraState.mode === "map2d") return <Map2dControls
@@ -125,12 +133,13 @@ export function WorldControls(props: WorldControlsProps) {
     onFocus={() => { dispatchCamera({ type: "set-view", view: "2d" }); dispatchCamera({ type: "focus-character" }); }}
     onToggleFollow={() => dispatchCamera(cameraState.following ? { type: "manual-drag" } : { type: "focus-character" })}
     onGoToDesk={onGoToDesk}
-    tools={<EditingControls {...props} />}
+    tools={<><MeetingScheduleControl appPaused={appPaused} onReserveMeetingRoom={props.onReserveMeetingRoom} /><EditingControls {...props} /></>}
     travelFeedback={props.travelFeedback}
     onCancelTravel={props.onCancelTravel}
   />;
   return (      <div className="world-control-dock" aria-label="Map controls">
         <CharacterControls {...props} />
+        <MeetingScheduleControl appPaused={appPaused} onReserveMeetingRoom={props.onReserveMeetingRoom} />
         <EditingControls {...props} />
         <CameraControls {...props} />
         <ZoomControls {...props} />

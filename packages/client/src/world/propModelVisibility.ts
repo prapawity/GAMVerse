@@ -15,28 +15,36 @@ export class PropModelVisibility {
   private coveredKey = "";
   update(now: number, editing: boolean, local: (ZonePosition & { rotation?: number }) | undefined, focus: PropVisibilityFocus,
     roadsideScenery: RoadsideSceneryVisibility, deferredPropModelLoads: readonly DeferredPropModel[], distanceCulledPropVisuals: readonly Object3D[],
-    covered: readonly RoomLayoutZone[], offset: ZonePosition, editProps = false, zones: readonly RoomLayoutZone[] = []): void {
+    covered: readonly RoomLayoutZone[], offset: ZonePosition, editProps = false, zones: readonly RoomLayoutZone[] = [], currentPrivateZoneId: string | null = null): void {
     const focusInLayout = { x: focus.x - offset.x, z: focus.z - offset.z };
-    const privateRoom = editProps ? zones.find(zone => zone.kind === "private" && isInsideZone(focusInLayout, zone)) : undefined;
+    // Props are authored in layout coordinates, while their Three.js objects
+    // and the camera pose are offset into the centered map scene. Keep range
+    // checks in layout space and anchor normal play to the character so zooming
+    // the campus overview cannot pull distant props into render range.
+    const distanceObserver = editing ? focusInLayout : local ?? focusInLayout;
+    const privateRoom = editProps
+      ? zones.find(zone => zone.kind === "private" && isInsideZone(focusInLayout, zone))
+      : !editing && currentPrivateZoneId ? zones.find(zone => zone.id === currentPrivateZoneId && zone.kind === "private") : undefined;
     const key = JSON.stringify([covered.map(zone => zone.id), privateRoom?.id ?? null]);
     if (this.coveredKey !== key) { this.nextLoadAtMs = 0; this.nextCullAtMs = 0; this.coveredKey = key; }
-    const hidden = (position: ZonePosition) => {
-      const positionInLayout = { x: position.x - offset.x, z: position.z - offset.z };
-      if (privateRoom && !isInsideZone(positionInLayout, privateRoom)) return true;
-      return isCoveredPosition(positionInLayout, covered);
+    const hiddenInLayout = (position: ZonePosition) => {
+      if (privateRoom && !isInsideZone(position, privateRoom)) return true;
+      return isCoveredPosition(position, covered);
     };
+    const hiddenInWorld = (position: ZonePosition) => hiddenInLayout({ x: position.x - offset.x, z: position.z - offset.z });
     if (now >= this.nextLoadAtMs) {
       this.nextLoadAtMs = now + PROP_RENDER_CULL_INTERVAL_MS;
-      const observer = editing ? { x: focus.x - offset.x, z: focus.z - offset.z, rotation: focus.rotation } : local;
-      roadsideScenery.update(observer, editing);
+      const observer = editing ? { ...focusInLayout, rotation: focus.rotation } : local;
+      roadsideScenery.update(observer, editing, prop => hiddenInLayout(prop));
       const remainingLoads = PROP_MODEL_LOAD_BATCH_SIZE;
       // Prioritise the closest props, so the area at the centre of the
       // screen fills first rather than following the saved props' order.
       const closest: Array<{ pending: typeof deferredPropModelLoads[number]; distanceSquared: number }> = [];
       for (const pending of deferredPropModelLoads) {
-        if (pending.started || hidden(pending.position) || !(roadsideScenery.visibilityFor(pending.propId) ?? shouldLoadPropModel(pending.position, focus))) continue;
-        const dx = pending.position.x - focus.x;
-        const dz = pending.position.z - focus.z;
+        const positionInLayout = { x: pending.position.x - offset.x, z: pending.position.z - offset.z };
+        if (pending.started || hiddenInWorld(pending.position) || !(roadsideScenery.visibilityFor(pending.propId) ?? shouldLoadPropModel(positionInLayout, distanceObserver))) continue;
+        const dx = positionInLayout.x - distanceObserver.x;
+        const dz = positionInLayout.z - distanceObserver.z;
         const candidate = { pending, distanceSquared: dx * dx + dz * dz };
         const insertAt = closest.findIndex((entry) => candidate.distanceSquared < entry.distanceSquared);
         if (insertAt === -1) {
@@ -51,8 +59,9 @@ export class PropModelVisibility {
     if (now >= this.nextCullAtMs) {
       this.nextCullAtMs = now + PROP_RENDER_CULL_INTERVAL_MS;
       for (const visual of distanceCulledPropVisuals) {
-        visual.visible = !hidden(visual.position) && (roadsideScenery.visibilityFor(visual.userData.officeMapPropId)
-          ?? shouldRenderDistanceCulledProp(visual.position, focus, visual.visible));
+        const positionInLayout = { x: visual.position.x - offset.x, z: visual.position.z - offset.z };
+        visual.visible = !hiddenInWorld(visual.position) && (roadsideScenery.visibilityFor(visual.userData.officeMapPropId)
+          ?? shouldRenderDistanceCulledProp(positionInLayout, distanceObserver, visual.visible));
       }
     }
   }

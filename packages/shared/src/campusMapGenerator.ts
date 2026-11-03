@@ -8,6 +8,7 @@ import { roadsideVergePoints } from "./campusRoadNetwork.js";
 import { appendCampusCivicParkProps } from "./campusCivicPark.js";
 import { COMPACT_ROOM_DEPTH_M, COMPACT_ROOM_WIDTH_M, COMPACT_TEAM_GAP_M, COMPACT_TEAM_ROAD_Z_M, compactBandWidth, compactCivicRow, planCompactCampus } from "./campusCompactPlan.js";
 import { campusLoopRoads } from "./campusLoopRoads.js";
+import { formatTemplateRoadways } from "./templateRoadwayFormat.js";
 import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutDoor, type RoomLayoutProp, type RoomLayoutWall, type RoomLayoutZone } from "./roomLayout.js";
 
 export interface CampusMapGeneratorInputs {
@@ -400,7 +401,7 @@ export function generateCampusMap(input: CampusMapGeneratorInputs): GeneratedCam
   // Keep generated office interiors empty so teams can furnish their rooms
   // themselves. Landscaping and street props are added below, outside zones.
 
-  const roads = campusLoopRoads(layout.zones, { width, depth }, compactCampus, compactPlan?.edgeRoadZ);
+  const roads = formatTemplateRoadways(campusLoopRoads(layout.zones, { width, depth }, compactCampus, compactPlan?.edgeRoadZ));
   layout.roadways = roads;
   appendCampusCivicParkProps(layout, compactCampus, { width, depth });
   appendCampusCityBlocks(layout);

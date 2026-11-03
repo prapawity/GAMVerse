@@ -61,6 +61,13 @@ const server = defineServer({
         response.status(503).json({ error: "Could not refresh office map." });
       }
     });
+    app.post("/internal/platform/features", (request: AuthRequest, response: AuthResponse) => {
+      if (!authorizedServiceCall(request)) { response.sendStatus(401); return; }
+      const { mapEditing, propEditing } = request.body ?? {};
+      if (typeof mapEditing !== "string" || typeof propEditing !== "string") { response.status(400).json({ error: "Feature flags are required." }); return; }
+      OfficeRoom.broadcastPlatformFeatures({ mapEditing: mapEditing === "true", propEditing: propEditing === "true" });
+      response.sendStatus(204);
+    });
     app.post("/internal/offices/desk-zone", (request: AuthRequest, response: AuthResponse) => {
       if (!authorizedServiceCall(request)) { response.sendStatus(401); return; }
       const officeId = request.body?.officeId;

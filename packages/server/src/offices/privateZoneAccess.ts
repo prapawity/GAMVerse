@@ -23,6 +23,7 @@ type Admission = {
 type ZoneState = {
   zone: RoomLayoutZone;
   locked: boolean;
+  lockReason: string | null;
   revision: number;
   admissions: Map<string, Admission>;
   lastMembers: Set<string>;
@@ -111,7 +112,7 @@ export class PrivateZoneAccess {
   private reconcileZone(incoming: RoomLayoutZone, nowMs: number): boolean {
     let zone = this.zones.get(incoming.id);
     if (!zone) {
-      zone = { zone: { ...incoming }, locked: false, revision: 0, admissions: new Map(), lastMembers: new Set(), retainEmptyUntilMs: null };
+      zone = { zone: { ...incoming }, locked: false, lockReason: null, revision: 0, admissions: new Map(), lastMembers: new Set(), retainEmptyUntilMs: null };
       this.zones.set(incoming.id, zone);
       zone.lastMembers=this.admittedPhysical(zone,nowMs);
       return false;
@@ -218,7 +219,7 @@ export class PrivateZoneAccess {
     const moderator = this.moderator(sessionId, zoneId, nowMs);
     const own = this.ownKnock(sessionId, zoneId);
     return {
-      officeId: this.officeId, roomIncarnationId: this.roomIncarnationId, zoneId, revision: zone.revision, locked: zone.locked, transportState: state,
+      officeId: this.officeId, roomIncarnationId: this.roomIncarnationId, zoneId, revision: zone.revision, locked: zone.locked, lockReason: zone.lockReason, transportState: state,
       access: !zone.locked ? "open" : this.canEnter(sessionId, zoneId, nowMs) ? "admitted" : "blocked", leaseExpiresAtMs: zone.admissions.get(sessionId)?.expiresAtMs ?? null,
       capabilities: { lock: moderator && !zone.locked, unlock: moderator && zone.locked, knock: this.canKnock(sessionId, zoneId, nowMs), cancelKnock: own?.state === "pending", admit: moderator && zone.locked, revoke: moderator && zone.locked, retryMedia: moderator && state === "unavailable" }, ownKnock: own,
       pendingKnocks: moderator ? this.pending(zoneId).map(({ zoneId: _id, ...request }) => ({ ...request })) : [],
@@ -247,6 +248,7 @@ export class PrivateZoneAccess {
       if (zone.locked)
         return false;
       zone.locked = true;
+      zone.lockReason = command.reason?.trim() || null;
       for (const person of this.physical(zone.zone.id))
         zone.admissions.set(person.sessionId, { sessionId: person.sessionId, username: person.username, displayName: person.displayName, expiresAtMs: null });
       zone.revision += 1;
@@ -308,7 +310,7 @@ export class PrivateZoneAccess {
       if (request.sessionId === sessionId && request.zoneId === zoneId && request.state === "admitted")
         request.state = state;
   }
-  private unlock(zone: ZoneState) { zone.locked = false; zone.retainEmptyUntilMs = null; zone.admissions.clear(); zone.revision += 1; this.invalidateKnocks(zone.zone.id); }
+  private unlock(zone: ZoneState) { zone.locked = false; zone.lockReason = null; zone.retainEmptyUntilMs = null; zone.admissions.clear(); zone.revision += 1; this.invalidateKnocks(zone.zone.id); }
   private invalidateKnocks(zoneId: string) {
     for (const request of this.knocks.values())
       if (request.zoneId === zoneId && request.state === "pending")

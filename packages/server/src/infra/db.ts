@@ -62,6 +62,9 @@ export async function initializeDatabase() {
     { version: 28, file: "028_office_share_links.sql" },
     { version: 29, file: "029_office_share_link_creator_cleanup.sql" },
     { version: 30, file: "030_runtime_diagnostics.sql" },
+    { version: 31, file: "031_platform_feature_flags.sql" },
+    { version: 32, file: "032_meeting_reservations.sql" },
+    { version: 33, file: "033_meeting_reservation_attendees.sql" },
   ];
   const client = await database.connect();
   try {

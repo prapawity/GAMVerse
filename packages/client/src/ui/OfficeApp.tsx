@@ -32,9 +32,8 @@ import { useAutoDismiss } from "./workspace/useAutoDismiss";
 import { useWorkspacePanelOutsideDismiss } from "./workspace/useWorkspacePanelOutsideDismiss";
 import { ACCOUNT_DRAWER_KEEP_OPEN_SELECTOR } from "./workspace/workspacePanelOutsideClick";
 import { useTravelFeedback } from "./workspace/useTravelFeedback";
-import { AvailabilityDialog } from "./workspace/AvailabilityDialog";
 import { AvailabilityMenu } from "./workspace/AvailabilityMenu";
-import { AVAILABILITY_OPTIONS as userStatusOptions, customStatusFromFields, customStatusLabel } from "./workspace/AvailabilityPresentation";
+import { AVAILABILITY_OPTIONS as userStatusOptions, customStatusLabel } from "./workspace/AvailabilityPresentation";
 import { useAvailabilityStatus } from "./workspace/useAvailabilityStatus";
 import { useOfficeDesks } from "./workspace/useOfficeDesks";
 import { SHARE_OFFICE_LABEL } from "./workspace/officeShareLinks";
@@ -88,12 +87,25 @@ import { clientRuntimeMetrics } from "../world/clientRuntimeMetrics";
 import { recentLockedRotation, type LockedTurnState } from "../world/camera/lockedMovement";
 import { resolveHeldMovement } from "../world/camera/heldMovement";
 import { FullScreenLoading } from "./FullScreenLoading";
+import { InstallAppButton } from "./pwa/InstallAppButton";
+import { usePwaInstall } from "./pwa/usePwaInstall";
 import { ModifyPropsEditor } from "./ModifyPropsEditor";
 import { MapBuildingPicker } from "./MapBuildingPicker";
 import { PropModelPreview } from "./PropModelPreview";
 import { PageTutorial } from "./PageTutorial";
 import { LobbyDirectory } from "./lobby/LobbyDirectory";
 import { MaintainerSystemPanel } from "./MaintainerSystemPanel";
+import { MaintainerWorkspaceNav, type MaintainerWorkspaceSection } from "./MaintainerWorkspaceNav";
+import { createMeetingRoomUrl, getMeetingRouteOfficeId, getMeetingRouteZoneId, shouldPreserveMeetingRoute } from "./meetings/meetingRoute";
+import { MeetingNotesDialog } from "./meetings/MeetingNotesDialog";
+import { MeetingReservationsDialog } from "./meetings/MeetingReservationsDialog";
+import { MeetingToolsMenu } from "./meetings/MeetingToolsMenu";
+import { browserPrejoinStorage, readPrejoinSkipPreference, writePrejoinSkipPreference } from "./meetings/prejoinPreference";
+import { useMeetingRecording } from "./meetings/useMeetingRecording";
+import { MeetingRecordingControl } from "./meetings/MeetingRecordingControl";
+import { countMeetingRoomSeats } from "@gammyverse/shared";
+import { meetingAudioStatus, meetingAudioStatusLabel } from "./meetings/meetingAudioStatus";
+import "./meetings/MeetingPrejoin.css";
 import { playSocialNotificationSound, unlockSocialNotificationAudio } from "../audio/notificationSounds";
 import { unlockMovementAudio } from "../audio/movementSounds";
 import { setNoiseReduction, type NoiseReductionResult } from "../audio/noiseReduction";
@@ -318,17 +330,25 @@ const endpoint = getRealtimeEndpoint();
 const CAMERA_CAPTURE_720P30 = { resolution: { width: 1280, height: 720, frameRate: 30 }, frameRate: { ideal: 30, max: 30 } };
 const SCREEN_CAPTURE_1080P30 = { resolution: { width: 1920, height: 1080, frameRate: 30 }, contentHint: "detail" as const };
 const getResetRouteToken = (path: string) => path.match(/^\/reset\/([A-Za-z0-9_-]{30,100})\/?$/)?.[1] ?? null;
-const getMeetingRouteOfficeId = (path: string) => path.match(/^\/meeting\/([0-9a-f-]{36})\/?$/i)?.[1] ?? null;
 const getOfficeRouteId = (path = window.location.pathname) => path.match(/^\/office\/([0-9a-f-]{36})\/?$/i)?.[1] ?? null;
 
 export function OfficeApp() {
   const workspaceTheme = useWorkspaceTheme();
+  const pwaInstall = usePwaInstall();
   const [routePath, setRoutePath] = useState(() => window.location.pathname);
   const [meetingEntry, setMeetingEntry] = useState(() => Boolean(getMeetingRouteOfficeId(window.location.pathname)));
+  const [meetingTargetZoneId, setMeetingTargetZoneId] = useState(() => getMeetingRouteZoneId(window.location.search));
+  const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
+  const [meetingReservationsOpen, setMeetingReservationsOpen] = useState(false);
   const routePathRef = useRef(routePath);
   routePathRef.current = routePath;
-  const diagnosticsPage = routePath.replace(/\/+$/, "") === "/maintainer/diagnostics";
-  const maintainerPortal = routePath === "/maintainer" || diagnosticsPage;
+  const normalizedRoutePath = routePath.replace(/\/+$/, "") || "/";
+  const diagnosticsPage = normalizedRoutePath === "/maintainer/diagnostics";
+  const maintainerPortal = normalizedRoutePath === "/maintainer" || normalizedRoutePath.startsWith("/maintainer/");
+  const maintainerSection: MaintainerWorkspaceSection = normalizedRoutePath === "/maintainer/offices" ? "offices"
+    : normalizedRoutePath === "/maintainer/platform" ? "platform"
+      : diagnosticsPage ? "diagnostics" : "overview";
+  const maintainerPage = maintainerPortal && !diagnosticsPage;
   const inviteLinkToken = getInviteRouteToken(routePath);
   const resetLinkToken = getResetRouteToken(routePath);
   const meetingLinkOfficeId = getMeetingRouteOfficeId(routePath);
@@ -394,12 +414,18 @@ export function OfficeApp() {
   const autoMoveNoticeTimerRef = useRef<number | undefined>(undefined);
   const [authReady, setAuthReady] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [featureDisabledDialog, setFeatureDisabledDialog] = useState<"mapEditing" | "propEditing" | null>(null);
   const [offices, setOffices] = useState<Office[]>([]);
   const [officeListVerified, setOfficeListVerified] = useState(false);
   const [invites, setInvites] = useState<OfficeInvite[]>([]);
   const [activeOffice, setActiveOffice] = useState<Office | null>(null);
+  const [pendingOfficeEntry, setPendingOfficeEntry] = useState<{ office: Office; syncUrl: boolean } | null>(null);
+  const [skipOfficePrejoin, setSkipOfficePrejoin] = useState(false);
   const activeOfficeRef = useRef(activeOffice);
   activeOfficeRef.current = activeOffice;
+  useEffect(() => {
+    setSkipOfficePrejoin(readPrejoinSkipPreference(browserPrejoinStorage(), authUser?.username));
+  }, [authUser?.username]);
   const connectionUsername = authUser?.username;
   const connectionOfficeId = activeOffice?.id;
   const inputSendGateRef = useRef(new InputSendGate());
@@ -550,6 +576,15 @@ export function OfficeApp() {
     try { window.localStorage.setItem("gammyverse.idleAnimationsEnabled", String(enabled)); }
     catch { /* Keep the preference for this session when storage is unavailable. */ }
   };
+  const [powerSaverEnabled, setPowerSaverEnabled] = useState(() => {
+    try { return window.localStorage.getItem("gammyverse.powerSaverEnabled") === "true"; }
+    catch { return false; }
+  });
+  const updatePowerSaverEnabled = (enabled: boolean) => {
+    setPowerSaverEnabled(enabled);
+    try { window.localStorage.setItem("gammyverse.powerSaverEnabled", String(enabled)); }
+    catch { /* Keep the preference for this session when storage is unavailable. */ }
+  };
   const [noiseReductionEnabled, setNoiseReductionEnabled] = useState(() => {
     try { return window.localStorage.getItem("gammyverse.noiseReductionEnabled") !== "false"; }
     catch { return true; }
@@ -601,6 +636,7 @@ export function OfficeApp() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const meetingRecording = useMeetingRecording({ room: status === "connected" ? roomRef.current : null, zoneId: meetingZoneId, active: meetingZoneActive, connected: voiceConnected, officeName: activeOffice?.name ?? "GAMVerse" });
   const [error, setError] = useState<string | null>(null);
   const [playerCount, setPlayerCount] = useState(0);
   const [people, setPeople] = useState<Array<[string, PlayerSnapshot]>>([]);
@@ -617,7 +653,6 @@ export function OfficeApp() {
   const restoreAvailableRef = useRef<() => void>(() => {});
   userStatusRef.current = userStatus;
   const toiletReturnPositionRef = useRef<{ x: number; z: number } | null>(null);
-  const [availabilityEditorOpen, setAvailabilityEditorOpen] = useState(false);
   const availability = useAvailabilityStatus(status === "connected" ? roomRef.current : null);
   const officeDesks = useOfficeDesks({ endpoint, officeId: activeOffice?.id ?? null, username: authUser?.username ?? null, sessionKey: status === "connected" ? roomRef.current?.sessionId ?? null : null, configVersion: mapServerVersion });
   useClientDiagnostics(endpoint, authUser?.username ?? null, activeOffice?.id ?? null, voiceRetryExhausted);
@@ -634,7 +669,10 @@ export function OfficeApp() {
   const [statusTravelError, setStatusTravelError] = useState<string | null>(null);
   const mediaSuppressed = availabilityPolicy(userStatus).suppressAutomaticMedia;
   const accessZones = useMemo(() => conversationAccessZones(officeMapLayout), [officeMapLayout]);
-  const zonePrivacyTargetId = selectedDeskZoneId ?? meetingZoneId ?? privateZoneId;
+  const meetingRoomCapacities = useMemo(() => officeMapLayout
+    ? countMeetingRoomSeats(officeMapLayout.zones.filter(zone => zone.kind === "meeting"), officeMapLayout.props)
+    : {}, [officeMapLayout]);
+  const zonePrivacyTargetId = meetingZoneId ?? privateZoneId ?? selectedDeskZoneId;
   const officeConversations = useOfficeConversations({ room: status === "connected" ? roomRef.current : null,
     officeId: activeOffice?.id ?? null, sessionKey: voiceRealtimeSessionKey, status: userStatus,
     accessZoneId: zonePrivacyTargetId, accessZones });
@@ -1227,15 +1265,52 @@ export function OfficeApp() {
     }
   };
 
-  const selectOffice = (office: Office, syncUrl = true) => {
+  const activateOffice = (office: Office, syncUrl = true) => {
+    setPendingOfficeEntry(null);
     exitMapEditMode();
     localStorage.setItem("gammyverse.activeOfficeId", office.id);
     if (syncUrl && window.location.pathname !== `/office/${office.id}`) {
       window.history.pushState({ officeId: office.id }, "", `/office/${office.id}`);
     }
+    if (!shouldPreserveMeetingRoute(window.location.pathname, office.id)) {
+      setMeetingEntry(false);
+      setMeetingTargetZoneId(null);
+    }
     setRoutePath(window.location.pathname);
     travel.reset();
     setActiveOffice((current) => current?.id === office.id ? current : office);
+  };
+
+  const updateSkipOfficePrejoin = (skip: boolean) => {
+    setSkipOfficePrejoin(skip);
+    writePrejoinSkipPreference(browserPrejoinStorage(), authUser?.username, skip);
+  };
+
+  const selectOffice = (office: Office, syncUrl = true) => {
+    if (activeOfficeRef.current?.id === office.id || readPrejoinSkipPreference(browserPrejoinStorage(), authUser?.username)) {
+      activateOffice(office, syncUrl);
+      return;
+    }
+    setLobbyError(null);
+    setSkipOfficePrejoin(false);
+    setPendingOfficeEntry({ office, syncUrl });
+  };
+
+  const continueIntoPendingOffice = () => {
+    if (!pendingOfficeEntry) return;
+    writePrejoinSkipPreference(browserPrejoinStorage(), authUser?.username, skipOfficePrejoin);
+    activateOffice(pendingOfficeEntry.office, pendingOfficeEntry.syncUrl);
+  };
+
+  const cancelPendingOfficeEntry = () => {
+    const shouldReturnToLobby = Boolean(meetingLinkOfficeId || pendingOfficeEntry && !pendingOfficeEntry.syncUrl);
+    setPendingOfficeEntry(null);
+    if (shouldReturnToLobby) {
+      window.history.replaceState(null, "", "/");
+      setRoutePath("/");
+      setMeetingEntry(false);
+      setMeetingTargetZoneId(null);
+    }
   };
 
   const closeMapEditMode = () => {
@@ -1260,18 +1335,22 @@ export function OfficeApp() {
   };
 
   const clearSelectedOffice = (syncUrl = true) => {
+    setPendingOfficeEntry(null);
     localStorage.removeItem("gammyverse.activeOfficeId");
     exitMapEditMode();
     if (syncUrl && (getOfficeRouteId() || getMeetingRouteOfficeId(window.location.pathname))) window.history.pushState({}, "", "/");
     if (syncUrl) setRoutePath(window.location.pathname);
     setActiveOffice(null);
     setMeetingEntry(false);
+    setMeetingTargetZoneId(null);
   };
 
   useEffect(() => {
     if (!activeOffice) return;
     localStorage.setItem("gammyverse.activeOfficeId", activeOffice.id);
-    if (window.location.pathname !== `/office/${activeOffice.id}`) {
+    // Keep a meeting invitation URL as the active deep link after joining.
+    // Otherwise a refresh silently loses meeting-entry context and tutorials.
+    if (!shouldPreserveMeetingRoute(window.location.pathname, activeOffice.id) && window.location.pathname !== `/office/${activeOffice.id}`) {
       window.history.replaceState({ officeId: activeOffice.id }, "", `/office/${activeOffice.id}`);
       setRoutePath(window.location.pathname);
     }
@@ -1282,6 +1361,7 @@ export function OfficeApp() {
       const path = window.location.pathname;
       setRoutePath(path);
       setMeetingEntry(Boolean(getMeetingRouteOfficeId(path)));
+      setMeetingTargetZoneId(getMeetingRouteZoneId(window.location.search));
       // Session and office membership are verified before restoring an office
       // from browser history. Never let a stale history entry revive a room.
       if (!authReady || !authUser) {
@@ -1342,6 +1422,29 @@ export function OfficeApp() {
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [authUser?.username, activeOffice?.id]);
+
+  useEffect(() => {
+    if (!meetingEntry || !meetingTargetZoneId || status !== "connected" || !activeOffice || !officeMapLayout) return;
+    if (getMeetingRouteOfficeId(window.location.pathname) !== activeOffice.id.toLowerCase()) return;
+
+    const zone = officeMapLayout.zones.find((item) => item.id === meetingTargetZoneId && item.kind === "meeting");
+    if (!zone) {
+      setAutoMoveNotice("This meeting room is no longer available.");
+      if (autoMoveNoticeTimerRef.current !== undefined) window.clearTimeout(autoMoveNoticeTimerRef.current);
+      autoMoveNoticeTimerRef.current = window.setTimeout(() => setAutoMoveNotice(null), 3200);
+    } else {
+      // A previous travel may still be settling after the office connection is ready.
+      // Keep the one-time target pending until the tracker accepts a new destination.
+      if (!travel.expectDestination(zone)) return;
+      roomRef.current?.send("auto-move", { x: zone.x, z: zone.z, randomVehicle: true });
+      setWorkspacePanelOpen(false);
+    }
+
+    setMeetingTargetZoneId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("room");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [meetingEntry, meetingTargetZoneId, status, activeOffice?.id, officeMapLayout, travel]);
 
   const toggleMicrophone = () => voiceSessionRef.current?.setMuted(!selectedMicMuted);
   const toggleCamera = () => voiceSessionRef.current?.control(async (room) => {
@@ -1668,13 +1771,6 @@ export function OfficeApp() {
       const next = await list.json() as { offices?: Office[] };
       const nextOffices = next.offices ?? [];
       setOffices(nextOffices);
-      if (meetingLinkOfficeId) {
-        const destination = nextOffices.find((office) => office.id === meetingLinkOfficeId);
-        if (destination) {
-          selectOffice(destination);
-          window.history.replaceState(null, "", "/");
-        }
-      }
       setLobbyError(null);
     } catch (cause) { setLobbyError(cause instanceof Error ? cause.message : "Invite could not be accepted."); }
     finally { setLobbyBusy(false); }
@@ -1736,8 +1832,22 @@ export function OfficeApp() {
     finally { setLobbyBusy(false); }
   };
 
-  const enterMapEditMode = (office: Office) => {
+  const checkPlatformFeature = async (feature: "mapEditing" | "propEditing") => {
+    try {
+      const response = await fetch(`${endpoint}/offices/platform-features`, { credentials: "include", cache: "no-store" });
+      const flags = await response.json() as { mapEditing?: unknown; propEditing?: unknown; error?: string };
+      if (!response.ok || typeof flags.mapEditing !== "boolean" || typeof flags.propEditing !== "boolean") throw new Error(flags.error ?? "Could not verify feature availability. Try again.");
+      if (!flags[feature]) { setFeatureDisabledDialog(feature); return false; }
+      return true;
+    } catch (cause) {
+      setLobbyError(cause instanceof Error ? cause.message : "Could not verify feature availability. Try again.");
+      return false;
+    }
+  };
+
+  const enterMapEditMode = async (office: Office) => {
     if (office.role !== "owner" && office.role !== "admin" && authUser?.role !== "maintainer") return;
+    if (!await checkPlatformFeature("mapEditing")) return;
     const room = roomRef.current;
     if (!room) { setLobbyError("Connect to the office before editing its map."); return; }
     if (mapEditLockRequestPending) return;
@@ -1748,6 +1858,7 @@ export function OfficeApp() {
 
   const enterModifyPropsMode = async () => {
     if (!activeOffice || !officeMapLayout || modifyPropsBusy) return;
+    if (!await checkPlatformFeature("propEditing")) return;
     setModifyPropsBusy(true);
     setModifyPropsError(null);
     try {
@@ -1790,6 +1901,10 @@ export function OfficeApp() {
       const response = await fetch(`${endpoint}/offices/${activeOffice.id}/props/ops`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: ops.slice(offset, offset + 500) }) });
       const result = await response.json() as { configVersion?: number; conflicts?: { id: string }[]; error?: string };
       if (!response.ok) {
+        if (response.status === 423) {
+          setFeatureDisabledDialog("propEditing");
+          setModifyPropsOpen(false);
+        }
         const message = response.status === 429 ? "You are saving too quickly. Wait a few seconds and save again." : result.error ?? "Could not save office props.";
         setModifyPropsError(message);
         throw new Error(message);
@@ -2517,6 +2632,23 @@ export function OfficeApp() {
           // once per window and an update that changes nothing keeps the old layout.
           officeMapScheduler.push({ config: payload.config, configVersion: payload.configVersion });
         });
+        room.onMessage("platform-features", (payload: unknown) => {
+          if (typeof payload !== "object" || payload === null || !("mapEditing" in payload) || !("propEditing" in payload)
+            || typeof payload.mapEditing !== "boolean" || typeof payload.propEditing !== "boolean") return;
+          if (!payload.mapEditing && mapEditModeRef.current) {
+            setFeatureDisabledDialog("mapEditing");
+            room.send("map-edit-lock", { active: false });
+            setMapEditMode(false);
+            setMapEditBaseline(null);
+            setMapBuildingPickerOpen(false);
+            setSelectedMapBuildingAsset(null);
+          }
+          if (!payload.propEditing) {
+            if (modifyPropsOpenRef.current) setFeatureDisabledDialog("propEditing");
+            setModifyPropsOpen(false);
+            setSelectedModifyPropAsset(null);
+          }
+        });
         // A props-only save arrives as a small patch. If it does not fit what this client
         // holds (a missed version), ask the server for the full map instead of guessing.
         room.onMessage("props-changed", (payload: unknown) => {
@@ -2545,7 +2677,8 @@ export function OfficeApp() {
           const message = "error" in payload && typeof payload.error === "string"
             ? payload.error
             : editor ? `${editor} is editing the map right now.` : "The map is already being edited.";
-          setLobbyError(message);
+          if (message.includes("Map editing is disabled platform-wide")) setFeatureDisabledDialog("mapEditing");
+          else setLobbyError(message);
         });
         room.onMessage("media-zone", (payload: unknown) => {
           if (typeof payload !== "object" || payload === null || !("zoneId" in payload)) return;
@@ -2777,11 +2910,16 @@ export function OfficeApp() {
     return (
       <>
       <main className="auth-shell">
+        <section className="auth-world-panel" aria-label="GAMVerse virtual office">
+          <div className="auth-world-copy"><div className="auth-brand-lockup"><BrandMark /><BrandWordmark /></div><span className="auth-world-kicker">A shared space, wherever you are</span><h2>Your team’s<br />shared space.</h2><p>Meet face to face, focus in quiet zones, and make room for good ideas.</p></div>
+          <div className="auth-world-footer"><span className="auth-world-status" aria-hidden="true" /> Your workspace is waiting</div>
+        </section>
+        <div className="auth-app-entry">
         <form className="auth-card" onSubmit={(event) => void submitAuth(event)}>
           <BrandMark />
-          <span className="eyebrow">{maintainerPortal ? "PLATFORM OPERATIONS" : "YOUR WORKSPACE"}</span>
+          <span className="eyebrow">{maintainerPortal ? "PLATFORM OPERATIONS" : authMode === "register" ? "JOIN GAMVERSE" : "YOUR WORKSPACE"}</span>
           <h1>{maintainerPortal ? "Maintainer sign in" : authMode === "login" ? "Welcome back" : "Create your account"}</h1>
-          <p>{(inviteLinkToken || getOfficeShareRouteToken(routePath)) ? "You’ve been invited to an office. Create an account or sign in to join." : maintainerPortal ? "Sign in to manage GAMVerse and its offices." : "Sign in with your office username and password."}</p>
+          <p>{(inviteLinkToken || getOfficeShareRouteToken(routePath)) ? "You’ve been invited to an office. Create an account or sign in to join." : maintainerPortal ? "Sign in to manage GAMVerse and its offices." : authMode === "register" ? "Create your account and meet your team in a shared virtual office." : "Sign in to pick up where your team left off."}</p>
           <label>Username<input data-tutorial-target="auth-username" autoComplete="username" required minLength={3} maxLength={24} value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} /></label>
           {authMode === "register" && <label>Email (optional)<input type="email" autoComplete="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
           <label>Password<div className="auth-password-field"><input data-tutorial-target="auth-password" type={authPasswordVisible ? "text" : "password"} autoComplete={authMode === "login" ? "current-password" : "new-password"} required minLength={8} maxLength={128} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="password-visibility-toggle" type="button" aria-label={authPasswordVisible ? "Hide password" : "Show password"} aria-pressed={authPasswordVisible} onClick={() => setAuthPasswordVisible((visible) => !visible)}>{authPasswordVisible ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.7M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.8 4.4 10 7-.4.9-1.2 2-2.3 3M6.2 6.3C3.9 7.7 2.5 10 2 12c1.2 0 2-.2 2.9-.5" /></svg>}</button></div></label>
@@ -2792,6 +2930,9 @@ export function OfficeApp() {
           </button>}
           <a className="auth-switch" href={maintainerPortal ? "/" : "/maintainer"}>{maintainerPortal ? "Regular user sign in" : "Maintainer sign in"}</a>
         </form>
+        <InstallAppButton {...pwaInstall} />
+        </div>
+        <footer className="auth-credit">Made by <strong>PRAPAWITY and Friends</strong></footer>
       </main>
       {authBusy && <FullScreenLoading label={authMode === "register" ? "Creating your account…" : "Signing in…"} />}
       </>
@@ -2820,7 +2961,7 @@ export function OfficeApp() {
   const settingsDialog = settingsOpen && <OfficeSettingsDialog onClose={() => setSettingsOpen(false)}>
         <div className="settings-dialog-body"><nav className="settings-section-nav" aria-label="Settings topics"><button type="button" className={settingsSection === "general" ? "active" : ""} aria-current={settingsSection === "general" ? "page" : undefined} onClick={() => setSettingsSection("general")}>General</button><button type="button" className={settingsSection === "sound" ? "active" : ""} aria-current={settingsSection === "sound" ? "page" : undefined} onClick={() => setSettingsSection("sound")}>Sound</button><button type="button" className={settingsSection === "camera" ? "active" : ""} aria-current={settingsSection === "camera" ? "page" : undefined} onClick={() => setSettingsSection("camera")}>Camera</button><button type="button" className={settingsSection === "permissions" ? "active" : ""} aria-current={settingsSection === "permissions" ? "page" : undefined} onClick={() => setSettingsSection("permissions")}>Permission</button><button type="button" className={settingsSection === "security" ? "active" : ""} aria-current={settingsSection === "security" ? "page" : undefined} onClick={() => setSettingsSection("security")}>Security</button><button type="button" className={settingsSection === "theme" ? "active" : ""} aria-current={settingsSection === "theme" ? "page" : undefined} onClick={() => setSettingsSection("theme")}>Theme</button></nav>
           <div className="settings-section-content">
-            {settingsSection === "general" && <OfficeGeneralSettings idleAnimationsEnabled={idleAnimationsEnabled} onIdleAnimationsChange={updateIdleAnimationsEnabled} />}
+            {settingsSection === "general" && <OfficeGeneralSettings idleAnimationsEnabled={idleAnimationsEnabled} onIdleAnimationsChange={updateIdleAnimationsEnabled} powerSaverEnabled={powerSaverEnabled} onPowerSaverChange={updatePowerSaverEnabled} skipOfficePrejoin={skipOfficePrejoin} onSkipOfficePrejoinChange={updateSkipOfficePrejoin} />}
             {settingsSection === "sound" && <SoundSettings inputDeviceId={audioDevicePreferences.inputDeviceId} outputDeviceId={audioDevicePreferences.outputDeviceId} onInputDeviceChange={switchMicrophoneDevice} onOutputDeviceChange={switchSpeakerDevice} noiseReductionEnabled={noiseReductionEnabled} noiseReductionStatus={noiseReductionStatus} noiseReductionDetails={noiseReductionDetails} onNoiseReductionChange={updateNoiseReductionPreference} />}
             {settingsSection === "camera" && <CameraSettings deviceId={cameraDeviceId} backgroundMode={cameraBackgroundMode} onDeviceChange={switchCameraDevice} onBackgroundModeChange={changeCameraBackgroundMode} />}
             {settingsSection === "permissions" && <section aria-labelledby="permissions-title"><span className="eyebrow">DEVICE ACCESS</span><h3 id="permissions-title">Permissions</h3><p className="settings-intro">Allow GAMVerse to use your microphone, camera, or screen when you choose those controls.</p>
@@ -2853,18 +2994,56 @@ export function OfficeApp() {
         {characterPanelMounted && <aside id="character-drawer" className={`character-drawer sidebar-transition${characterPanelOpen ? " is-open" : ""}`} aria-label="User account" aria-hidden={!characterPanelOpen} inert={!characterPanelOpen}>
           <header className="character-drawer-header"><div><span className="eyebrow">YOUR ACCOUNT</span><h2>Account & settings</h2></div></header>
           <section className="character-account" aria-label="Your account"><span className="character-account-avatar">{(authUser?.username ?? "U").slice(0, 1).toUpperCase()}</span><div className="character-account-name"><strong>{playerName({ displayName: authUser.username, isMaintainer: authUser.role === "maintainer" })}</strong><span>{authUser.role}</span></div></section>
-          <div className="user-settings-content"><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setCharacterPanelOpen(false); setProfileDialogOpen(true); }}><span><strong>Profile</strong><small>Edit your display name</small></span><span aria-hidden="true">›</span></button></section><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Update your sign-in password</small></span><span aria-hidden="true">›</span></button></section><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setSettingsSection("general"); setPermissionMessage(null); setCharacterPanelOpen(false); setSettingsOpen(true); void refreshBrowserPermissions(); }}><span><strong>Settings</strong><small>General, sound, camera, permissions, theme</small></span><span aria-hidden="true">›</span></button></section></div>
+          <div className="user-settings-content"><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setCharacterPanelOpen(false); setProfileDialogOpen(true); }}><span><strong>Profile</strong><small>Edit your display name</small></span><span aria-hidden="true">›</span></button></section>{pwaInstall.canInstall && <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => void pwaInstall.promptInstall()}><span><strong>Install GAMVerse</strong><small>Add the app to your device</small></span><span aria-hidden="true">↓</span></button></section>}<section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Update your sign-in password</small></span><span aria-hidden="true">›</span></button></section><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setSettingsSection("general"); setPermissionMessage(null); setCharacterPanelOpen(false); setSettingsOpen(true); void refreshBrowserPermissions(); }}><span><strong>Settings</strong><small>General, sound, camera, permissions, theme</small></span><span aria-hidden="true">›</span></button></section></div>
           <footer className="character-drawer-footer"><button type="button" className="right-drawer-map-mode" aria-label={map2dViewActive ? "Switch to 3D view" : "Switch to 2D view"} onClick={() => map2dToggleRef.current()}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 7 6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z"/><path d="M9 4v13m6-10v13"/></svg><span>{map2dViewActive ? "Switch to 3D" : "Switch to 2D"}</span></button><button type="button" className="account-action signout" onClick={signOut.request}>Sign out</button></footer>
         </aside>}
         <section className="lobby-content">
-          <div className="lobby-intro"><span className="eyebrow">YOUR WORKSPACE</span><div className="lobby-intro-heading"><h1>{authUser.role === "maintainer" ? "Manage offices" : "Choose an office"}</h1><button data-tutorial-target="lobby-create-office" className="lobby-button primary" type="button" onClick={() => { setLobbyError(null); setCreateOfficeDialogOpen(true); }}>＋ Create office</button></div><p>Enter an office you belong to, accept an invitation, or start a new office.</p></div>
-          {authUser.role === "maintainer" && <>
-            <a className="lobby-diagnostics-entry" href="/maintainer/diagnostics">
-              <span className="lobby-diagnostics-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg></span>
-              <span><strong>Runtime diagnostics</strong><small>Performance, connection issues & error history</small></span>
-              <span className="lobby-diagnostics-open" aria-hidden="true">View diagnostics →</span>
-            </a>
-            <MaintainerSystemPanel endpoint={endpoint} />
+          {pendingOfficeEntry && !maintainerPage && <section className="meeting-prejoin-card" aria-labelledby="meeting-prejoin-title">
+            <h1 id="meeting-prejoin-title">Join {pendingOfficeEntry.office.name}</h1>
+            <p>Camera and microphone start off.</p>
+            <div className="meeting-prejoin-devices">
+              <h2 className="meeting-prejoin-device-heading">Camera and audio</h2>
+              <div className="meeting-prejoin-device-settings">
+                <div className="meeting-prejoin-preview"><CameraSettings deviceId={cameraDeviceId} backgroundMode={cameraBackgroundMode} onDeviceChange={switchCameraDevice} onBackgroundModeChange={changeCameraBackgroundMode} /></div>
+                <div className="meeting-prejoin-preview"><SoundSettings inputDeviceId={audioDevicePreferences.inputDeviceId} outputDeviceId={audioDevicePreferences.outputDeviceId} onInputDeviceChange={switchMicrophoneDevice} onOutputDeviceChange={switchSpeakerDevice} noiseReductionEnabled={noiseReductionEnabled} noiseReductionStatus={noiseReductionStatus} noiseReductionDetails={noiseReductionDetails} onNoiseReductionChange={updateNoiseReductionPreference} /></div>
+              </div>
+            </div>
+            {lobbyError && <p className="auth-error" role="alert">{lobbyError}</p>}
+            <label className="prejoin-skip-option"><input type="checkbox" checked={skipOfficePrejoin} onChange={event => setSkipOfficePrejoin(event.target.checked)} /><span>Skip next time</span></label>
+            <footer className="meeting-prejoin-actions">
+              <button className="lobby-button" type="button" disabled={lobbyBusy} onClick={cancelPendingOfficeEntry}>Back</button>
+              <button className="lobby-button primary" type="button" disabled={lobbyBusy} onClick={continueIntoPendingOffice}>{lobbyBusy ? "Joining…" : "Join"}</button>
+            </footer>
+          </section>}
+          {meetingLinkOfficeId && !offices.some((office) => office.id === meetingLinkOfficeId) && <LobbyDirectory endpoint={endpoint} username={authUser.username} maintainer={false}
+            officesRevision={offices} invitesRevision={invites} busy={lobbyBusy} inviteToken={inviteLinkToken}
+            resetUrls={resetUrls} onEnter={selectOffice} onManage={(office) => void openOfficeManager(office)}
+            onShareOffice={officeShare.open} onAccept={(inviteId) => void acceptInvite(inviteId)} onResetLink={issueResetLink} />}
+          {!meetingLinkOfficeId && !pendingOfficeEntry && <>
+          {maintainerPage ? <>
+            <MaintainerWorkspaceNav section={maintainerSection} />
+            {maintainerSection === "overview" && <>
+              <MaintainerSystemPanel endpoint={endpoint} view="overview" />
+              <nav className="maintainer-workspace-shortcuts" aria-label="Platform management shortcuts">
+                <a className="maintainer-workspace-shortcut" href="/maintainer/offices"><span><strong>Offices & people</strong><small>Browse offices, manage accounts, and review activity.</small></span><span aria-hidden="true">›</span></a>
+                <a className="maintainer-workspace-shortcut" href="/maintainer/platform"><span><strong>Platform controls</strong><small>Choose which editing tools are available.</small></span><span aria-hidden="true">›</span></a>
+              </nav>
+            </>}
+            {maintainerSection === "platform" && <MaintainerSystemPanel endpoint={endpoint} view="platform" />}
+            {maintainerSection === "offices" && <>
+              <div className="maintainer-offices-actions"><p>Browse and manage workspaces, members, and platform activity.</p><button data-tutorial-target="lobby-create-office" className="lobby-button primary" type="button" onClick={() => { setLobbyError(null); setCreateOfficeDialogOpen(true); }}>＋ Create office</button></div>
+              <LobbyDirectory endpoint={endpoint} username={authUser.username} maintainer={true}
+                officesRevision={offices} invitesRevision={invites} busy={lobbyBusy} inviteToken={inviteLinkToken}
+                resetUrls={resetUrls} onEnter={selectOffice} onManage={(office) => void openOfficeManager(office)}
+                onShareOffice={officeShare.open} onAccept={(inviteId) => void acceptInvite(inviteId)} onResetLink={issueResetLink} />
+            </>}
+          </> : <>
+            <div className="lobby-intro"><span className="eyebrow">YOUR WORKSPACE</span><div className="lobby-intro-heading"><h1>Choose an office</h1><div className="lobby-intro-actions"><InstallAppButton {...pwaInstall} /><button data-tutorial-target="lobby-create-office" className="lobby-button primary" type="button" onClick={() => { setLobbyError(null); setCreateOfficeDialogOpen(true); }}>＋ Create office</button></div></div><p>Enter an office you belong to, accept an invitation, or start a new office.</p></div>
+            <LobbyDirectory endpoint={endpoint} username={authUser.username} maintainer={false}
+              officesRevision={offices} invitesRevision={invites} busy={lobbyBusy} inviteToken={inviteLinkToken}
+              resetUrls={resetUrls} onEnter={selectOffice} onManage={(office) => void openOfficeManager(office)}
+              onShareOffice={officeShare.open} onAccept={(inviteId) => void acceptInvite(inviteId)} onResetLink={issueResetLink} />
+          </>}
           </>}
           {lobbyError && <p className="auth-error" role="alert">{lobbyError}</p>}
           {accountError && <p className="auth-error" role="alert">{accountError}</p>}
@@ -2872,12 +3051,6 @@ export function OfficeApp() {
             peoplePerTeam={createOfficePeoplePerTeam} inputsValid={createOfficeInputsValid} interiors={createOfficeInteriors} busy={lobbyBusy} error={lobbyError}
             onNameChange={setOfficeName} onTotalPeopleChange={setGeneratorTotalPeople} onTeamCountChange={(count) => { setGeneratorTeamCount(count); setGeneratorTeamNames((names) => resizeOfficeTeamNames(names, count)); }} onTeamNameChange={(index, value) => setGeneratorTeamNames((names) => names.map((name, nameIndex) => nameIndex === index ? value : name))} onInteriorsChange={setCreateOfficeInteriors}
             onSubmit={(event) => void createOfficeAction(event)} onClose={() => setCreateOfficeDialogOpen(false)} />}
-          <LobbyDirectory endpoint={endpoint} username={authUser.username} maintainer={authUser.role === "maintainer"}
-            officesRevision={offices} invitesRevision={invites} busy={lobbyBusy} inviteToken={inviteLinkToken}
-            resetUrls={resetUrls}
-            onEnter={selectOffice} onManage={(office) => void openOfficeManager(office)}
-            onShareOffice={officeShare.open}
-            onAccept={(inviteId) => void acceptInvite(inviteId)} onResetLink={issueResetLink} />
         </section>
         {settingsDialog}{signOut.dialog}{officeShare.dialog}
         {profileDialog}
@@ -2932,6 +3105,7 @@ export function OfficeApp() {
       ? "Reconnect to see who's here."
       : "You're the first one here.";
   const selectedVoiceConnected = meetingZoneActive ? voiceConnected : privateZoneId ? privateVoiceConnected : proximityVoiceConnected;
+  const meetingAudioStatusValue = meetingAudioStatus({ connected: voiceConnected, retryExhausted: voiceRetryExhausted, error: Boolean(voiceError) });
   const selectedMicMuted = meetingZoneActive ? voiceMuted : privateZoneId ? privateVoiceMuted : proximityVoiceMuted;
   const activeDeskZoneId = privateZoneId ?? selectedDeskZoneId;
   const selectedMapZone = selectedMapZoneId ? officeMapLayout?.zones.find((zone) => zone.id === selectedMapZoneId) ?? null : null;
@@ -2958,10 +3132,11 @@ export function OfficeApp() {
   const zoneAccessDetail = activeDeskZone
     ? `${activeDeskZoneIsCurrent ? "You’re here · " : ""}${activeDeskZone.ownerUsername ? activeDeskZone.ownerUsername === authUser?.username ? "Your desk" : `Desk owned by ${activeDeskZone.ownerUsername}` : "No owner · available to claim"}`
     : meetingZoneId ? `You’re here · ${lockedZoneIds.includes(meetingZoneId) ? "Locked to current occupants" : "Open to everyone"}` : "Open to everyone";
-  const roomIsLocked = Boolean(zonePrivacyTargetId && lockedZoneIds.includes(zonePrivacyTargetId));
+  const roomAccessSnapshot = officeConversations.privateAccess.snapshot;
+  const roomIsLocked = Boolean(zonePrivacyTargetId && roomAccessSnapshot?.zoneId === zonePrivacyTargetId && roomAccessSnapshot.locked);
   const roomLockAction = roomIsLocked ? { action: "unlock" as const } : { action: "lock" as const };
-  const roomLockEnabled = officeConversations.privateAccess.snapshot?.zoneId === zonePrivacyTargetId
-    && privateActionEnabled(officeConversations.privateAccess.snapshot, roomLockAction,
+  const roomLockEnabled = roomAccessSnapshot?.zoneId === zonePrivacyTargetId
+    && privateActionEnabled(roomAccessSnapshot, roomLockAction,
       officeConversations.privateAccess.pending, officeConversations.privateAccess.nowMs);
   const admittedRosterSessions = new Set(conversation?.conversation?.members.map(member => member.sessionId) ?? []);
   const voiceRosterPeople: VoiceRosterPerson[] = people.filter(([id]) => admittedRosterSessions.has(id)).map(([sessionId, player]) => ({
@@ -3009,8 +3184,12 @@ export function OfficeApp() {
   return (
     <main className={`app-shell office-experience${characterPanelOpen ? " character-panel-open" : ""}`}>
       <PageTutorial page={meetingEntry ? "meeting" : "office"} username={authUser.username} />
+      {meetingEntry && status !== "connected" && <div className={`meeting-connection-banner is-${status}`} role="status" aria-live="polite">
+        <span>{status === "reconnecting" ? "Connection interrupted. Reconnecting…" : status === "connecting" ? "Connecting to your meeting…" : status === "error" ? "Connection failed." : "Disconnected from the meeting."}</span>
+        {(status === "error" || status === "disconnected") && <button type="button" onClick={() => clearSelectedOffice()}>Return to lobby</button>}
+      </div>}
       {profileDialog}
-      <WorldCanvas activeRoomKey="lobby" cameraRoomKey={activeCameraRoomKey} playersRef={playersRef} localSessionIdRef={localSessionIdRef} proximityGroupIdRef={proximityGroupIdRef} headingIntentRef={headingIntentRef} localPetIdRef={localPetIdRef} map2dToggleRef={map2dToggleRef} onMapViewChange={setMap2dViewActive} speakingUsernamesRef={speakingUsernamesRef} heldKeysRef={heldKeysRef} cameraYawRef={cameraYawRef} cameraBehindCharacterRef={cameraBehindCharacterRef} firstPersonViewRef={firstPersonViewRef} map2dDecorationsRef={social.decorationsRef} map2dViewRef={map2dViewRef} locateRequestRef={locateRequestRef} travelFeedback={travel.feedback} travelRequesting={travel.requesting} onCancelTravel={() => roomRef.current?.send("auto-move-cancel", {})} propsConfigVersion={modifyPropsOpen ? modifyPropsVersion : mapPropsConfigVersion} roomLayout={displayedOfficeMapLayout} personalDeskZone={personalDeskZone} onReturnToDesk={returnToDesk} deskClaimingZoneId={deskClaimingZoneId} currentPrivateZoneId={privateZoneId} inboundAudioMuted={inboundAudioMutedRef.current} appPaused={deskManagerOpen || conversationsOpen || Boolean(social.interaction) || workspaceOverlayOpen || userStatus !== "available"} idleAnimationsEnabled={idleAnimationsEnabled} ghostSessionIds={ghostSessionIds} mapEditMode={mapEditMode} selectedMapZoneId={selectedMapZoneId} buildMode={modifyPropsOpen || mapBuildingPickerOpen} selectedAsset={mapBuildingPickerOpen ? selectedMapBuildingAsset : selectedModifyPropAsset} selectedMapItemId={selectedModifyPropId} onPlaceProp={(asset, position) => mapEditMode ? placeMapBuilding(asset, position) : placeOfficeProp(asset, position)} onPlacementComplete={() => { if (!mapEditMode) setSelectedModifyPropAsset(null); else if (ROOM_PROP_CATALOG.find((item) => item.asset === selectedMapBuildingAsset)?.editorRole !== "map-component") setSelectedMapBuildingAsset(null); }} onMoveProp={(id, position) => mapEditMode ? moveMapBuilding(id, position) : moveOfficeProp(id, position)} onRotateProp={(id) => mapEditMode ? rotateMapBuilding(id) : rotateOfficeProp(id)} onDeleteProp={(id) => mapEditMode ? deleteMapBuilding(id) : deleteOfficeProp(id)} onSelectMapItem={setSelectedModifyPropId} onModifyProps={() => void enterModifyPropsMode()} spawnPlacementMode={spawnPlacementMode} onMoveSpawnPoint={(position) => void saveMapSpawnPoint(position)} zoneDrawing={mapZoneDrawing} onZoneAreaDrawn={(area) => { setMapZoneArea(area); setMapZoneDrawing(false); setMapZoneName(""); setLobbyError(null); }} onSelectDeskZone={(zoneId) => setSelectedDeskZoneId(zoneId)} onSelectMapZone={(zoneId) => setSelectedMapZoneId(zoneId)} onClaimDeskZone={(zoneId) => void claimDeskZone(zoneId)} canClaimDesk={canClaimAnyDesk} canEditMap={authUser?.role === "maintainer" || activeOffice.role === "owner" || activeOffice.role === "admin"} mapEditorUsername={mapEditorUsername} mapEditLockPending={mapEditLockRequestPending} onEditMap={() => enterMapEditMode(activeOffice)} blasterEventsRef={blasterEventsRef} jumpStartedAtRef={jumpStartedAtRef} onJump={() => roomRef.current?.send("jump", true)} onBlasterShot={(shot) => { if (!appPausedRef.current) roomRef.current?.send("blaster-shot", shot); }} onWeaponEquip={(weaponId) => { if (!appPausedRef.current) roomRef.current?.send("weapon-equip", weaponId); }} onVehicleInteract={(vehicleId, propId) => { if (!appPausedRef.current) roomRef.current?.send("vehicle-interact", vehicleId ? { vehicleId, propId } : ""); }} onAutoMove={(destination) => { if (appPausedRef.current) return; if (!travel.expectDestination(destination)) return; heldKeysRef.current.clear(); lockedMovementRef.current = null; roomRef.current?.send("auto-move", { ...destination, randomVehicle: true }); }} onSelectPlayer={(sessionId) => { const player = playersRef.current.get(sessionId); if (player?.presence === "online") setMapPlayerAction({ sessionId }); }} onGhostModeChange={setGhostMode} />
+      <WorldCanvas activeRoomKey="lobby" cameraRoomKey={activeCameraRoomKey} playersRef={playersRef} localSessionIdRef={localSessionIdRef} proximityGroupIdRef={proximityGroupIdRef} headingIntentRef={headingIntentRef} localPetIdRef={localPetIdRef} map2dToggleRef={map2dToggleRef} onMapViewChange={setMap2dViewActive} speakingUsernamesRef={speakingUsernamesRef} heldKeysRef={heldKeysRef} cameraYawRef={cameraYawRef} cameraBehindCharacterRef={cameraBehindCharacterRef} firstPersonViewRef={firstPersonViewRef} map2dDecorationsRef={social.decorationsRef} map2dViewRef={map2dViewRef} locateRequestRef={locateRequestRef} travelFeedback={travel.feedback} travelRequesting={travel.requesting} onCancelTravel={() => roomRef.current?.send("auto-move-cancel", {})} propsConfigVersion={modifyPropsOpen ? modifyPropsVersion : mapPropsConfigVersion} roomLayout={displayedOfficeMapLayout} personalDeskZone={personalDeskZone} onReturnToDesk={returnToDesk} deskClaimingZoneId={deskClaimingZoneId} currentPrivateZoneId={privateZoneId} inboundAudioMuted={inboundAudioMutedRef.current} appPaused={deskManagerOpen || conversationsOpen || Boolean(social.interaction) || workspaceOverlayOpen || userStatus !== "available"} idleAnimationsEnabled={idleAnimationsEnabled} powerSaverEnabled={powerSaverEnabled} ghostSessionIds={ghostSessionIds} mapEditMode={mapEditMode} selectedMapZoneId={selectedMapZoneId} buildMode={modifyPropsOpen || mapBuildingPickerOpen} selectedAsset={mapBuildingPickerOpen ? selectedMapBuildingAsset : selectedModifyPropAsset} selectedMapItemId={selectedModifyPropId} onPlaceProp={(asset, position) => mapEditMode ? placeMapBuilding(asset, position) : placeOfficeProp(asset, position)} onPlacementComplete={() => { if (!mapEditMode) setSelectedModifyPropAsset(null); else if (ROOM_PROP_CATALOG.find((item) => item.asset === selectedMapBuildingAsset)?.editorRole !== "map-component") setSelectedMapBuildingAsset(null); }} onMoveProp={(id, position) => mapEditMode ? moveMapBuilding(id, position) : moveOfficeProp(id, position)} onDeleteProp={(id) => mapEditMode ? deleteMapBuilding(id) : deleteOfficeProp(id)} onSelectMapItem={setSelectedModifyPropId} onModifyProps={() => void enterModifyPropsMode()} spawnPlacementMode={spawnPlacementMode} onMoveSpawnPoint={(position) => void saveMapSpawnPoint(position)} zoneDrawing={mapZoneDrawing} onZoneAreaDrawn={(area) => { setMapZoneArea(area); setMapZoneDrawing(false); setMapZoneName(""); setLobbyError(null); }} onSelectDeskZone={(zoneId) => setSelectedDeskZoneId(zoneId)} onSelectMapZone={(zoneId) => setSelectedMapZoneId(zoneId)} onClaimDeskZone={(zoneId) => void claimDeskZone(zoneId)} canClaimDesk={canClaimAnyDesk} canEditMap={authUser?.role === "maintainer" || activeOffice.role === "owner" || activeOffice.role === "admin"} mapEditorUsername={mapEditorUsername} mapEditLockPending={mapEditLockRequestPending} onEditMap={() => enterMapEditMode(activeOffice)} onReserveMeetingRoom={meetingEntry ? () => setMeetingReservationsOpen(true) : undefined} blasterEventsRef={blasterEventsRef} jumpStartedAtRef={jumpStartedAtRef} onJump={() => roomRef.current?.send("jump", true)} onBlasterShot={(shot) => { if (!appPausedRef.current) roomRef.current?.send("blaster-shot", shot); }} onWeaponEquip={(weaponId) => { if (!appPausedRef.current) roomRef.current?.send("weapon-equip", weaponId); }} onVehicleInteract={(vehicleId, propId) => { if (!appPausedRef.current) roomRef.current?.send("vehicle-interact", vehicleId ? { vehicleId, propId } : ""); }} onAutoMove={(destination) => { if (appPausedRef.current) return; if (!travel.expectDestination(destination)) return; heldKeysRef.current.clear(); lockedMovementRef.current = null; roomRef.current?.send("auto-move", { ...destination, randomVehicle: true }); }} onSelectPlayer={(sessionId) => { const player = playersRef.current.get(sessionId); if (player?.presence === "online") setMapPlayerAction({ sessionId }); }} onGhostModeChange={setGhostMode} />
       <OfficeSocialOverlay social={social} room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} endpoint={endpoint} officeId={activeOffice.id} username={authUser.username} sessionKey={localSessionIdRef.current} chatTarget={chatTarget} chatTargetRevision={chatTargetRevision} chatContainer={chatContainer} chatVisible={activeLeftTab === "chat" && workspacePanelOpen} onUnread={setChatUnread} doNotDisturb={mediaSuppressed} zoneUsernames={zoneAudioUsernames} />
       {zoneMapOpen && <ZoneMapOverlay layout={displayedOfficeMapLayout} playersRef={playersRef} localSessionIdRef={localSessionIdRef} onClose={() => setZoneMapOpen(false)} />}
       <Minimap layout={displayedOfficeMapLayout} configVersion={mapPropsConfigVersion} playersRef={playersRef} localSessionIdRef={localSessionIdRef} cameraYawRef={cameraYawRef} hidden={mapEditMode || modifyPropsOpen} />
@@ -3065,8 +3244,8 @@ export function OfficeApp() {
         <header className="character-drawer-header"><div><span className="eyebrow">YOUR ACCOUNT</span><h2>Account & settings</h2></div></header>
         <section className="character-account" aria-label="Your account"><span className="character-account-avatar">{(authUser?.username ?? "U").slice(0, 1).toUpperCase()}</span><div className="character-account-name"><strong>{playerName({ displayName: authUser.username, isMaintainer: authUser.role === "maintainer" })}</strong><span>{authUser.role}</span></div></section>
         <div className="user-settings-content">
-          <section className="user-settings-section"><button type="button" className="settings-menu-row availability-settings-row" onClick={() => { setCharacterPanelOpen(false); setAvailabilityEditorOpen(true); }}><span className={`user-status-dot status-${userStatus}`} aria-hidden="true">{userStatusOptions.find((item) => item.value === userStatus)?.icon ?? "✓"}</span><span><strong>{userStatusOptions.find((item) => item.value === userStatus)?.label ?? "Available"}</strong><small>{customStatusLabel(playersRef.current.get(localSessionIdRef.current ?? "") ?? {}) ?? "Set your availability and status"}</small></span><span aria-hidden="true">›</span></button></section>
           <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setCharacterPanelOpen(false); setProfileDialogOpen(true); }}><span><strong>Profile</strong><small>Edit your display name</small></span><span aria-hidden="true">›</span></button></section>
+          {pwaInstall.canInstall && <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => void pwaInstall.promptInstall()}><span><strong>Install GAMVerse</strong><small>Add the app to your device</small></span><span aria-hidden="true">↓</span></button></section>}
           <section className="user-settings-section" aria-labelledby="character-settings-title">
             <button type="button" className="settings-menu-row" id="character-settings-title" onClick={() => { setCharacterDraft(authUser.characterId ?? DEFAULT_CHARACTER_ID); setCharacterDialogInitialPetId(activePetId); setCharacterPanelOpen(false); setWorkspacePanelOpen(false); setCharacterDialogOpen(true); }}><span><strong>Character</strong><small>View and customize your character</small></span><span aria-hidden="true">›</span></button>
           </section>
@@ -3179,7 +3358,7 @@ export function OfficeApp() {
         officeName={activeOffice.name} onClose={() => setDeskManagerOpen(false)} onChanged={() => void officeDesks.refresh()} />}
       <OfficeContextOverlay deskError={deskClaimError} desksLoading={officeDesks.loading} onRetryDesks={() => void officeDesks.refresh()}
         deskAssignmentNotice={deskAssignmentNotice.notice} onDismissDeskAssignmentNotice={deskAssignmentNotice.dismiss}
-        voiceNotice={voiceMediaNotice} onDismissVoiceNotice={() => setVoiceMediaNotice(null)} availabilityError={!availabilityEditorOpen ? availability.error : null}
+        voiceNotice={voiceMediaNotice} onDismissVoiceNotice={() => setVoiceMediaNotice(null)} availabilityError={availability.error}
         >
       {(meetingZoneId || privateZoneId || selectedDeskZoneId) && <div className="zone-access-control" role="group" aria-label={`${activeDeskZoneLabel ?? mediaZoneName ?? "Desk"} access settings`}>
         <span><strong>{activeDeskZoneLabel ?? mediaZoneName ?? "Zone"}</strong><small>{zoneAccessDetail}</small></span>
@@ -3206,6 +3385,20 @@ export function OfficeApp() {
         <button type="button" className={`dock-button ${mediaSuppressed ? "active" : ""}`} aria-pressed={mediaSuppressed} title={mediaSuppressed ? "Headphones off · click to set Available" : "Headphones on · click to turn on Do not disturb"} aria-label={mediaSuppressed ? "Turn headphones on" : "Turn headphones off"} onClick={toggleHeadphones}><FeatherIcon name={mediaSuppressed ? "headphonesOff" : "headphones"} /></button>
         <ReactionPicker room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} disabled={status !== "connected"} />
         <HandRaiseButton room={status === "connected" ? roomRef.current as unknown as ChatTransport : null} raised={playersRef.current.get(localSessionIdRef.current ?? "")?.handRaised ?? false} disabled={status !== "connected"} />
+        {meetingEntry && <button type="button" className={`dock-button${meetingNotesOpen ? " active" : ""}`} aria-label="Open personal meeting notes" aria-pressed={meetingNotesOpen} title="Personal meeting notes" onClick={() => setMeetingNotesOpen(true)}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8m-8 4h8"/></svg></button>}
+        {meetingZoneActive && <MeetingRecordingControl recording={meetingRecording} />}
+        {meetingEntry && meetingZoneActive && <span className={`meeting-audio-status is-${meetingAudioStatusValue}`} role="status" aria-live="polite" title={meetingAudioStatusLabel(meetingAudioStatusValue)}><i aria-hidden="true" /><span>{meetingAudioStatusLabel(meetingAudioStatusValue)}</span></span>}
+        {meetingEntry && meetingZoneActive && meetingZoneId && <MeetingToolsMenu
+          worldStatus={status} audioStatus={meetingAudioStatusValue}
+          canReconnect={voiceRetryExhausted && !mediaSuppressed}
+          onReconnect={() => voiceSessionRef.current?.reconnect()}
+          onOpenDevices={() => { setSettingsSection("sound"); setSettingsOpen(true); }}
+          skipOfficePrejoin={skipOfficePrejoin} onSkipOfficePrejoinChange={updateSkipOfficePrejoin}
+          powerSaverEnabled={powerSaverEnabled} onPowerSaverChange={updatePowerSaverEnabled}
+          onOpenNotes={() => setMeetingNotesOpen(true)}
+          meetingUrl={createMeetingRoomUrl(window.location.origin, activeOffice.id, meetingZoneId)}
+          recording={meetingRecording}
+        />}
         <span className="dock-separator" />
         <div className="user-status-dock-control">
           <button type="button" className={`dock-button user-status-trigger${userStatusMenuOpen ? " active" : ""}`} aria-label={`Your status: ${userStatusOptions.find((item) => item.value === userStatus)?.label ?? "Available"}`} title={`Status · ${userStatusOptions.find((item) => item.value === userStatus)?.label ?? "Available"}`} aria-haspopup="menu" aria-expanded={userStatusMenuOpen} onClick={() => setUserStatusMenuOpen((open) => !open)}>
@@ -3228,9 +3421,14 @@ export function OfficeApp() {
           }}><FeatherIcon name="exit" /></button>
       </div>
 
-      {availabilityEditorOpen && <AvailabilityDialog status={userStatus} customStatus={customStatusFromFields(playersRef.current.get(localSessionIdRef.current ?? "") ?? {})}
-        pending={availability.pending} error={availability.error} onClose={() => setAvailabilityEditorOpen(false)}
-        onSave={(nextStatus, customStatus) => { void selectUserStatus(nextStatus, customStatus).then(saved => { if (saved) setAvailabilityEditorOpen(false); }); }} />}
+      {meetingNotesOpen && <MeetingNotesDialog officeId={activeOffice.id} officeName={activeOffice.name} onClose={() => setMeetingNotesOpen(false)} />}
+      {meetingReservationsOpen && <MeetingReservationsDialog endpoint={endpoint} officeId={activeOffice.id} officeName={activeOffice.name} username={authUser.username} role={activeOffice.role} zones={officeMapLayout?.zones.filter(zone => zone.kind === "meeting") ?? []} capacities={meetingRoomCapacities} onClose={() => setMeetingReservationsOpen(false)} onGoToRoom={zoneId => {
+        const zone = officeMapLayout?.zones.find(item => item.id === zoneId && item.kind === "meeting");
+        if (!zone || !travel.expectDestination(zone)) return;
+        roomRef.current?.send("auto-move", { x: zone.x, z: zone.z, randomVehicle: true });
+        setWorkspacePanelOpen(false);
+      }} />}
+
       {statusTravelError && <div className="auto-move-toast" role="status">{statusTravelError}</div>}
 
 
@@ -3267,6 +3465,14 @@ export function OfficeApp() {
         </div>
       )}
       <p className="screen-reader-only">With the camera locked behind your character, W and S walk forward and backward; hold A or D to turn in 15 degree steps. Right-drag to free the camera, and use Focus character to lock it again. Hold Shift while moving to run. Click the ground to travel automatically by a randomly selected vehicle. Drag the map to pan it.</p>
+      {featureDisabledDialog && <WorkspaceDialog labelledBy="platform-feature-disabled-title" onClose={() => setFeatureDisabledDialog(null)} className="platform-feature-disabled-dialog">
+        <section className="manager-dialog" aria-labelledby="platform-feature-disabled-title">
+          <span className="eyebrow">PLATFORM CONTROL</span>
+          <h2 id="platform-feature-disabled-title">{featureDisabledDialog === "mapEditing" ? "Map editing is turned off" : "Prop editing is turned off"}</h2>
+          <p>{featureDisabledDialog === "mapEditing" ? "A maintainer has temporarily disabled map editing for all offices." : "A maintainer has temporarily disabled prop editing for all offices."} You can try again when it is available.</p>
+          <button type="button" className="lobby-button primary" onClick={() => setFeatureDisabledDialog(null)}>OK</button>
+        </section>
+      </WorkspaceDialog>}
       {modifyPropsOpen && officeMapLayout && <ModifyPropsEditor open={modifyPropsOpen} officeName={activeOffice.name} dimension={{ width: mapDimensions.width, depth: mapDimensions.depth, gridSize: 1 }} props={modifyPropsDraft} selectedPropId={selectedModifyPropId} placingAsset={selectedModifyPropAsset} error={modifyPropsError} onDraftChange={setModifyPropsDraft} onRequestPlacement={(asset) => setSelectedModifyPropAsset(asset as RoomLayoutProp["asset"] | null)} onSelectProp={setSelectedModifyPropId} onRotateProp={rotateOfficeProp} onSave={saveModifyProps} onCancel={() => { setModifyPropsOpen(false); setSelectedModifyPropAsset(null); setSelectedModifyPropId(null); setModifyPropsError(null); }} />}
       {modifyPropsBusy && <FullScreenLoading label="Loading office props…" />}
     </main>

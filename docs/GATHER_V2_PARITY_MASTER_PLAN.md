@@ -3,6 +3,8 @@
 Date: 2026-10-15
 Status: progressive implementation through P01–P08/P11–P17, with bounded scope and evidence below. The current final batch covers visible P10 desk administration and furnished new-office creation. On 15 October the owner directed completion of this visible deliverable followed by a rebase onto main; further roadmap implementation is paused at that scope boundary. P09, full team seating and later phases remain open, as does complete reference parity acceptance.
 
+Latest follow-up (2026-11-03): prop visibility across distance/private zones and room-lock targeting/state were corrected in source. The corrective slice and its pending browser acceptance are tracked under [World prop visibility and room-lock stabilization](#world-prop-visibility-and-room-lock-stabilization-2026-11-03); finish that gate before resuming P09/P10 expansion.
+
 ## Outcome and working assumptions
 
 Make GAMVerse behave and feel as close to Gather v2 as practical across the full virtual-office workflow: enter the office, find people, approach or invite them, hold a private or public conversation, collaborate, and return to focused work. Match interaction states and failure paths as carefully as the appearance.
@@ -60,14 +62,14 @@ This is based on current source, including the in-progress UX delivery. Historic
 | Presence | Seven explicit statuses including Away; shared suppression policy, office-persisted custom text/emoji/expiry | Optional idle/calendar smart status and full media acceptance |
 | Desks | One claimed private **zone** per member | Stable desk entity, open/private desks, personal objects/settings, admin desk manager/team seating |
 | Conversations | Spatial meeting/private zones and connected proximity groups | Stable conversation identity, listen/join/mute, invitation acceptance, lock/knock/admit, explicit lifecycle |
-| Meetings | Video track tiles, focus popup, AV/share buttons | Participant-first Office/Meeting views, camera-off tiles, stage/pins, multiple shares, device controls, meeting chat |
+| Meetings | Video track tiles, focus popup, AV/share buttons, prejoin across office entry paths with a local skip preference, direct room links, connection badges, manual power-saver mode, raised-hand queue, local notes/action items and consent-gated local recording | Speaker output test; actionable layered connection diagnosis; suspend world rendering during meetings; host/presenter/end-for-all controls; shared meeting agenda/tasks; live captions; transcript/AI notes |
 | Chat | Nearby/office/DM, history, local unread, improved composer | Server inbox/read cursor, groups/channels, thread replies, mentions, attachments, search, delivery states |
 | Notifications | Wave/follow alerts and chat badge; office audit feed | Personal actionable inbox, durable read state, notification preferences and delivery policy |
 | Rooms/editor | Generated layout, zones/doors/locks, separate map/prop drafts | Team areas/room metadata, templates, room resize/move, undo/redo, scoped decoration ownership |
 | Objects | Note/link/allowlisted iframe interactions | Object presets, shared object state, webhook objects, embedded collaboration affordances |
 | Calendar | No provider integration found | OAuth connection, agenda/reminders, bookings, room links, extension and smart status |
 | Guests/admin | Account membership, owner/admin/user/maintainer, invites | Host check-in, expiring guest identity/grants, guest limitations, office policies and SSO |
-| Recording/AI | No implementation found | Egress/storage, permissioned artifacts, transcript jobs, grounded notes and search |
+| Recording/AI | Consent-gated browser screen/tab recording downloaded to the requester’s device; no server upload/storage | Browser/multiplayer acceptance; transcription and AI notes are not implemented; decide whether any transcript/AI processing can stay local before considering an external provider |
 | Desktop/integrations | Browser application | Mini Mode fallback/native wrapper, OS presence, GitHub/Spotify, native notifications |
 
 Important implementation facts:
@@ -178,8 +180,8 @@ Each row is one implementation phase and one reviewable PR. Bundles below are re
 
 | Phase | Deliverable | Depends on | Acceptance |
 | --- | --- | --- | --- |
-| P33 | Meeting recording and permissioned artifact delivery | P16, P24, P28 | Visible recording state; start/stop/failure; participant access snapshot; storage expiry/download authorization |
-| P34 | Meeting transcription pipeline | P33 | Job retries/idempotence, speaker attribution limits, partial failure and transcript access; provider/language quality benchmark |
+| P33 | Consent-gated local meeting recording | P16, P24, P28 | Visible recording state; start/stop/failure; all current participants consent; selected screen/tab capture downloads locally; no server recording storage |
+| P34 | Meeting transcription and live captions | P33 | Decide local processing and supported languages first; if no suitable internal option exists, keep external processing deferred until explicitly selected; accessible caption controls, partial failure and transcript privacy |
 | P35 | AI meeting notes and action items | P34 | Notes reference transcript timestamps; uncertainty visible; generation cannot broaden artifact audience; notification when ready |
 | P36 | AI search across authorized office knowledge | P22, P35 | Confirm target reference behavior first; permission filtering before retrieval; citations and no-answer state; revoked access disappears |
 | P37 | GitHub activity integration | P03, P24 | Organization/user connection and revoke; webhook dedup; chosen repository visibility explicit; guest policy enforced |
@@ -190,7 +192,7 @@ Each row is one implementation phase and one reviewable PR. Bundles below are re
 | P42 | SSO and enterprise access policy | P28 | SAML/OIDC integration choice settled; domain verification, session invalidation, admin recovery and cross-office isolation |
 | P43 | Release performance, resilience and parity audit | All selected release phases | Full journey matrix passes; evidence-backed concurrency target; accessibility/browser coverage; operational recovery rehearsal |
 
-P25a–c and P30a–b deliberately separate provider integration and editor geometry into playable PRs. P33–P36 require a cost/storage/provider decision before implementation; they are part of the plan rather than silently omitted. Recording is not automatically enabled by adding the service.
+P25a–c and P30a–b deliberately separate provider integration and editor geometry into playable PRs. P34–P36 require a processing, privacy and cost decision before implementation. P33 is now local capture with no server artifact store; recording is not automatically enabled by adding a service.
 
 ## Ordering and parallel ownership
 
@@ -399,5 +401,36 @@ For rebase conflicts, the owner explicitly prefers the improved workspace, Peopl
 Actual new-office screenshots also expose a furnishing gap: detailed rendering of sample props does not make the generated office welcoming when its rooms start largely empty. Existing-asset default furnishing is prioritized with the desk work after privacy/meeting stability, before optional provider integrations. It must use the separate props persistence/version path and preserve existing edits; no new third-party asset pack is planned.
 
 Read-only survey confirms the current generator intentionally emits empty interiors. The proposed creation-only choice is a recommended furnished starter alongside empty interiors. Saved offices will not be filled automatically. A pure zone-relative furnishing helper will feed the existing separate props save and use catalog dimensions/support checks, bounded counts, clear spawn/door approaches and representative seat routes; the editor's broad generated-ID removal heuristic will not be reused for this slice.
+
+### World prop visibility and room-lock stabilization — 2026-11-03
+
+This corrective slice is promoted ahead of further desk/editor expansion because incorrect cross-zone rendering and a misleading room-lock control undermine the existing private-room contract. The code changes below are implemented; browser and multiplayer acceptance are still open.
+
+| Improvement | Status | Implementation / remaining work |
+| --- | --- | --- |
+| Hide props belonging to other occupied zones | **Implemented; runtime acceptance pending** | Apply the zone visibility predicate to ordinary loaded props and instanced scenery (including trees/plants), which previously only used distance visibility. Verify a private-room occupant cannot see props from adjacent private or meeting zones. |
+| Restrict a private-room occupant to their current private zone | **Implemented; runtime acceptance pending** | Filter layout props against the server-reported `currentPrivateZoneId`; read it through a ref so zone transitions take effect in the render loop without rebuilding the scene. Verify enter/leave transitions and ensure map/build editing still exposes the intended workspace. |
+| Make room lock target and state reliable | **Implemented; runtime acceptance pending** | Prefer the physically occupied meeting/private zone over a stale selected desk, and derive lock state from that zone's access snapshot. The combined `lockedZoneIds` list also contains desk-assignment fences, so it is not a valid source for the lock button's lock/unlock state. Verify owner/moderator, non-owner and stale-selection paths. |
+| Set and validate the expected prop distance | **Audited; decision/acceptance open** | Ordinary props currently render within 200 m of camera focus (with 15 m hysteresis) and preload within 225 m. Roadside scenery uses a directional region up to 150 m forward and 100 m sideways. No radius was changed in this slice. Confirm whether the product expectation is measured from camera focus or the player's position, then validate the boundary in 3D and overview/map camera modes and adjust only if it fails that acceptance. |
+| Prove the privacy and lock behavior end to end | **Not done** | Run focused regression checks for hidden instanced props and lock-state/target selection, then use two browser sessions on Compose: one in a private zone and one outside; cover private and meeting zones, enter/leave, lock/unlock, and reconnect. Build passed for the source changes, but this does not replace browser acceptance. |
+
+Recommended order: (1) complete two-session private-zone and lock acceptance, (2) settle the distance reference point and record the accepted radius, (3) fix any observed boundary failures, then (4) resume P09 personal desk decoration and full P10 seating/editor work. Keep geometry visibility, prop distance culling and conversation/media authorization as separate checks; passing one does not establish the others.
+
+### Requested virtual-meeting improvements — implementation inventory (2026-11-03)
+
+This inventory tracks the eight requested improvements directly. “Implemented” describes code presence; it does not claim full parity or end-to-end acceptance.
+
+| # | Improvement | Status | What is implemented and how | Remaining work / blocker |
+| --- | --- | --- | --- | --- |
+| 1 | Pre-meeting setup | **Implemented; browser acceptance pending** | Every office selection opens camera preview, microphone meter, device selection and audio settings before entry unless the saved skip preference is enabled. Mic/camera stay off on entry. The checkbox stores a username-scoped skip preference in localStorage; device IDs continue using the existing local browser preference store, so nothing is written to the server. Settings and Meeting tools can turn skipping back off. | A speaker playback test is still missing. Verify selection, skip, preference reset and muted entry from office list, switcher, deep link, invite acceptance, auto-restoration and office creation on real devices. |
+| 2 | Clear connection status | **Partial; surfaced in Meeting tools** | The menu shows separate world and audio states, while exhausted voice retries offer a reconnect action. | There is no likely-cause diagnosis or tailored fix for network quality; no latency/loss diagnostics are established. |
+| 3 | Direct meeting link | **Implemented; copy action surfaced; acceptance pending** | `/meeting/{officeId}?room={zoneId}` carries the destination; reservation links use that route, and Meeting tools can copy the current room link. Membership/invite checks still apply before automatic navigation to the room. | Verify authorized, unauthorized, removed-member, invalid-room and mobile flows using browser sessions. A direct link does not bypass office membership. |
+| 4 | Low-resource meeting mode | **Partial; toggle surfaced in Meeting tools** | The menu offers the persisted setting that caps renderer pixel ratio at 1 and disables shadows. | It does not suspend or reduce the 3D render loop specifically during meetings, and does not automatically restore rendering based on meeting state. Measure impact after implementing a reversible meeting presentation mode. |
+| 5 | Host tools | **Not implemented; limitation surfaced** | Meeting tools now lists host controls and clearly marks them unavailable. Participants can still raise/lower hands; the server maintains FIFO hand order. | There is no host role/toolset for presenter assignment, ending for everyone, or explaining a lost host capability. Define authority and transfer/end semantics before implementation. |
+| 6 | Agenda and tasks | **Personal version implemented; entry point surfaced** | Meeting tools opens personal notes and action items with assignee, due date, completion and text export; data saves to browser localStorage. | Notes are personal and keyed per office, not shared or meeting-specific. Decide shared record, permissions and retention before adding collaboration. |
+| 7 | Live captions and accessibility | **Not implemented; limitation surfaced** | General app keyboard/status accessibility exists; Meeting tools marks captions as unavailable rather than implying a working feature. | No internal speech-to-text pipeline is present. Internal processing is preferred; external audio processing remains deferred pending internal evaluation and explicit provider choice. Define language, consent, speaker labels and keyboard/screen-reader behavior. |
+| 8 | Recording and AI summary | **Local recording implemented; entry point surfaced; AI not implemented** | Meeting tools exposes recording start/stop/cancel alongside the existing consent prompt. All current participants must consent; the requester selects a screen/tab and `MediaRecorder` downloads locally. GAMVerse does not upload or retain the file. | Browser-dependent screen/tab capture is not a server-side mixed recording; selected-tab audio depends on browser/share permissions and there is no server backup. Transcription and AI summaries are absent. Keep recording local; decide whether local transcription is feasible before considering an external service. |
+
+Recommended delivery order: close the prejoin and connection-recovery gaps first; then host controls and shared notes/tasks; add low-resource meeting rendering; evaluate internal captions/transcription; finish local recording acceptance and only then decide whether AI summaries fit the privacy and processing constraints. Direct-link behavior is implemented and should be acceptance-tested alongside the first two items.
 
 Final root acceptance after the merge gate: rebased production browser smoke passed with two profiles (desk-manager eligible members, Join with media off, camera-off meeting roster, authoritative remote raised-hand queue, Grid/Active speaker, ReturntoOffice and private device settings). Local watcher resumed and app container restarted successfully; Vite5173 returns200, API/realtime listeners respond, and the configured migration ledger confirms23–27. Original private state and regenerated runtime cache are preserved externally; private files stay unstaged and the source stash stays retained. No commit, push or production deployment.

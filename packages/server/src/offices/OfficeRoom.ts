@@ -43,8 +43,10 @@ import { liveKitIdentity, proximityRoomName, removeZoneParticipants, revokeProxi
 import { recordOfficeActivity } from "./activity.js";
 import { ghostCollisionWorld, movementBlockedByProps } from "./ghostCollision.js";
 import { database } from "../infra/db.js";
+import { readPlatformFeatureFlags } from "../infra/platformFeatures.js";
 import { logServerError, logServerEvent } from "../infra/logger.js";
 import { PlayerSpatialInterest } from "./playerSpatialInterest.js";
+import { isMeetingRecordingMessage, MeetingRecordingConsent } from "./meetingRecording.js";
 
 // At most ceil(1000 / 30) = 34 input messages/s. Allow a three-second
 // buffered movement burst (102) plus 26 control/handshake messages.
@@ -185,6 +187,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
   private mediaZoneBySessionId = new Map<string, RoomLayoutZone>();
   private lockedZoneIds = new Set<string>();
   private mediaIdentityBySessionId = new Map<string, string>();
+  private meetingRecordingConsent?: MeetingRecordingConsent;
   private sessionSecurity = new SessionSecurity();
   private shuttingDown = false;
   private deskTravel?: DeskMessages;
@@ -199,6 +202,12 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     }
     this.setMetadata({ officeId: options.officeId });
     this.officeId = options.officeId;
+    this.meetingRecordingConsent = new MeetingRecordingConsent(
+      zoneId => [...this.mediaZoneBySessionId].filter(([, zone]) => zone.kind === "meeting" && zone.id === zoneId)
+        .map(([sessionId]) => ({ sessionId, displayName: this.state.players.get(sessionId)?.displayName ?? "Participant" })),
+      (sessionId, event, payload) => this.clients.find(client => client.sessionId === sessionId)?.send(event, payload),
+    );
+    this.onMessage("meeting-recording-control", (client: Client, payload: unknown) => this.handleMeetingRecordingControl(client, payload));
     this.conversations = new SpatialConversations(this.officeId);
     registerConversationMessages(this, this.conversations);
     this.privacy = new PrivateConversations(this.officeId,this.conversations.roomIncarnationId, {
@@ -268,10 +277,19 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       this.officeMapRequestAt.set(client.sessionId, now);
       client.send("office-map", { config: this.mapConfig, configVersion: this.mapConfigVersion, revision: this.mapRevision });
     });
-    this.onMessage("map-edit-lock", (client: Client, payload: unknown) => {
+    this.onMessage("map-edit-lock", async (client: Client, payload: unknown) => {
       if (typeof payload !== "object" || payload === null || !("active" in payload) || typeof payload.active !== "boolean") return;
       if (!payload.active) {
         if (this.mapEditorSessionId === client.sessionId) this.releaseMapEditLock(client.sessionId);
+        return;
+      }
+      try {
+        if (!(await readPlatformFeatureFlags()).mapEditing) {
+          client.send("map-edit-lock-result", { granted: false, error: "Map editing is disabled platform-wide." });
+          return;
+        }
+      } catch {
+        client.send("map-edit-lock-result", { granted: false, error: "Could not verify platform feature settings." });
         return;
       }
       const role = this.officeRolesBySessionId.get(client.sessionId);
@@ -837,6 +855,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
 
   onLeave(client: Client, code?: number) {
     const username = this.usernamesBySessionId.get(client.sessionId);
+    this.meetingRecordingConsent?.disconnect(client.sessionId);
     logServerEvent("realtime", "office.client.left", { roomId: this.roomId, officeId: this.officeId, sessionId: client.sessionId, username, code, clientCount: this.clients.length });
     this.releaseMapEditLock(client.sessionId);
     this.broadcastGhostMode(client.sessionId, false);
@@ -911,6 +930,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
   }
 
   onDispose() {
+    this.meetingRecordingConsent?.dispose();
     OfficeRoom.routeSearchPool?.removeSnapshot(this.roomId);
     for (const sessionId of this.routeIntentRevisionBySessionId.keys()) this.invalidateRouteIntent(sessionId);
     this.routeIntentRevisionBySessionId.clear();
@@ -962,6 +982,12 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
   static kickMember(officeId: string, username: string) {
     const revokedSpotlights = new Set<Spotlight>();
     for (const room of OfficeRoom.roomsByOffice.get(officeId) ?? []) room.revokeUsername(username, OFFICE_ACCESS_REVOKED_REASON, revokedSpotlights);
+  }
+
+  static broadcastPlatformFeatures(flags: { mapEditing: boolean; propEditing: boolean }) {
+    for (const rooms of OfficeRoom.roomsByOffice.values()) {
+      for (const room of rooms) room.broadcast("platform-features", flags);
+    }
   }
 
   static kickAccountFromAllOffices(username: string) {
@@ -1511,9 +1537,28 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       else this.privateZoneIdBySessionId.set(sessionId, current.id);
       this.recordMediaZoneActivity(sessionId, current, "enter");
     } else this.mediaZoneBySessionId.delete(sessionId);
+    if (previous?.kind === "meeting") this.meetingRecordingConsent?.membershipChanged(previous.id);
+    if (current?.kind === "meeting") this.meetingRecordingConsent?.membershipChanged(current.id);
     const client = this.clients.find((entry) => entry.sessionId === sessionId);
     if (client) this.sendMediaZone(client, sessionId);
     return transitions;
+  }
+
+  private handleMeetingRecordingControl(client: Client, payload: unknown) {
+    if (!isMeetingRecordingMessage(payload)) return;
+    const zone = this.mediaZoneBySessionId.get(client.sessionId);
+    if (!zone || zone.kind !== "meeting" || zone.id !== payload.zoneId || !this.meetingMembersBySessionId.has(client.sessionId)) {
+      client.send("meeting-recording-state", { zoneId: payload.zoneId, requestId: payload.requestId, status: "error", message: "Join the meeting room before recording." });
+      return;
+    }
+    const coordinator = this.meetingRecordingConsent;
+    if (!coordinator) return;
+    let accepted = false;
+    if (payload.action === "request") accepted = coordinator.request(client.sessionId, payload.zoneId, payload.requestId);
+    else if (payload.action === "consent") accepted = coordinator.consent(client.sessionId, payload.zoneId, payload.requestId, payload.accepted!);
+    else if (payload.action === "started") accepted = coordinator.started(client.sessionId, payload.zoneId, payload.requestId);
+    else accepted = coordinator.stop(client.sessionId, payload.zoneId, payload.requestId);
+    if (!accepted) client.send("meeting-recording-state", { zoneId: payload.zoneId, requestId: payload.requestId, status: "error", message: "This recording request is no longer available." });
   }
 
   private exitMediaZone(sessionId: string, zone: RoomLayoutZone) {

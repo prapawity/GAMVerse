@@ -109,24 +109,25 @@ export function shouldRenderRoadsideProp(
 export class RoadsideSceneryVisibility {
   private readonly chunks;
   private readonly chunkByPropId;
-  private readonly propStates = new Map<string, { bounds: RoadsideBounds; visible: boolean }>();
+  private readonly propStates = new Map<string, { bounds: RoadsideBounds; visible: boolean; hidden: boolean }>();
   private readonly instanceListeners = new Set<{ ids: readonly string[]; apply: (visible: boolean[]) => void; last: string }>();
   private active = false;
 
   constructor(props: readonly RoadsidePlacement[]) {
     this.chunks = groupRoadsideProps(props).map(chunk => ({ ...chunk, visible: false, visuals: new Set<{ visible: boolean }>() }));
     this.chunkByPropId = new Map(this.chunks.flatMap(chunk => chunk.props.map(prop => [prop.id, chunk] as const)));
-    for (const chunk of this.chunks) for (const prop of chunk.props) this.propStates.set(prop.id, { bounds: groupRoadsideProps([prop])[0].bounds, visible: false });
+    for (const chunk of this.chunks) for (const prop of chunk.props) this.propStates.set(prop.id, { bounds: groupRoadsideProps([prop])[0].bounds, visible: false, hidden: false });
   }
 
-  update(character: RoadsideCharacter | undefined, editing: boolean) {
+  update(character: RoadsideCharacter | undefined, editing: boolean, isHidden?: (prop: RoadsidePlacement) => boolean) {
     this.active = Boolean(character);
     for (const chunk of this.chunks) {
       const chunkVisible = shouldRenderRoadsideChunk(chunk.bounds, character, chunk.visible, editing);
       let anyVisible = false;
       for (const prop of chunk.props) {
         const state = this.propStates.get(prop.id)!;
-        state.visible = chunkVisible && shouldRenderRoadsideProp(state.bounds, character, state.visible, editing);
+        state.hidden = isHidden?.(prop) ?? false;
+        state.visible = !state.hidden && chunkVisible && shouldRenderRoadsideProp(state.bounds, character, state.visible, editing);
         anyVisible ||= state.visible;
       }
       chunk.visible = this.active ? anyVisible : chunkVisible;
@@ -136,7 +137,9 @@ export class RoadsideSceneryVisibility {
   }
 
   visibilityFor(propId: string): boolean | undefined {
-    return this.active ? this.propStates.get(propId)?.visible : undefined;
+    const state = this.propStates.get(propId);
+    if (state?.hidden) return false;
+    return this.active ? state?.visible : undefined;
   }
 
   /** Reports per-prop visibility to a batch whenever it changes, so instances beyond the radius are not drawn. */
@@ -157,7 +160,7 @@ export class RoadsideSceneryVisibility {
       chunk.props.push(prop);
     }
     this.chunkByPropId.set(prop.id, chunk);
-    this.propStates.set(prop.id, { bounds: groupRoadsideProps([prop])[0]!.bounds, visible: false });
+    this.propStates.set(prop.id, { bounds: groupRoadsideProps([prop])[0]!.bounds, visible: false, hidden: false });
   }
 
   /** Stop tracking a removed prop. The chunk's bounds stay conservative. */

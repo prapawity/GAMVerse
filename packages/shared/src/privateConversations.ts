@@ -11,6 +11,7 @@ export const PRIVATE_MEDIA_RETRY_INTERVAL_MS = 5000;
 export const PRIVATE_PENDING_KNOCKS_MAX_COUNT = 4;
 export const PRIVATE_TERMINAL_KNOCKS_MAX_COUNT = 256;
 const PRIVATE_FIELD_MAX_CHARACTERS = 512;
+export const PRIVATE_LOCK_REASON_MAX_CHARACTERS = 160;
 export type PrivateTransportState = "ready" | "rotating" | "unavailable";
 export type PrivateKnockState = "pending" | "admitted" | "declined" | "cancelled" | "expired" | "revoked" | "unavailable";
 export type PrivateKnock = {
@@ -43,6 +44,7 @@ export type PrivateZoneAccessSnapshot = {
   zoneId: string;
   revision: number;
   locked: boolean;
+  lockReason: string | null;
   transportState: PrivateTransportState;
   access: "open" | "admitted" | "blocked";
   leaseExpiresAtMs: number | null;
@@ -60,8 +62,8 @@ type BaseCommand = {
   zoneId: string;
   expectedRevision: number;
 };
-export type PrivateZoneCommand = BaseCommand & ({
-  action: "lock" | "unlock" | "knock" | "cancel-knock" | "retry-media";
+export type PrivateZoneCommand = BaseCommand & ({ action: "lock"; reason?: string } | {
+  action: "unlock" | "knock" | "cancel-knock" | "retry-media";
 } | {
   action: "admit" | "decline";
   knockId: string;
@@ -82,6 +84,7 @@ export function isValidPrivateZoneCommand(value: unknown): value is PrivateZoneC
   if (!conversationRecord(value) || !text(value.zoneId) || !isValidStatusRequestId(value.requestId) || !count(value.expectedRevision))
     return false;
   const base = ["zoneId", "requestId", "expectedRevision", "action"];
+  if (value.action === "lock") return (value.reason === undefined || typeof value.reason === "string" && value.reason.length <= PRIVATE_LOCK_REASON_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value.reason)) && keys(value, [...base, ...(value.reason === undefined ? [] : ["reason"])]);
   if (value.action === "admit" || value.action === "decline")
     return text(value.knockId) && keys(value, [...base, "knockId"]);
   if (value.action === "revoke")
@@ -96,7 +99,7 @@ function capabilities(value: unknown): value is PrivateCapabilities {
   return conversationRecord(value) && ["lock", "unlock", "knock", "cancelKnock", "admit", "revoke", "retryMedia"].every(key => typeof value[key] === "boolean");
 }
 export function isValidPrivateZoneAccessSnapshot(value: unknown): value is PrivateZoneAccessSnapshot {
-  if (!conversationRecord(value) || ![value.officeId, value.roomIncarnationId, value.zoneId].every(text) || !count(value.revision) || typeof value.locked !== "boolean")
+  if (!conversationRecord(value) || ![value.officeId, value.roomIncarnationId, value.zoneId].every(text) || !count(value.revision) || typeof value.locked !== "boolean" || !(value.lockReason === null || typeof value.lockReason === "string" && value.lockReason.length <= PRIVATE_LOCK_REASON_MAX_CHARACTERS))
     return false;
   if (!["ready", "rotating", "unavailable"].includes(String(value.transportState)) || !["open", "admitted", "blocked"].includes(String(value.access)) || !capabilities(value.capabilities))
     return false;

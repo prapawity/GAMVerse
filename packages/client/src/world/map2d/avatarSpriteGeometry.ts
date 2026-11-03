@@ -1,17 +1,29 @@
 import type { Map2dAvatarVisual } from "./map2dAvatarVisual";
 import { CHARACTER_MAX_HEIGHT_M, CHARACTER_MAX_WIDTH_M } from "../characterModelFit";
 
-export const AVATAR_SPRITE_TILE_WIDTH_PX = 64;
-export const AVATAR_SPRITE_TILE_HEIGHT_PX = 80;
+// The sprites are enlarged at close map zoom, so render each atlas frame at
+// higher source resolution instead of stretching a small thumbnail.
+// Keep the sprite's world-sized display envelope, but capture it at a higher
+// raster resolution so close 2D views don't enlarge a soft 144×180 portrait.
+export const AVATAR_SPRITE_TILE_WIDTH_PX = 192;
+export const AVATAR_SPRITE_TILE_HEIGHT_PX = 240;
 export const AVATAR_SPRITE_WIDTH_PX = 44;
 export const AVATAR_SPRITE_HEIGHT_PX = 56;
 const AVATAR_SPRITE_FRAME_MARGIN_M = 0.5;
-export const AVATAR_SPRITE_TARGET_HEIGHT_M = CHARACTER_MAX_HEIGHT_M / 2;
+export const AVATAR_SPRITE_TARGET_HEIGHT_M = Math.min(CHARACTER_MAX_HEIGHT_M, 1.8);
 export const AVATAR_SPRITE_FRAME_HEIGHT_M = Math.hypot(CHARACTER_MAX_HEIGHT_M, CHARACTER_MAX_WIDTH_M)
   * AVATAR_SPRITE_TILE_HEIGHT_PX / AVATAR_SPRITE_TILE_WIDTH_PX + AVATAR_SPRITE_FRAME_MARGIN_M;
 export const AVATAR_SPRITE_ABOVE_ANCHOR_PX = AVATAR_SPRITE_HEIGHT_PX * (0.5 + AVATAR_SPRITE_TARGET_HEIGHT_M / AVATAR_SPRITE_FRAME_HEIGHT_M);
 export function avatarSpriteScale(pxPerM: number): number {
   return AVATAR_SPRITE_FRAME_HEIGHT_M * pxPerM / AVATAR_SPRITE_HEIGHT_PX;
+}
+/** Match the vector fallback's visible height to the transparent sprite atlas content. */
+export function avatarFallbackScale(pxPerM: number): number {
+  return AVATAR_SPRITE_TARGET_HEIGHT_M * pxPerM / 47;
+}
+/** Keep rings and facing markers readable without inheriting the atlas's transparent padding. */
+export function avatarMarkerScale(pxPerM: number): number {
+  return Math.max(0.65, Math.min(1.5, pxPerM / 24));
 }
 export function avatarSpriteAboveAnchorPx(pxPerM: number): number {
   return AVATAR_SPRITE_ABOVE_ANCHOR_PX * avatarSpriteScale(pxPerM);

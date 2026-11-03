@@ -10,6 +10,8 @@ export type Map2dPlayer = AvatarPose & {
   handRaised?: boolean;
   characterId?: string;
   sittingPropId?: string;
+  /** Display-only height above the floor for seated and lying sprite placement. */
+  renderElevationM?: number;
   vehicleId?: string;
   vehiclePropId?: string;
   vehiclePropX?: number;

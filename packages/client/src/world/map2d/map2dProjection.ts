@@ -15,10 +15,14 @@ export type Map2dProjection = {
   dpr: number;
 };
 
+/** Pixel lift used to project elevated sprites into the shallow 2.5D view. */
+export const MAP2D_VERTICAL_LIFT_RATIO = 0.72;
+
 const CAMPUS_OVERVIEW_MIN_FIT_SCALE = 0.6;
 export function worldToScreen(
   projection: Map2dProjection,
   point: Map2dPoint,
+  elevationM = 0,
 ): ScreenPoint {
   return {
     x:
@@ -26,7 +30,7 @@ export function worldToScreen(
       (point.x - projection.center.x) * projection.pxPerM,
     y:
       projection.heightPx / 2 +
-      (point.z - projection.center.z) * projection.pxPerM,
+      (point.z - projection.center.z) * projection.pxPerM - elevationM * MAP2D_VERTICAL_LIFT_RATIO * projection.pxPerM,
   };
 }
 export function screenToWorld(

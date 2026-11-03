@@ -1,4 +1,4 @@
-import { avatarSpriteScale } from "./avatarSpriteGeometry";
+import { AVATAR_SPRITE_TARGET_HEIGHT_M, avatarMarkerScale } from "./avatarSpriteGeometry";
 
 export const NAME_PILL_HEIGHT_PADDING_PX = 6;
 const NAME_PILL_GAP_PX = 10;
@@ -12,7 +12,7 @@ const AVATAR_MARKER_RADIUS_PX = 15;
 const AVATAR_NAME_FONT_PX = 11;
 
 export function map2dHeadRadiusPx(pxPerM: number): number {
-  return AVATAR_MARKER_RADIUS_PX * avatarSpriteScale(pxPerM);
+  return Math.max(4, Math.min(AVATAR_MARKER_RADIUS_PX, AVATAR_SPRITE_TARGET_HEIGHT_M * pxPerM * 0.12 * avatarMarkerScale(pxPerM)));
 }
 export function map2dNameFontPx(_pxPerM: number): number {
   return AVATAR_NAME_FONT_PX;

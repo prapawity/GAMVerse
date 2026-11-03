@@ -1757,15 +1757,19 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     }
     // Auto-move vehicles are temporary. Interactively driven vehicles retain
     // their manual state and prop binding when an auto route is requested.
-    const candidateVehicleId = previousVehicle || KENNEY_VEHICLE_IDS[Math.floor(Math.random() * KENNEY_VEHICLE_IDS.length)]!;
-    const candidateWorld = { ...this.world, playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) };
-    if (!previousVehicle && !isPositionWalkable(start, candidateWorld)) {
+    // 2D map clicks request an on-foot route; 3D campus auto-move and explicit
+    // workspace travel may request a vehicle. Older clients omit the flag and
+    // keep the historical vehicle behavior.
+    const randomVehicle = payload.randomVehicle !== false;
+    const candidateVehicleId = previousVehicle || (randomVehicle ? KENNEY_VEHICLE_IDS[Math.floor(Math.random() * KENNEY_VEHICLE_IDS.length)]! : "");
+    const vehicleRoute = Boolean(previousVehicle || randomVehicle);
+    const routeWorld = vehicleRoute
+      ? { ...(previousVehicle ? this.worldForVehicle(player) : this.world), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) }
+      : this.world;
+    if (!previousVehicle && !isPositionWalkable(start, routeWorld)) {
       client.send("auto-move-status", { status: "unreachable" });
       return;
     }
-    const routeWorld = previousVehicle
-      ? { ...this.worldForVehicle(player), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) }
-      : candidateWorld;
     // Search the same access-constrained geometry that the movement tick will
     // enforce, so a route cannot be planned through a locked room.
     const navigationWorld = this.movementAccessWorld(client.sessionId, routeWorld);
@@ -1789,20 +1793,21 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
         client.send("auto-move-status", { status: "unreachable" });
         return;
       }
-      const currentWorld = this.movementAccessWorld(client.sessionId, {
-        ...(previousVehicle ? this.worldForVehicle(player) : this.world),
-        playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M),
-      });
+      const currentBaseWorld = previousVehicle ? this.worldForVehicle(player) : this.world;
+      const currentWorld = this.movementAccessWorld(client.sessionId, vehicleRoute
+        ? { ...currentBaseWorld, playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) }
+        : currentBaseWorld);
       if (!routeIsWalkable(start, points, currentWorld) || !isPositionWalkable(destination, currentWorld)) {
         client.send("auto-move-status", { status: "unreachable" });
         return;
       }
-      if (!previousVehicle) {
+      if (!previousVehicle && randomVehicle) {
         player.vehicleId = candidateVehicleId;
         player.vehicleMode = "auto";
         player.vehiclePropId = "";
       }
-      this.autoRoutes.set(client.sessionId, { points, index: 0, stalledTicks: 0, driveSpeedMps: autoMoveDriveSpeed(start, points, this.world.movementSpeed * 5), destination });
+      const routeSpeed = this.world.movementSpeed * (vehicleRoute ? 5 : 1);
+      this.autoRoutes.set(client.sessionId, { points, index: 0, stalledTicks: 0, driveSpeedMps: autoMoveDriveSpeed(start, points, routeSpeed), destination });
       this.pendingSitsBySessionId.delete(client.sessionId);
       if (!previousVehicle && player.vehicleId) {
         const username = this.usernamesBySessionId.get(client.sessionId);

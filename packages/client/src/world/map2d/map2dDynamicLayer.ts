@@ -8,8 +8,7 @@ import { playerName } from "../../identity/playerName";
 import { map2dNameFontPx, map2dNamePillTopPx, NAME_PILL_HEIGHT_PADDING_PX } from "./avatarPortraitGeometry";
 import { drawMap2dAvatar, drawMap2dAvatarIndicators } from "./map2dAvatarDrawing";
 import type { Map2dPlayer } from "./map2dAvatarVisual";
-import { avatarSpriteScreenRect, avatarSpriteAboveAnchorPx, avatarSpriteScale } from "./avatarSpriteGeometry";
-import { drawMap2dProp } from "./map2dPropDrawing";
+import { AVATAR_SPRITE_TARGET_HEIGHT_M } from "./avatarSpriteGeometry";
 import { fitMap2dName, layoutMap2dNames, type Map2dNameCandidate, type Map2dNameRect } from "./map2dNameLayout";
 import { map2dRestingPlayers } from "./map2dRestingPlayers";
 export type { Map2dPlayer } from "./map2dAvatarVisual";
@@ -26,6 +25,37 @@ const NAME_MAX_TEXT_WIDTH_PX = 150;
 const NAME_PILL_COLOR = "rgba(38, 48, 53, 0.92)";
 const AVATAR_OBSTACLE_PADDING_PX = 12;
 const NAME_AVATAR_CLEARANCE_PX = 4;
+const VEHICLE_OCCUPANT_SCALE = 0.42;
+const MAP2D_ACTOR_RENDER_DISTANCE_M = 60;
+
+export type Map2dSceneActor = {
+  x: number;
+  z: number;
+  elevation?: number;
+  local: boolean;
+  draw(ctx: CanvasRenderingContext2D, projection: Map2dProjection): void;
+};
+
+function drawAvatarBody(ctx: CanvasRenderingContext2D, p: Map2dProjection, id: string, player: Map2dPlayer,
+  localId: string | null, speaking: ReadonlySet<string>, portraits: AvatarPortraits | undefined,
+  presentation: Map2dPresentation, layoutProps: readonly RoomLayoutProp[]): void {
+  const local = id === localId;
+  const isSpeaking = speaking.has(player.username.toLocaleLowerCase());
+  if (player.vehicleId) {
+    const screen = worldToScreen(p, player, player.renderElevationM);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.scale(VEHICLE_OCCUPANT_SCALE, VEHICLE_OCCUPANT_SCALE);
+    ctx.translate(-screen.x, -screen.y);
+    drawMap2dAvatar(ctx, p, { ...player, sittingPropId: undefined,
+      visual: { motion: "seated", stridePhaseRad: 0 } }, false, false, portraits, false);
+    ctx.restore();
+    return;
+  }
+  const restingPropId = player.sittingPropId ? parseRoomPropSeatReference(player.sittingPropId)?.propId : undefined;
+  drawMap2dAvatar(ctx, p, player, local, isSpeaking, portraits, presentation === "immersive",
+    Boolean(restingPropId && layoutProps.some(prop => prop.id === restingPropId && isRoomPropBed(prop.asset))));
+}
 
 function drawNames(ctx: CanvasRenderingContext2D, p: Map2dProjection,
   players: ReadonlyMap<string, Map2dPlayer>, localId: string | null, speaking: ReadonlySet<string>, hiddenNameIds: ReadonlySet<string>): void {
@@ -37,15 +67,16 @@ function drawNames(ctx: CanvasRenderingContext2D, p: Map2dProjection,
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   for (const [sessionId, player] of players) {
-    const screen = worldToScreen(p, player);
-    const body = avatarSpriteScreenRect(screen.x, screen.y, p.pxPerM);
-    obstacles.push({ leftPx: body.x - NAME_AVATAR_CLEARANCE_PX, topPx: body.y - NAME_AVATAR_CLEARANCE_PX,
-      widthPx: body.width + NAME_AVATAR_CLEARANCE_PX * 2, heightPx: body.height + AVATAR_OBSTACLE_PADDING_PX * avatarSpriteScale(p.pxPerM) });
+    const screen = worldToScreen(p, player, player.renderElevationM);
+    const bodyWidthPx = Math.max(12, 0.8 * p.pxPerM);
+    const bodyTopPx = screen.y - AVATAR_SPRITE_TARGET_HEIGHT_M * p.pxPerM;
+    obstacles.push({ leftPx: screen.x - bodyWidthPx / 2 - NAME_AVATAR_CLEARANCE_PX, topPx: bodyTopPx - NAME_AVATAR_CLEARANCE_PX,
+      widthPx: bodyWidthPx + NAME_AVATAR_CLEARANCE_PX * 2, heightPx: screen.y - bodyTopPx + AVATAR_OBSTACLE_PADDING_PX });
     if (hiddenNameIds.has(sessionId)) continue;
     const maxTextWidthPx = Math.max(0, Math.min(NAME_MAX_TEXT_WIDTH_PX, p.widthPx - NAME_PILL_PADDING_PX * 2));
     const text = fitMap2dName(playerName(player), maxTextWidthPx, name => ctx.measureText(name).width);
     candidates.push({ sessionId, text, xPx: screen.x,
-      topPx: map2dNamePillTopPx(screen.y, avatarSpriteAboveAnchorPx(p.pxPerM), fontPx) - NAME_AVATAR_CLEARANCE_PX,
+      topPx: map2dNamePillTopPx(screen.y, AVATAR_SPRITE_TARGET_HEIGHT_M * p.pxPerM, fontPx) - NAME_AVATAR_CLEARANCE_PX,
       widthPx: ctx.measureText(text).width + NAME_PILL_PADDING_PX * 2, heightPx: fontPx + NAME_PILL_HEIGHT_PADDING_PX,
       local: sessionId === localId, speaking: speaking.has(player.username.toLocaleLowerCase()), handRaised: Boolean(player.handRaised) });
 
@@ -70,41 +101,46 @@ export function drawMap2dDynamic(
   nowMs: number,
   portraits?: AvatarPortraits,
   presentation: Map2dPresentation = "immersive",
-  movingVehicleProps: readonly RoomLayoutProp[] = [],
+  _movingVehicleProps: readonly RoomLayoutProp[] = [],
   hiddenNameIds: ReadonlySet<string> = new Set(),
   layoutProps: readonly RoomLayoutProp[] = [],
+  drawScene?: (actors: readonly Map2dSceneActor[]) => void,
+  afterScene?: () => void,
 ): void {
   players = map2dRestingPlayers(players, layoutProps);
+  const renderDistanceSquared = MAP2D_ACTOR_RENDER_DISTANCE_M * MAP2D_ACTOR_RENDER_DISTANCE_M;
+  players = new Map(Array.from(players).filter(([id, player]) => {
+    if (id === localId) return true;
+    const dx = player.x - p.center.x;
+    const dz = player.z - p.center.z;
+    return dx * dx + dz * dz <= renderDistanceSquared;
+  }));
   portraits?.setActiveCharacters(Array.from(players.values(), player => player.characterId));
-  for (const prop of movingVehicleProps) drawMap2dProp(ctx, p, prop);
-  for (const [id, player] of players) {
-    if (player.vehicleId) continue;
-    const restingPropId = player.sittingPropId ? parseRoomPropSeatReference(player.sittingPropId)?.propId : undefined;
-    drawMap2dAvatar(
-      ctx,
-      p,
-      player,
-      id === localId,
-      speaking.has(player.username.toLocaleLowerCase()),
-      portraits,
-      presentation === "immersive",
-      Boolean(restingPropId && layoutProps.some(prop => prop.id === restingPropId && isRoomPropBed(prop.asset))),
-    );
-  }
+  const actors = Array.from(players, ([id, player]) => ({
+    x: player.x,
+    z: player.z,
+    elevation: player.renderElevationM ?? 0,
+    local: id === localId,
+    draw: (target: CanvasRenderingContext2D, projection: Map2dProjection) =>
+      drawAvatarBody(target, projection, id, player, localId, speaking, portraits, presentation, layoutProps),
+  }));
+  if (drawScene) drawScene(actors);
+  else for (const actor of actors.sort((a, b) => a.z - b.z)) actor.draw(ctx, p);
+  afterScene?.();
   for (const [id, player] of players)
     if (!player.vehicleId) drawMap2dAvatarIndicators(ctx, p, player, id === localId, speaking.has(player.username.toLocaleLowerCase()));
   drawNames(ctx, p, players, localId, speaking, hiddenNameIds);
   for (const decoration of decorations) {
     const player = players.get(decoration.sessionId);
     if (!player || decoration.expiresAtMs <= nowMs) continue;
-    const screen = worldToScreen(p, player);
+    const screen = worldToScreen(p, player, player.renderElevationM);
     ctx.fillStyle = MAP2D_COLORS.text;
     ctx.font = `${MAP2D_FONT_PX}px system-ui`;
     ctx.textAlign = "center";
     ctx.fillText(
       decoration.text,
       screen.x,
-      map2dNamePillTopPx(screen.y, avatarSpriteAboveAnchorPx(p.pxPerM), map2dNameFontPx(p.pxPerM)) -
+      map2dNamePillTopPx(screen.y, AVATAR_SPRITE_TARGET_HEIGHT_M * p.pxPerM, map2dNameFontPx(p.pxPerM)) -
         DECORATION_GAP_PX -
         Math.sin(nowMs / DECORATION_ANIMATION_PERIOD_MS) * DECORATION_RISE_PX,
     );

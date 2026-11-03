@@ -16,7 +16,7 @@ test("idle and sitting are distinct from the eight distance-driven walking poses
   const poses = Array.from({ length: 8 }, (_, index) => index * Math.PI / 4).map(stridePhaseRad => avatarSpritePoseIndex({ motion: "walking", stridePhaseRad }));
   assert.deepEqual(poses, [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual(avatarSpriteSourceRect(Math.PI, { motion: "walking", stridePhaseRad: Math.PI / 2 }),
-    { x: 192, y: 320, width: 64, height: 80 });
+    { x: 576, y: 960, width: 192, height: 240 });
 });
 test("character frame occupies the full model envelope at every zoom, anchored at its feet", () => {
   for (const pxPerM of [2, 12, 80]) {

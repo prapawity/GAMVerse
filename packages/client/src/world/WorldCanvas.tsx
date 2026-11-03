@@ -29,6 +29,7 @@ import { createWorldDestinationBeacon } from "./destinationBeacon";
 import { createProximityDomeSet } from "./proximityDome";
 import { createDomeSmoothers, proximityDomeEntries, type DomeEntry } from "./proximityGroupShape";
 import { fitWallAssetModel } from "./wallAssetTransform";
+import { fitPropModelToFootprint, normalizePropModel } from "./props/propModelFit";
 import { cameraReducer, createCameraState, isBehindCharacterLocked, type CameraEvent } from "./camera/cameraState";
 import { isLockedBackwardHeld } from "./camera/lockedMovement";
 import { computeCameraFrame, applyCameraProjection, campusOverviewDistance } from "./camera/cameraFrame";
@@ -592,52 +593,6 @@ function loadObjModel(name: string, onLoad: (object: THREE.Group) => void, onErr
   void loadRoomPropAsset(paths).then(onLoad, onError);
 }
 
-function normalizeProp(object: THREE.Object3D, height: number) {
-  const bounds = new THREE.Box3().setFromObject(object);
-  const size = bounds.getSize(new THREE.Vector3());
-  const scale = height / Math.max(size.y, 0.001);
-  object.scale.setScalar(scale);
-  object.position.set(-((bounds.min.x + bounds.max.x) / 2) * scale, -bounds.min.y * scale, -((bounds.min.z + bounds.max.z) / 2) * scale);
-  object.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
-}
-
-/** Aspect-fit the rendered model inside the X/Z collision footprint. */
-function fitPropToFootprint(object: THREE.Object3D, width: number, depth: number) {
-  const bounds = new THREE.Box3().setFromObject(object);
-  const size = bounds.getSize(new THREE.Vector3());
-  const fitX = size.x > 0.001 ? width / size.x : Number.POSITIVE_INFINITY;
-  const fitZ = size.z > 0.001 ? depth / size.z : Number.POSITIVE_INFINITY;
-  // Keep the model's proportions. The catalog footprint may have been raised
-  // to the 1 × 1 m minimum while the source model is naturally much narrower;
-  // stretching each axis independently made tables and other props look wrong.
-  // A promoted minimum collision footprint must not enlarge a small model.
-  // For example, a Kenney chair is only ~0.38 m wide but its editable hitbox
-  // is 1 × 1 m; scaling it up to fill that hitbox makes the chair taller than
-  // the avatar. Keep the authored model size and only shrink when it exceeds
-  // its footprint.
-  const fitScale = Math.min(1, fitX, fitZ);
-  if (Number.isFinite(fitScale) && fitScale > 0) {
-    // Scale all axes together. Scaling only X/Z preserves the footprint but
-    // distorts tall/narrow assets such as chairs and screens.
-    object.scale.multiplyScalar(fitScale);
-  }
-
-  // Asset roots can carry an off-center pivot (especially GLTF scenes with
-  // nested transforms). Fit the rendered geometry first, then place its actual
-  // bounds around the same origin used by the saved collision footprint.
-  const fittedBounds = new THREE.Box3().setFromObject(object);
-  const fittedCenter = fittedBounds.getCenter(new THREE.Vector3());
-  object.position.x -= fittedCenter.x;
-  object.position.z -= fittedCenter.z;
-  object.position.y -= fittedBounds.min.y;
-  return fitScale;
-}
-
 /** Match the rendered size used by an occupied vehicle (2.2 m longest side). */
 function fitVehicleToDriveScale(object: THREE.Object3D) {
   const bounds = new THREE.Box3().setFromObject(object);
@@ -1049,6 +1004,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
         return {
         presentation: mapPresentationRef.current, visible: true, view: "2d", layout: fullLayoutRef.current,
+        editing: mapEditModeRef.current || buildModeRef.current,
+        editProps: buildModeRef.current && !mapEditModeRef.current,
+        currentPrivateZoneId: currentPrivateZoneIdRef.current,
         widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM,
           widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
@@ -1567,7 +1525,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const campusPropPromises = Object.entries(campusPropHeights).map(([name, height]) => new Promise<[string, THREE.Group | null]>((resolve) => {
       loadObjModel(name, (object) => {
         if (disposed) { disposeObjectResources(object); resolve([name, null]); return; }
-        normalizeProp(object, height);
+        normalizePropModel(object, height);
         resolve([name, object]);
       }, () => resolve([name, null]));
     }));
@@ -1700,7 +1658,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     scene.add(furniture);
     if (!roomLayout) loadObjModel("desk", (desk) => {
       if (disposed) { disposeObjectResources(desk); return; }
-      normalizeProp(desk, 1.05);
+      normalizePropModel(desk, 1.05);
       desk.position.set(-2.4, 0, -2.4);
       furniture.add(desk);
       cameraOcclusion.register(desk);
@@ -1708,7 +1666,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     }, (error) => console.warn("Could not load the Kenney desk; keeping the procedural room furnishing.", error));
     if (!roomLayout) loadObjModel("chairDesk", (chair) => {
       if (disposed) { disposeObjectResources(chair); return; }
-      normalizeProp(chair, 0.9);
+      normalizePropModel(chair, 0.9);
       chair.position.set(-2.4, 0, -0.85);
       furniture.add(chair);
       cameraOcclusion.register(chair);
@@ -1716,7 +1674,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     }, (error) => console.warn("Could not load the Kenney chair.", error));
     if (!roomLayout) loadObjModel("computerScreen", (monitor) => {
       if (disposed) { disposeObjectResources(monitor); return; }
-      normalizeProp(monitor, 0.65);
+      normalizePropModel(monitor, 0.65);
       monitor.position.set(-2.4, 1.03, -2.45);
       furniture.add(monitor);
       cameraOcclusion.register(monitor);
@@ -1724,7 +1682,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     }, (error) => console.warn("Could not load the Kenney monitor.", error));
     if (!roomLayout) loadObjModel("pottedPlant", (plant) => {
       if (disposed) { disposeObjectResources(plant); return; }
-      normalizeProp(plant, 1.1);
+      normalizePropModel(plant, 1.1);
       plant.position.set(3.2, 0, -1.8);
       furniture.add(plant);
       cameraOcclusion.register(plant);
@@ -1942,7 +1900,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           const catalog = ROOM_PROP_CATALOG.find((item) => item.asset === door.asset);
           if (catalog) loadObjModel(door.asset, (model) => {
             if (disposed) { disposeObjectResources(model); return; }
-            normalizeProp(model, wall.height);
+            normalizePropModel(model, wall.height);
             model.scale.z *= door.width / Math.max(catalog.depth, 0.01);
             model.rotation.y = wall.axis === "horizontal" ? Math.PI / 2 : 0;
             model.position.set(atX, 0, atZ);
@@ -2071,8 +2029,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
               if (disposed || handle.removed) { disposeObjectResources(object); return; }
               const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
               if (!definition) { disposeObjectResources(object); return; }
-              normalizeProp(object, definition.height);
-              renderedPropScales.set(prop.id, fitPropToFootprint(object, prop.width, prop.depth));
+              normalizePropModel(object, definition.height);
+              renderedPropScales.set(prop.id, fitPropModelToFootprint(object, prop.width, prop.depth));
               // Keep the asset's centering offset local to a pivot at the saved prop
               // position. Applying rotation to the same object that carries the
               // offset rotates around its shifted origin and makes chairs/sofas
@@ -2168,8 +2126,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         if (!definition) continue;
         loadObjModel(asset, (template) => {
           if (disposed) { disposeObjectResources(template); return; }
-          normalizeProp(template, definition.height);
-          fitPropToFootprint(template, definition.width, definition.depth);
+          normalizePropModel(template, definition.height);
+          fitPropModelToFootprint(template, definition.width, definition.depth);
           for (const batch of createInstancedSceneryBatches(template, props, mapWorld, roadsideScenery)) {
             campusMapProps.add(batch);
             furniturePieces.push(batch);
@@ -3789,8 +3747,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
               }
               if (isVehicle) fitVehicleToDriveScale(model);
               else {
-                normalizeProp(model, definition.height);
-                fitPropToFootprint(model, definition.width, definition.depth);
+                normalizePropModel(model, definition.height);
+                fitPropModelToFootprint(model, definition.width, definition.depth);
               }
               model.traverse((object) => {
                 if (!(object instanceof THREE.Mesh)) return;
@@ -3884,7 +3842,10 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
       }
       for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
-      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing, visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: fullLayoutRef.current, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
+      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing,
+        editProps: buildModeRef.current && !mapEditModeRef.current,
+        currentPrivateZoneId: currentPrivateZoneIdRef.current,
+        visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: fullLayoutRef.current, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM, widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
         players: playersRef.current, localId, speaking: speakingUsernamesRef?.current ?? new Set<string>(), decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs: performance.now(), deltaS: delta, destination: travelFeedbackRef.current?.destination ?? null, proximityDomes: sharedDomes }) ?? map2dCenterRef.current;
       socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: fullLayoutRef.current, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: !showMap2d, nowMs: performance.now() });

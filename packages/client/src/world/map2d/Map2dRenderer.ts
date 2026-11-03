@@ -1,6 +1,6 @@
 import type { Map2dPresentation } from "./map2dPresentation";
 import { drawMap2dRoomLabels } from "./map2dRoomLabels";
-import type { RoomLayout, RoomLayoutProp } from "@gammyverse/shared";
+import { ROOM_PROP_CATALOG, type RoomLayout, type RoomLayoutProp } from "@gammyverse/shared";
 import {
   MAP2D_COLORS,
   MAP2D_VIEW_STORAGE_KEY,
@@ -26,6 +26,10 @@ import {
 } from "./map2dProjection";
 import type { DomeEntry } from "../proximityGroupShape";
 import { drawMap2dProximityDomes } from "./map2dProximityDome";
+import { drawMap2dSceneOverlay } from "./map2dSceneOverlay";
+import { map2dPropModelImages } from "./map2dPropModelImages";
+import { propPreviewImages } from "./propPreviewImages";
+import { map2dRestingPlayers } from "./map2dRestingPlayers";
 export interface Map2dListener {
   pan(center: Map2dPoint): void;
   zoom(pxPerM: number): void;
@@ -36,6 +40,8 @@ export interface Map2dListener {
 export type Map2dFrame = {
   presentation?: Map2dPresentation;
   editing?: boolean;
+  editProps?: boolean;
+  currentPrivateZoneId?: string | null;
   visible: boolean;
   view: "2d" | "3d";
   layout: RoomLayout | null;
@@ -74,6 +80,7 @@ export class Map2dRenderer {
   private readonly playerFrames = new Map2dPlayerFrames();
   private readonly changes = new Map2dFrameChanges();
   private previousEditing = false;
+  private doorAnimationFrame = 0;
   private staticLayoutSource: RoomLayout | null | undefined;
   private staticVehicleIds = "";
   private staticLayout: RoomLayout | null = null;
@@ -143,9 +150,10 @@ export class Map2dRenderer {
     const state = this.state;
     const point = this.point(event);
     if (pointer.dragged || isMap2dDrag(pointer.start, point) || !state?.visible) return;
+    const renderedPlayers = map2dRestingPlayers(this.playerFrames.players, state.layout?.props ?? []);
     const playerId = pickMap2dPlayer(
       this.projection,
-      this.playerFrames.players,
+      renderedPlayers,
       point,
     );
     if (playerId) {
@@ -194,6 +202,8 @@ export class Map2dRenderer {
     this.state = state;
     this.canvas.style.display = state.visible ? "block" : "none";
     if (!state.visible) {
+      if (this.doorAnimationFrame) cancelAnimationFrame(this.doorAnimationFrame);
+      this.doorAnimationFrame = 0;
       this.pointer = null;
       this.changes.invalidate();
       return;
@@ -205,7 +215,12 @@ export class Map2dRenderer {
       state.localId ? this.playerFrames.players.get(state.localId) : undefined);
     const p = this.projection;
     this.resizeCanvas();
-    const sceneChanged = this.changes.update(state, p, this.staticLayer.revision, this.portraits.revision);
+    const sceneChanged = this.changes.update(
+      state,
+      p,
+      map2dPropModelImages.revision + propPreviewImages.revision,
+      this.portraits.revision,
+    );
     if (playersChanged || sceneChanged) this.drawFrame(state);
     return p.center;
   }
@@ -235,6 +250,21 @@ export class Map2dRenderer {
         movingVehicleProps.push(movedProp);
       }
     }
+    for (const [sessionId, player] of this.playerFrames.players) {
+      if (!player.vehicleId || player.vehiclePropId) continue;
+      const definition = ROOM_PROP_CATALOG.find(item => item.vehicleId === player.vehicleId);
+      if (!definition) continue;
+      movingVehicleProps.push({
+        id: `auto-vehicle:${sessionId}`,
+        asset: definition.asset,
+        x: player.x,
+        z: player.z,
+        rotation: player.rotation,
+        width: definition.width,
+        depth: definition.depth,
+        collision: false,
+      });
+    }
     const vehicleIds = [...movingVehicleIds].sort().join("|");
     if (this.staticLayoutSource !== state.layout || this.staticVehicleIds !== vehicleIds) {
       this.staticLayoutSource = state.layout;
@@ -255,12 +285,7 @@ export class Map2dRenderer {
     this.staticLayer.blit(ctx, p);
     if (state.proximityDomes?.length) drawMap2dProximityDomes(ctx, p, state.proximityDomes);
     if (state.destination) drawMap2dDestination(ctx, p, state.destination);
-    drawMap2dInteraction(
-      ctx,
-      p,
-      visibleProps,
-      state.localId ? this.playerFrames.players.get(state.localId) : undefined,
-    );
+    let doorAnimationActive = false;
     drawMap2dDynamic(
       ctx,
       p,
@@ -274,10 +299,31 @@ export class Map2dRenderer {
       movingVehicleProps,
       undefined,
       state.layout?.props,
+      actors => { doorAnimationActive = drawMap2dSceneOverlay(ctx, p, visibleProps, this.staticLayout, actors,
+        state.nowMs, state.editing ? p.center : undefined, {
+          editing: Boolean(state.editing),
+          editProps: Boolean(state.editProps),
+          currentPrivateZoneId: state.currentPrivateZoneId,
+        }); },
+      () => drawMap2dInteraction(
+        ctx,
+        p,
+        visibleProps,
+        state.localId ? this.playerFrames.players.get(state.localId) : undefined,
+      ),
     );
+    if (doorAnimationActive && !this.doorAnimationFrame) {
+      this.doorAnimationFrame = requestAnimationFrame(() => {
+        this.doorAnimationFrame = 0;
+        const latestState = this.state;
+        if (latestState?.visible) this.drawFrame({ ...latestState, nowMs: performance.now(), deltaS: 0 });
+      });
+    }
     drawMap2dRoomLabels(ctx, p, state.layout?.zones ?? []);
   }
   dispose(): void {
+    if (this.doorAnimationFrame) cancelAnimationFrame(this.doorAnimationFrame);
+    this.doorAnimationFrame = 0;
     this.staticLayer.dispose();
     this.portraits.dispose();
     this.playerFrames.clear();

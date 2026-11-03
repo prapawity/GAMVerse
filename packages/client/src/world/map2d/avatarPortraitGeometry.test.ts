@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { map2dHeadRadiusPx, map2dNameFontPx, map2dNamePillTopPx, portraitCropRect } from "./avatarPortraitGeometry";
 
-test("ground markers scale proportionally with the character", () => {
-  assert.ok(Math.abs(map2dHeadRadiusPx(12) - 6.75) < 1e-12);
-  assert.equal(map2dHeadRadiusPx(80) / map2dHeadRadiusPx(1), 80);
+test("ground markers stay readable without growing beyond the avatar at overview zoom", () => {
+  assert.equal(map2dHeadRadiusPx(12), 4);
+  assert.equal(map2dHeadRadiusPx(1), 4);
+  assert.equal(map2dHeadRadiusPx(80), 15);
 });
 test("name font stays fixed across zoom", () => {
   assert.equal(map2dNameFontPx(1), 11);

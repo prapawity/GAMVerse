@@ -12,10 +12,12 @@ export function shouldRenderDistanceCulledProp(
   prop: { x: number; z: number },
   cameraFocus: { x: number; z: number },
   wasVisible: boolean,
+  renderDistanceM = PROP_RENDER_DISTANCE_M,
+  hysteresisM = PROP_RENDER_DISTANCE_HYSTERESIS_M,
 ) {
-  // Hide at the requested 200 m distance. A hidden prop only returns after
-  // the camera is 15 m closer, preventing visible flicker at the boundary.
-  const radius = wasVisible ? PROP_RENDER_DISTANCE_M : PROP_RENDER_DISTANCE_M - PROP_RENDER_DISTANCE_HYSTERESIS_M;
+  // A hidden prop only returns after the camera is closer by the hysteresis
+  // band, preventing visible flicker at the boundary.
+  const radius = wasVisible ? renderDistanceM : renderDistanceM - hysteresisM;
   const dx = prop.x - cameraFocus.x;
   const dz = prop.z - cameraFocus.z;
   return dx * dx + dz * dz <= radius * radius;

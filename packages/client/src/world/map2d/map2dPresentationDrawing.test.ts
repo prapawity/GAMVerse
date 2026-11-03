@@ -44,13 +44,10 @@ test("simplified people keep names, status and speaking rings while omitting fac
   assert.equal(player.x, 10);
   assert.equal(player.z, 20);
 });
-test("simplified furniture preserves projected footprint and saved rotation", () => {
+test("simplified base layer leaves prop drawing to the shared top-down overlay", () => {
   const { ctx, calls } = drawingContext();
   drawMap2dSimplified(ctx, projection, { version: 1, walls: [], doors: [], zones: [], props: [
     { id: "desk", asset: "desk", x: 10, z: 20, width: 4, depth: 2, rotation: Math.PI / 2, collision: true },
   ] });
-  assert.deepEqual(calls.find((call) => call.method === "translate")?.args, [410, 320]);
-  assert.deepEqual(calls.find((call) => call.method === "rotate")?.args, [-Math.PI / 2]);
-  assert.deepEqual(calls.find((call) => call.method === "fillRect")?.args, [-2, -1, 4, 2]);
-  assert.equal(calls.some((call) => call.method === "drawImage"), false);
+  assert.equal(calls.some((call) => call.method === "translate" || call.method === "fillRect"), false);
 });

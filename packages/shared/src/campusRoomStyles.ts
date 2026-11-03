@@ -1,28 +1,35 @@
 import type { RoomLayoutZone } from "./roomLayout.js";
-import { teamThemeIndex } from "./campusTeamThemes.js";
 
 /** Floor, wall and roof colours of one generated campus room type. */
 export type CampusRoomStyle = { floorColor: number; wallColor: string; roofColor: string };
 
-// Each room has one base colour: its walls and roof use it as is (so the roof matches the walls seen from the
-// side) and its floor is the same colour lifted toward white (so the room still reads as one hue).
-const FLOOR_LIFT_TOWARD_WHITE = 0.45;
+// Generated private rooms use one soft colour across the floor, walls and roof.
+const STUDIO_PASTEL_SATURATION_MIN = 0.22;
+const STUDIO_PASTEL_SATURATION_SPAN = 0.12;
+const STUDIO_PASTEL_LIGHTNESS_MIN = 0.82;
+const STUDIO_PASTEL_LIGHTNESS_SPAN = 0.08;
+const SHARED_FLOOR_LIFT_TOWARD_WHITE = 0.45;
 const BYTE_MAX = 255;
 const RED_SHIFT = 16;
 const GREEN_SHIFT = 8;
 const BLUE_MASK = 255;
 
-function liftToward(rgb: number, amount: number): number {
+const toHex = (rgb: number) => `#${rgb.toString(16).padStart(6, "0")}`;
+function liftTowardWhite(rgb: number, amount: number): number {
   const lift = (channel: number) => Math.round(channel + (BYTE_MAX - channel) * amount);
   return (lift((rgb >> RED_SHIFT) & BLUE_MASK) << RED_SHIFT) | (lift((rgb >> GREEN_SHIFT) & BLUE_MASK) << GREEN_SHIFT) | lift(rgb & BLUE_MASK);
 }
-const toHex = (rgb: number) => `#${rgb.toString(16).padStart(6, "0")}`;
-const styleFromBase = (base: number): CampusRoomStyle => ({ floorColor: liftToward(base, FLOOR_LIFT_TOWARD_WHITE), wallColor: toHex(base), roofColor: toHex(base) });
+const sharedRoomStyleFromBase = (base: number): CampusRoomStyle => ({ floorColor: liftTowardWhite(base, SHARED_FLOOR_LIFT_TOWARD_WHITE), wallColor: toHex(base), roofColor: toHex(base) });
+const studioStyleFromBase = (base: number): CampusRoomStyle => ({ floorColor: base, wallColor: toHex(base), roofColor: toHex(base) });
 
 const FULL_TURN_DEG = 360;
-// Teams also step through three lightness levels, which keeps far-apart rooms from landing on the same colour.
-const STUDIO_BASE_SATURATION = 0.45;
-const STUDIO_BASE_LIGHTNESS_LEVELS = [0.72, 0.77, 0.82] as const;
+
+function roomStyleSeed(teamNumber: number, officeNumber: number): number {
+  const identity = `${teamNumber}-${officeNumber}`;
+  let seed = 2166136261;
+  for (const character of identity) seed = Math.imul(seed ^ character.charCodeAt(0), 16777619);
+  return seed >>> 0;
+}
 
 function hslToRgbNumber(hueDeg: number, saturation: number, lightness: number): number {
   const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
@@ -34,35 +41,23 @@ function hslToRgbNumber(hueDeg: number, saturation: number, lightness: number): 
   return (channel(r) << RED_SHIFT) | (channel(g) << GREEN_SHIFT) | channel(b);
 }
 
-// Each team theme owns a hue family (cozy tan, office blue, sushi red, forest green, ...) so a team reads as one neighbourhood.
-// Rooms inside the team step through five hues x three lightness levels (x extra saturation beyond fifteen rooms),
-// so every desk room of a team still has its own colour and neighbours differ.
-const THEME_HUES_DEG = [30, 212, 350, 125, 270, 195, 52, 12, 90, 168] as const;
-const THEME_HUE_STEP_DEG = 5;
-const THEME_HUE_STEPS = 5;
-const THEME_LIGHTNESS_STEP = 0.035;
-const THEME_LIGHTNESS_STEPS = 3;
-const THEME_SATURATION_STEP = 0.07;
-const THEME_ROOMS_PER_SATURATION = THEME_HUE_STEPS * THEME_LIGHTNESS_STEPS;
-
 function privateStudioStyle(teamNumber: number, officeNumber: number): CampusRoomStyle {
-  const room = Math.max(0, officeNumber - 1);
-  const hue = THEME_HUES_DEG[teamThemeIndex(teamNumber)]! + ((room % THEME_HUE_STEPS) - Math.floor(THEME_HUE_STEPS / 2)) * THEME_HUE_STEP_DEG + FULL_TURN_DEG;
-  const lightnessBase = STUDIO_BASE_LIGHTNESS_LEVELS[teamNumber % STUDIO_BASE_LIGHTNESS_LEVELS.length]!;
-  const lightness = lightnessBase + (Math.floor(room / THEME_HUE_STEPS) % THEME_LIGHTNESS_STEPS - 1) * THEME_LIGHTNESS_STEP;
-  const saturation = STUDIO_BASE_SATURATION + Math.floor(room / THEME_ROOMS_PER_SATURATION) * THEME_SATURATION_STEP;
-  return styleFromBase(hslToRgbNumber(hue, saturation, lightness));
+  const seed = roomStyleSeed(teamNumber, officeNumber);
+  const hue = seed % FULL_TURN_DEG;
+  const saturation = STUDIO_PASTEL_SATURATION_MIN + ((seed >>> 9) % 100) / 100 * STUDIO_PASTEL_SATURATION_SPAN;
+  const lightness = STUDIO_PASTEL_LIGHTNESS_MIN + ((seed >>> 17) % 100) / 100 * STUDIO_PASTEL_LIGHTNESS_SPAN;
+  return studioStyleFromBase(hslToRgbNumber(hue, saturation, lightness));
 }
 
 // Meeting and shared rooms are formal: one shared look per room type.
 const STYLES = {
-  teamMeeting: styleFromBase(0xb4bccb),
-  meeting: styleFromBase(0xaeb2ba),
-  townhall: styleFromBase(0xbfb2d6),
-  lobby: styleFromBase(0xdccdb2),
-  cafeteria: styleFromBase(0xe0b99c),
-  lounge: styleFromBase(0xbccfaa),
-  restroom: styleFromBase(0xa6d2d0),
+  teamMeeting: sharedRoomStyleFromBase(0xb4bccb),
+  meeting: sharedRoomStyleFromBase(0xaeb2ba),
+  townhall: sharedRoomStyleFromBase(0xbfb2d6),
+  lobby: sharedRoomStyleFromBase(0xdccdb2),
+  cafeteria: sharedRoomStyleFromBase(0xe0b99c),
+  lounge: sharedRoomStyleFromBase(0xbccfaa),
+  restroom: sharedRoomStyleFromBase(0xa6d2d0),
 } as const satisfies Record<string, CampusRoomStyle>;
 
 /**

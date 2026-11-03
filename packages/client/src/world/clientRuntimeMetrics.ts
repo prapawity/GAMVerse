@@ -18,11 +18,23 @@ class Samples {
 
 export class ClientRuntimeMetrics {
   private readonly frames = new Samples();
+  private readonly frameIntervals = new Samples();
+  private readonly renders = new Samples();
+  private previousFrameAtMs: number | undefined;
   private readonly stateApplies = new Samples();
   private frameCount = 0;
   private stateApplyCount = 0;
   private latestSnapshotPlayers = 0;
-  recordFrame(durationMs: number) { this.frameCount += 1; this.frames.add(durationMs); }
+  recordFrame(durationMs: number, frameAtMs?: number) {
+    this.frameCount += 1;
+    this.frames.add(durationMs);
+    if (frameAtMs !== undefined) {
+      if (this.previousFrameAtMs !== undefined) this.frameIntervals.add(frameAtMs - this.previousFrameAtMs);
+      this.previousFrameAtMs = frameAtMs;
+    }
+  }
+  resetFrameSequence() { this.previousFrameAtMs = undefined; }
+  recordRender(durationMs: number) { this.renders.add(durationMs); }
   recordStateApply(durationMs: number, playerCount: number) {
     this.stateApplyCount += 1;
     this.latestSnapshotPlayers = playerCount;
@@ -32,6 +44,8 @@ export class ClientRuntimeMetrics {
     return {
       frameCount: this.frameCount,
       frameDurationMs: this.frames.snapshot(),
+      frameIntervalMs: this.frameIntervals.snapshot(),
+      renderSubmissionDurationMs: this.renders.snapshot(),
       stateApplyCount: this.stateApplyCount,
       stateApplyDurationMs: this.stateApplies.snapshot(),
       latestSnapshotPlayers: this.latestSnapshotPlayers,

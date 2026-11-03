@@ -22,12 +22,15 @@ import { cacheLocalMatrix, cacheStaticModelLocalMatrices } from "./staticModelTr
 import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
 import { shouldShowNameTag } from "./nameTagVisibility";
-import { pickCharacterClips, shouldUseProceduralRig } from "./characterClips";
-import { fitCharacterModel } from "./characterModelFit";
-import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type ProceduralHumanoidRig } from "./proceduralHumanoidMotion";
+import { updateProceduralHumanoidRig } from "./proceduralHumanoidMotion";
+import { advanceDeferredAvatarPosition, createAvatarModelVisual, jumpHasExpired, shouldCreateAvatarRoot, shouldLoadAvatarModel, type AvatarAnimationState } from "./avatarModelVisual";
+import { petFollowTarget, updatePetFollowPosition } from "./petFollowPosition";
+import { advanceWorldAnimationPhase, updateWorldAnimationMixer, worldFramePolicy } from "./worldFramePolicy";
 import { createWorldDestinationBeacon } from "./destinationBeacon";
 import { createProximityDomeSet } from "./proximityDome";
-import { createDomeSmoothers, proximityDomeEntries, type DomeEntry } from "./proximityGroupShape";
+import { createDomeSmoothers, type DomeEntry } from "./proximityGroupShape";
+import { ProximityDomeTopologyCache } from "./proximityDomeTopologyCache";
+import { writeProximityDomePoints } from "./proximityDomePoints";
 import { fitWallAssetModel } from "./wallAssetTransform";
 import { fitPropModelToFootprint, normalizePropModel } from "./props/propModelFit";
 import { cameraReducer, createCameraState, isBehindCharacterLocked, type CameraEvent } from "./camera/cameraState";
@@ -64,7 +67,7 @@ import { createInstancedSceneryBatches, isInstancedScenery } from "./instancedSc
 
 type CharacterModelId = KenneyCharacterId | `custom-${string}`;
 type PlayerStatus = UserStatus;
-type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer?: boolean; characterId: CharacterModelId; petId?: string; weaponId?: KenneyBlasterId | ""; vehicleId?: string; vehicleMode?: "" | "manual" | "auto"; vehiclePropId?: string; vehiclePropX?: number; vehiclePropZ?: number; vehiclePropRotation?: number; sittingPropId?: string; dancing?: boolean; status?: PlayerStatus; handRaised?: boolean; presence?: "online" | "away" };
+type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer?: boolean; characterId: CharacterModelId; petId?: string; weaponId?: KenneyBlasterId | ""; vehicleId?: string; vehicleMode?: "" | "manual" | "auto"; vehiclePropId?: string; vehiclePropX?: number; vehiclePropZ?: number; vehiclePropRotation?: number; sittingPropId?: string; dancing?: boolean; status?: PlayerStatus; handRaised?: boolean; presence?: "online" | "away"; hasDetailedPosition?: boolean };
 type RoomPortalVisual = { roomKey: string; name: string; x: number; z: number; isLocked: boolean };
 type BlasterVector = { x: number; y: number; z: number };
 type BlasterShotEvent = { shooterSessionId: string; start: BlasterVector; end: BlasterVector };
@@ -370,31 +373,13 @@ function makeCampusFloor(floor: { id: number; name: string; width: number; depth
   return { group, boundaryWalls };
 }
 
-interface AvatarAnimationState {
-  model: THREE.Group;
-  lyingModel?: THREE.Group;
-  proceduralMotion: boolean;
-  rotationOffset: number;
-  phase: number;
-  mixer?: THREE.AnimationMixer;
-  idleAction?: THREE.AnimationAction;
-  walkAction?: THREE.AnimationAction;
-  runAction?: THREE.AnimationAction;
-  sitAction?: THREE.AnimationAction;
-  danceAction?: THREE.AnimationAction;
-  currentAction?: THREE.AnimationAction;
-  danceBasePosition?: THREE.Vector3;
-  danceBaseRotation?: THREE.Euler;
-  proceduralDanceActive?: boolean;
-  proceduralRig?: ProceduralHumanoidRig;
-}
-
 function disposeAvatar(avatar: THREE.Group) {
   avatar.traverse((object) => {
     if (object instanceof THREE.Sprite) {
       object.material.map?.dispose();
       object.material.dispose();
     } else if (object instanceof THREE.Mesh) {
+      if (object instanceof THREE.SkinnedMesh) object.skeleton.dispose();
       const ghostOverride = ghostMaterialOverrides.get(object);
       if (ghostOverride) {
         object.material = ghostOverride.original;
@@ -975,6 +960,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const dimensions = roomLayout?.dimensions ?? CAMPUS_LAYOUT.floors[0]!;
     const mapWorld = { ...CAMPUS_WORLD, ...dimensions };
     const activeFloor = { ...CAMPUS_LAYOUT.floors[0]!, ...dimensions };
+    const smoothProximityDomes = createDomeSmoothers();
+    const proximityTopology = new ProximityDomeTopologyCache();
+    const proximityOnlinePoints = new Map<string, PlayerSnapshot>();
     const showMap2dFallback = () => {
       setWebglUnavailable(true);
       setMap2dView("2d");
@@ -1002,6 +990,19 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           }
           lastLocateRequestRef.current = locate.requestId;
         }
+        const fallbackPlayers = playersRef.current;
+        const fallbackLocalId = localSessionIdRef.current;
+        const fallbackZones = roomLayout?.zones ?? [];
+        const fallbackOnlinePoints = writeProximityDomePoints(proximityOnlinePoints, fallbackPlayers,
+          player => mapEditModeRef.current || Boolean(zoneAtWithExitMargin(player, fallbackZones)));
+        let proximityDomes: DomeEntry[];
+        if (fallbackLocalId && fallbackOnlinePoints.has(fallbackLocalId)) {
+          proximityDomes = smoothProximityDomes(proximityTopology.update(fallbackLocalId, fallbackOnlinePoints, mapWorld.proximityRadius,
+            Boolean(proximityGroupIdRef?.current)), nowMs);
+        } else {
+          proximityOnlinePoints.clear();
+          proximityDomes = smoothProximityDomes(proximityTopology.update(null, proximityOnlinePoints, mapWorld.proximityRadius, false), nowMs);
+        }
         return {
         presentation: mapPresentationRef.current, visible: true, view: "2d", layout: fullLayoutRef.current,
         editing: mapEditModeRef.current || buildModeRef.current,
@@ -1014,6 +1015,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         speaking: speakingUsernamesRef?.current ?? new Set<string>(),
         decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs, deltaS,
         destination: travelFeedbackRef.current?.destination ?? null,
+        proximityDomes,
         following: cameraStateRef.current.following,
         };
       }, (center) => { map2dCenterRef.current = center; });
@@ -1058,6 +1060,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     vehicleNameOverlay.setAttribute("aria-hidden", "true");
     host.appendChild(vehicleNameOverlay);
     const vehicleNameLabels = new Map<string, HTMLDivElement>();
+    let nameTagsHiddenForMap2d = false;
     const vehicleNameProjection = new THREE.Vector3();
     host.appendChild(renderer.domElement);
     const map2dCanvas = document.createElement("canvas");
@@ -2148,7 +2151,6 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const roomPortalMeshes = new Map<string, { root: THREE.Group; label: THREE.Sprite; signature: string }>();
     const avatars = new Map<string, THREE.Group>();
     const proximityDomes = createProximityDomeSet(scene);
-    const smoothProximityDomes = createDomeSmoothers();
     const avatarSpeakingBubbles = new Map<string, THREE.Sprite>();
     const localFireRaycaster = new THREE.Raycaster();
     fireFirstPerson = () => {
@@ -2267,13 +2269,16 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     };
     const avatarCharacterIds = new Map<string, CharacterModelId>();
     const avatarAnimations = new Map<string, AvatarAnimationState>();
+    const avatarModelsLoaded = new Set<string>();
+    const avatarModelsPending = new Map<string, object>();
+    const avatarModelsFailed = new Set<string>();
+    const avatarColorsBySessionId = new Map<string, number>();
     let avatarLoadFailureLogged = false;
     const characterModels = new Map<CharacterModelId, Promise<LoadedCharacterAsset>>();
     const petModels = new Map<string, Promise<GLTF>>();
     const vehicleModels = new Map<string, Promise<GLTF>>();
     const petGroups = new Map<string, THREE.Group>();
     const petIds = new Map<string, string>();
-    const petSides = new Map<string, number>();
     const petMixers = new Map<string, PetModelInstance>();
     const petPositions = new Map<string, THREE.Vector3>();
     const petMotionPhases = new Map<string, number>();
@@ -2281,7 +2286,14 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       petGroups.get(id)?.removeFromParent();
       petMixers.get(id)?.dispose();
       petGroups.delete(id); petMixers.delete(id); petPositions.delete(id);
-      petMotionPhases.delete(id); petIds.delete(id); petSides.delete(id);
+      petMotionPhases.delete(id); petIds.delete(id);
+    };
+    const removePendingPetVisual = (id: string, root: THREE.Group) => {
+      if (petGroups.get(id) !== root) return;
+      root.removeFromParent();
+      petGroups.delete(id);
+      petPositions.delete(id);
+      petMotionPhases.delete(id);
     };
     const vehicleGroups = new Map<string, THREE.Group>();
     const vehicleIds = new Map<string, string>();
@@ -2317,6 +2329,29 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       leftArm: THREE.Mesh;
       rightArm: THREE.Mesh;
     }>();
+    const ensureFallbackAvatar = (id: string, root: THREE.Group): void => {
+      if (avatarAnimations.has(id)) return;
+      const color = avatarColorsBySessionId.get(id) ?? avatarColors[0];
+      const fallback = makeAvatar(color);
+      root.add(fallback.group);
+      avatarAnimations.set(id, {
+        model: fallback.bodyPivot,
+        lyingModel: fallback.proceduralRig,
+        proceduralMotion: true,
+        rotationOffset: Math.PI,
+        phase: 0,
+        danceBasePosition: fallback.bodyPivot.position.clone(),
+        danceBaseRotation: fallback.bodyPivot.rotation.clone(),
+      });
+      fallbackParts.set(id, {
+        body: fallback.body,
+        head: fallback.head,
+        leftLeg: fallback.leftLeg,
+        rightLeg: fallback.rightLeg,
+        leftArm: fallback.leftArm,
+        rightArm: fallback.rightArm,
+      });
+    };
     const positions = new Map<string, THREE.Vector3>();
     let animationFrame = 0;
     let previousFrame = performance.now();
@@ -2966,9 +3001,12 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     observer.observe(host);
     resize();
 
+    clientRuntimeMetrics.resetFrameSequence();
     const render = (now: number) => {
       if (document.visibilityState !== "visible") return;
       const frameStartedAtMs = performance.now();
+      const framePolicy = worldFramePolicy(cameraStateRef.current.mode, previousCameraMode);
+      const showMap2d = framePolicy.showMap2d;
       const remoteShots = blasterEventsRef?.current.splice(0, 12) ?? [];
       for (const shot of remoteShots) {
         const beam = makeLaserBeam(new THREE.Vector3(shot.start.x, shot.start.y, shot.start.z), new THREE.Vector3(shot.end.x, shot.end.y, shot.end.z));
@@ -3067,13 +3105,18 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       const localPlayer = localId ? players.get(localId) : undefined;
       let sharedDomes: DomeEntry[] = [];
       if (!mapEditModeRef.current && localId && players.has(localId)) {
-        const onlinePoints = new Map<string, { x: number; z: number }>();
         // The server leaves anyone inside a private/meeting zone out of proximity chat, so no dome there.
         const zones = roomLayout?.zones ?? [];
-        for (const [id, player] of players) if (player.presence === "online" && !zoneAtWithExitMargin(player, zones)) onlinePoints.set(id, player);
-        sharedDomes = smoothProximityDomes(proximityDomeEntries(localId, onlinePoints, mapWorld.proximityRadius, Boolean(proximityGroupIdRef?.current) && onlinePoints.has(localId)), performance.now());
-      } else smoothProximityDomes([], performance.now());
-      proximityDomes.update(sharedDomes, campusOverviewRef.current ? { x: mapWorld.width / 2, z: mapWorld.depth / 2 } : { x: 0, z: 0 });
+        const onlinePoints = writeProximityDomePoints(proximityOnlinePoints, players,
+          player => mapEditModeRef.current || Boolean(zoneAtWithExitMargin(player, zones)));
+        sharedDomes = smoothProximityDomes(proximityTopology.update(localId, onlinePoints, mapWorld.proximityRadius, Boolean(proximityGroupIdRef?.current) && onlinePoints.has(localId)), performance.now());
+      } else {
+        proximityOnlinePoints.clear();
+        smoothProximityDomes(proximityTopology.update(null, proximityOnlinePoints, mapWorld.proximityRadius, false), performance.now());
+      }
+      if (framePolicy.update3dPresentation) {
+        proximityDomes.update(sharedDomes, campusOverviewRef.current ? { x: mapWorld.width / 2, z: mapWorld.depth / 2 } : { x: 0, z: 0 });
+      }
       // Proximity based opening is client side, so doors animate without any
       // extra realtime messages. Keep them open while someone is in the doorway
       // and briefly after they pass through.
@@ -3174,6 +3217,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         setNearbyVehicle(null);
       }
 
+      const resume3d = framePolicy.resumed3d;
       let localVehicleMoving = false;
       for (const [id, player] of players) {
         const characterId = player.characterId || DEFAULT_CHARACTER_ID;
@@ -3190,96 +3234,68 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           avatars.delete(id);
           heldWeaponBySessionId.delete(id);
           avatarCharacterIds.delete(id);
+          avatarModelsLoaded.delete(id);
+          avatarModelsPending.delete(id);
+          avatarModelsFailed.delete(id);
           avatarSpeakingBubbles.delete(id);
           fallbackParts.delete(id);
           avatar = undefined;
         }
+        if (!avatar && !shouldCreateAvatarRoot(framePolicy.update3dAssets, false)) {
+          const offsetX = campusOverviewRef.current ? mapWorld.width / 2 : 0;
+          const offsetZ = campusOverviewRef.current ? mapWorld.depth / 2 : 0;
+          let current = positions.get(id);
+          if (!current) { current = new THREE.Vector3(player.x + offsetX, 0, player.z + offsetZ); positions.set(id, current); }
+          const moving = advanceDeferredAvatarPosition(current, { x: player.x + offsetX, z: player.z + offsetZ }, delta, id === localId);
+          const sprinting = id === localId && Boolean(heldKeysRef?.current.has("ShiftLeft") || heldKeysRef?.current.has("ShiftRight"));
+          if (id === localId) updateFootstepSound(moving && !player.vehicleId && !player.sittingPropId, sprinting, delta);
+          if (id === localId) localVehicleMoving = moving && Boolean(player.vehicleId);
+          const jumpStartedAt = jumpStartedAtRef?.current.get(id);
+          if (jumpStartedAt !== undefined && jumpHasExpired(jumpStartedAt, now, JUMP_DURATION_MS)) jumpStartedAtRef?.current.delete(id);
+          continue;
+        }
         if (!avatar) {
           const color = avatarColors[avatars.size % avatarColors.length];
-          const fallback = makeAvatar(color);
-          avatar = fallback.group;
-          avatarAnimations.set(id, { model: fallback.bodyPivot, lyingModel: fallback.proceduralRig, proceduralMotion: true, rotationOffset: Math.PI, phase: 0, danceBasePosition: fallback.bodyPivot.position.clone(), danceBaseRotation: fallback.bodyPivot.rotation.clone() });
-          fallbackParts.set(id, {
-            body: fallback.body,
-            head: fallback.head,
-            leftLeg: fallback.leftLeg,
-            rightLeg: fallback.rightLeg,
-            leftArm: fallback.leftArm,
-            rightArm: fallback.rightArm,
-          });
+          avatar = new THREE.Group();
+          avatarColorsBySessionId.set(id, color);
           avatar.position.set(
             player.x + (campusOverviewRef.current ? mapWorld.width / 2 : 0),
             0,
             player.z + (campusOverviewRef.current ? mapWorld.depth / 2 : 0),
           );
-          const speakingBubble = makeSpeakingBubble();
-          avatar.add(speakingBubble);
-          avatarSpeakingBubbles.set(id, speakingBubble);
           scene.add(avatar);
           avatars.set(id, avatar);
           avatarCharacterIds.set(id, characterId);
           positions.set(id, avatar.position.clone());
 
+        }
+        if (framePolicy.update3dAssets && avatar && !avatarAnimations.has(id)) ensureFallbackAvatar(id, avatar);
+        if (avatar && shouldLoadAvatarModel(!framePolicy.update3dAssets, avatarModelsLoaded.has(id), avatarModelsPending.has(id), avatarModelsFailed.has(id))) {
           const avatarRoot = avatar;
-          const fallbackRig = fallback.proceduralRig;
-          void getCharacterModel(characterId).then((gltf) => {
-            if (disposed || avatars.get(id) !== avatarRoot) return;
-            const model = SkeletonUtils.clone(gltf.scene) as THREE.Group;
-            fitCharacterModel(model);
-            model.traverse((child) => {
-              if (child instanceof THREE.Mesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
-                // Kenney geometry/materials/textures are shared by skeleton clones.
-                // Keep the shared resources alive until the world effect is disposed.
-                child.userData.sharedKenneyAvatarResources = true;
-              }
-            });
-            avatarRoot.add(model);
-            fallbackRig.visible = false;
-
-            const clips = pickCharacterClips(gltf.animations, characterId.startsWith("custom-"));
-            const proceduralRig = shouldUseProceduralRig(characterId, clips) ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) ?? undefined : undefined;
-            // The procedural rig owns these models' idle and movement poses.
-            // Starting an asset clip as well can put the arms back in T-pose.
-            const mixer = proceduralRig ? undefined : new THREE.AnimationMixer(model);
-            const { idle: idleClip, walk: walkClip, run: runClip } = clips;
-            // Kenney's generic `sit` clip lowers the root by 0.2 m, as if the
-            // character were sitting on the floor. Keep its leg pose but
-            // remove that root drop so the hips remain at the chair seat.
-            const sitClip = clips.sit;
-            const chairSitClip = sitClip?.clone();
-            chairSitClip?.tracks.forEach((track) => {
-              if (!/^(?:root|armature|mixamorig:)?root\.position$/i.test(track.name)) return;
-              const values = track.values as Float32Array;
-              for (let index = 1; index < values.length; index += 3) values[index] = 0;
-            });
-            const idleAction = idleClip ? mixer?.clipAction(idleClip) : undefined;
-            const walkAction = walkClip ? mixer?.clipAction(walkClip) : undefined;
-            const runAction = runClip ? mixer?.clipAction(runClip) : undefined;
-            const sitAction = chairSitClip ? mixer?.clipAction(chairSitClip) : undefined;
-            const danceClip = clips.dance;
-            const danceAction = danceClip ? mixer?.clipAction(danceClip) : undefined;
-            const currentAction = idleAction ?? walkAction;
-            currentAction?.play();
-            avatarAnimations.set(id, {
-              model,
-              proceduralMotion: false,
-              rotationOffset: 0,
-              phase: 0,
-              proceduralRig,
-              mixer,
-              idleAction,
-              walkAction,
-              runAction,
-              sitAction,
-              danceAction,
-              currentAction,
-              danceBasePosition: model.position.clone(),
-              danceBaseRotation: model.rotation.clone(),
-            });
+          const request = {};
+          avatarModelsPending.set(id, request);
+          void getCharacterModel(characterId).then((asset) => {
+            if (avatarModelsPending.get(id) !== request) return;
+            if (disposed || avatars.get(id) !== avatarRoot || avatarCharacterIds.get(id) !== characterId) {
+              avatarModelsPending.delete(id);
+              return;
+            }
+            if (cameraStateRef.current.mode === "map2d") {
+              avatarModelsPending.delete(id);
+              return;
+            }
+            const visual = createAvatarModelVisual(asset, characterId);
+            avatarRoot.add(visual.model);
+            const fallback = avatarAnimations.get(id);
+            if (fallback?.proceduralMotion && fallback.lyingModel) fallback.lyingModel.visible = false;
+            avatarAnimations.set(id, visual.animation);
             fallbackParts.delete(id);
+            avatarModelsLoaded.add(id);
+            avatarModelsPending.delete(id);
           }).catch((error: unknown) => {
+            if (avatarModelsPending.get(id) !== request) return;
+            avatarModelsPending.delete(id);
+            avatarModelsFailed.add(id);
             if (!avatarLoadFailureLogged && !disposed) {
               avatarLoadFailureLogged = true;
               console.warn("Could not load the Kenney character; keeping the procedural avatar.", error);
@@ -3287,12 +3303,12 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           });
         }
         let speakingBubble = avatarSpeakingBubbles.get(id);
-        if (!speakingBubble) {
+        if (!speakingBubble && framePolicy.update3dAssets) {
           speakingBubble = makeSpeakingBubble();
           avatar.add(speakingBubble);
           avatarSpeakingBubbles.set(id, speakingBubble);
         }
-          speakingBubble.visible = Boolean(
+        if (speakingBubble) speakingBubble.visible = Boolean(
             typeof player.username === "string" &&
             speakingUsernamesRef?.current.has(player.username.trim().toLocaleLowerCase())
           );
@@ -3304,7 +3320,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           heldWeaponBySessionId.delete(id);
           heldWeapon = undefined;
         }
-        if (requestedWeapon && !heldWeapon) {
+        if (requestedWeapon && !heldWeapon && framePolicy.update3dAssets) {
           const grip = new THREE.Group();
           grip.position.set(0.3, 0.68, -0.08);
           grip.userData.weaponId = requestedWeapon;
@@ -3335,14 +3351,15 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         if (id === localId) updateFootstepSound(moving && !vehicleId && !sittingProp, sprinting, delta);
         if (id === localId) localVehicleMoving = moving && Boolean(vehicleId);
         const animation = avatarAnimations.get(id);
-        if (animation?.proceduralRig) {
+        if (framePolicy.update3dAnimation && animation?.proceduralRig) {
           const idleEnabled = idleAnimationsEnabledRef.current;
           const rigMoving = moving && !sittingProp && !vehicleId;
-          animation.phase += delta * (rigMoving ? (sprinting ? 12 : 8) : idleEnabled ? 1.8 : 0) * motionScale;
+          animation.phase = advanceWorldAnimationPhase(framePolicy, animation.phase, delta * motionScale,
+            rigMoving ? (sprinting ? 12 : 8) : idleEnabled ? 1.8 : 0);
           updateProceduralHumanoidRig(animation.proceduralRig, animation.phase, rigMoving, sprinting, idleEnabled);
           animation.model.position.y = (animation.danceBasePosition?.y ?? animation.model.position.y) + (rigMoving ? Math.max(0, Math.sin(animation.phase * 2)) * 0.018 : 0);
         }
-        if (animation?.mixer) {
+        if (framePolicy.update3dAnimation && animation?.mixer) {
           const idleEnabled = idleAnimationsEnabledRef.current;
           const dancing = Boolean(player.dancing) && !moving && !sittingProp && !vehicleId;
           const targetAction = dancing && animation.danceAction
@@ -3355,7 +3372,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             targetAction?.reset().fadeIn(0.18).play();
             animation.currentAction = targetAction;
           }
-          animation.mixer.update(delta * motionScale);
+          updateWorldAnimationMixer(framePolicy, animation.mixer, delta * motionScale);
           if (dancing && !animation.danceAction) {
             const phase = performance.now() / 1000;
             animation.model.position.y = (animation.danceBasePosition?.y ?? 0) + Math.abs(Math.sin(phase * 7)) * 0.09;
@@ -3367,10 +3384,11 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             animation.model.rotation.copy(animation.danceBaseRotation);
             animation.proceduralDanceActive = false;
           }
-        } else if (animation?.proceduralMotion) {
+        } else if (framePolicy.update3dAnimation && animation?.proceduralMotion) {
           const dancing = Boolean(player.dancing) && !moving && !sittingProp && !vehicleId;
           const animateIdle = idleAnimationsEnabledRef.current;
-          animation.phase += delta * (dancing ? 7 : moving ? (sprinting ? 12 : 8) : animateIdle ? 2.4 : 0) * motionScale;
+          animation.phase = advanceWorldAnimationPhase(framePolicy, animation.phase, delta * motionScale,
+            dancing ? 7 : moving ? (sprinting ? 12 : 8) : animateIdle ? 2.4 : 0);
           animation.model.position.y = dancing ? Math.abs(Math.sin(animation.phase)) * 0.09 : moving || animateIdle ? Math.sin(animation.phase) * 0.018 : 0;
           animation.model.rotation.z = dancing ? Math.sin(animation.phase * 0.5) * 0.12 : moving ? Math.sin(animation.phase * 0.5) * 0.06 : animateIdle ? Math.sin(animation.phase) * 0.012 : 0;
           animation.model.rotation.y = dancing ? Math.sin(animation.phase * 0.5) * 0.22 : 0;
@@ -3387,8 +3405,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             fallback.rightLeg.rotation.x = dancing ? -Math.sin(animation.phase * 0.5) * 0.35 : moving ? stride * strideAmount * 1.15 : 0;
           }
         }
-        if (animation?.lyingModel) applyLyingCharacterPose(animation.lyingModel, lying, undefined, undefined, -1);
-        else if (animation?.danceBasePosition && animation.danceBaseRotation)
+        if (framePolicy.update3dPresentation && animation?.lyingModel) applyLyingCharacterPose(animation.lyingModel, lying, undefined, undefined, -1);
+        else if (framePolicy.update3dPresentation && animation?.danceBasePosition && animation.danceBaseRotation)
           applyLyingCharacterPose(animation.model, lying, animation.danceBasePosition, animation.danceBaseRotation);
         const blend = avatarPoseBlend(delta, id === localId);
         const rotationOffset = animation?.rotationOffset ?? Math.PI;
@@ -3416,43 +3434,49 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const avatarModel = animation?.model;
         if (avatarModel) setGhostModelOpacity(avatarModel, ghostSessionIdsRef.current.has(id));
 
-        if (petIds.get(id) !== petId) {
+        const petChanged = (petIds.get(id) ?? "") !== petId;
+        const needs3dPet = framePolicy.update3dAssets && Boolean(petId) && !petGroups.has(id);
+        if (petChanged || needs3dPet) {
           removePet(id);
           if (petId) {
             petIds.set(id, petId);
-            // Keep the randomized side stable and consistent across clients.
-            const sideSeed = [...id].reduce((sum, character) => sum + character.charCodeAt(0), 0);
-            petSides.set(id, sideSeed % 2 === 0 ? -1 : 1);
-            const petRoot = new THREE.Group();
-            scene.add(petRoot);
-            petGroups.set(id, petRoot);
-            petMotionPhases.set(id, 0);
-            void getPetModel(petId).then(async (gltf) => {
-              const isCurrent = () => !disposed && petGroups.get(id) === petRoot;
-              const instance = await createPetModelInstance(gltf, () => loadGltfAsset(petModelUrl(petId)), isCurrent);
-              if (!instance) return;
-              if (!isCurrent()) { instance.dispose(); return; }
-              petRoot.add(instance.model);
-              petMixers.set(id, instance);
-            }).catch((error: unknown) => console.warn(`Could not load pet model ${petId}.`, error));
+            if (framePolicy.update3dAssets) {
+              // Keep the randomized side stable and consistent across clients.
+              const petRoot = new THREE.Group();
+              scene.add(petRoot);
+              petGroups.set(id, petRoot);
+              petMotionPhases.set(id, 0);
+              void getPetModel(petId).then(async (gltf) => {
+                const isCurrent = () => !disposed && cameraStateRef.current.mode !== "map2d" && petGroups.get(id) === petRoot;
+                const instance = await createPetModelInstance(gltf, () => loadGltfAsset(petModelUrl(petId)), isCurrent);
+                if (!instance) { removePendingPetVisual(id, petRoot); return; }
+                if (!isCurrent()) { instance.dispose(); removePendingPetVisual(id, petRoot); return; }
+                petRoot.add(instance.model);
+                petMixers.set(id, instance);
+              }).catch((error: unknown) => console.warn(`Could not load pet model ${petId}.`, error));
+            }
           }
         }
+        if (showMap2d && petGroups.has(id) && !petMixers.has(id)) {
+          // Cancel an in-flight 3D pet build after switching views. Its stale
+          // completion sees the missing group and disposes any private parse.
+          const pendingPetRoot = petGroups.get(id);
+          if (pendingPetRoot) removePendingPetVisual(id, pendingPetRoot);
+        }
         const petRoot = petGroups.get(id);
-        if (petRoot && petId) {
-          const side = petSides.get(id) ?? 1;
-          const besideX = renderX + Math.cos(player.rotation) * side * 1.3;
-          const besideZ = renderZ - Math.sin(player.rotation) * side * 1.3;
-          const petPosition = petPositions.get(id) ?? new THREE.Vector3(besideX, 0, besideZ);
-          const petBlend = 1 - Math.pow(0.88, delta * 60);
-          petPosition.x = THREE.MathUtils.lerp(petPosition.x, besideX, petBlend);
-          petPosition.z = THREE.MathUtils.lerp(petPosition.z, besideZ, petBlend);
+        if (framePolicy.update3dAnimation && petRoot && petId) {
+          const beside = petFollowTarget({ x: renderX, z: renderZ }, player.rotation, id);
+          const previousPetPosition = petPositions.get(id);
+          const petPosition = previousPetPosition ?? new THREE.Vector3(beside.x, 0, beside.z);
+          updatePetFollowPosition(petPosition, beside, delta, resume3d || !previousPetPosition);
           petPositions.set(id, petPosition);
           const petAnimation = petMixers.get(id);
           // Use the owner's movement state rather than the pet's smoothed
           // follow delta. The per-frame follow delta can stay below a fixed
           // threshold, leaving the walk clip unselected while the owner walks.
           const petWalking = moving && !vehicleId && !sittingProp;
-          const petPhase = (petMotionPhases.get(id) ?? 0) + delta * (petWalking ? 9 : 1.8) * motionScale;
+          const petPhase = advanceWorldAnimationPhase(framePolicy, petMotionPhases.get(id) ?? 0,
+            delta * motionScale, petWalking ? 9 : 1.8);
           petMotionPhases.set(id, petPhase);
           // Keep a visible idle breath and walking bounce even on compact rigs
           // whose authored idle pose has very little body movement.
@@ -3465,7 +3489,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             nextPetAction?.reset().fadeIn(0.18).play();
             petAnimation.current = nextPetAction;
           }
-          petAnimation?.mixer.update(delta * motionScale);
+          if (petAnimation) updateWorldAnimationMixer(framePolicy, petAnimation.mixer, delta * motionScale);
         }
 
         if (vehicleIds.get(id) !== vehicleId) {
@@ -3513,10 +3537,18 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           avatars.delete(id);
           heldWeaponBySessionId.delete(id);
           avatarCharacterIds.delete(id);
+          avatarModelsLoaded.delete(id);
+          avatarModelsPending.delete(id);
+          avatarModelsFailed.delete(id);
           avatarSpeakingBubbles.delete(id);
+          avatarColorsBySessionId.delete(id);
           positions.delete(id);
           jumpStartedAtRef?.current.delete(id);
         }
+      }
+      for (const id of positions.keys()) if (!players.has(id)) positions.delete(id);
+      if (jumpStartedAtRef) {
+        for (const id of jumpStartedAtRef.current.keys()) if (!players.has(id)) jumpStartedAtRef.current.delete(id);
       }
       for (const id of petGroups.keys()) {
         if (!players.has(id)) removePet(id);
@@ -3779,8 +3811,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       if (placementGhost.visible) {
         placementGhost.position.set(placementGhostPosition.x, placementGhostElevation, placementGhostPosition.z);
       }
-      const showMap2d = cameraStateRef.current.mode === "map2d";
-      zoneRoofs.update(roofZones, players.values(), camera, !showMap2d && campusOverviewRef.current);
+      zoneRoofs.update(roofZones, players.values(), camera, framePolicy.update3dPresentation && campusOverviewRef.current);
       renderer.domElement.style.opacity = showMap2d ? "0" : "1";
       if (map2dViewRef) map2dViewRef.current = showMap2d;
       const locate = locateRequestRef?.current;
@@ -3797,65 +3828,78 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       camera.updateMatrixWorld(true);
       const travelActive = travelRequestingRef.current || travelFeedbackRef.current?.status === "started";
       if (!travelActive) destinationBeacon.clearTarget();
-      destinationBeacon.render(camera, !showMap2d && travelActive);
-      const overlayRect = renderer.domElement.getBoundingClientRect();
-      for (const [id, player] of playersRef.current) {
-        let label = vehicleNameLabels.get(id);
-        if (!label) {
-          label = document.createElement("div");
-          label.className = "vehicle-name-label";
-          vehicleNameOverlay.appendChild(label);
-          vehicleNameLabels.set(id, label);
+      destinationBeacon.render(camera, framePolicy.update3dPresentation && travelActive);
+      if (showMap2d) {
+        if (!nameTagsHiddenForMap2d) {
+          for (const label of vehicleNameLabels.values()) label.style.display = "none";
+          nameTagsHiddenForMap2d = true;
         }
-        const labelText = playerName(player, id === localId);
-        if (label.textContent !== labelText) label.textContent = labelText;
-        const statusIcon = PLAYER_STATUS_ICONS[player.status ?? "available"];
-        if (statusIcon && label.dataset.statusIcon !== statusIcon) label.dataset.statusIcon = statusIcon;
-        else if (!statusIcon && label.dataset.statusIcon) delete label.dataset.statusIcon;
-        const labelColor = playerStatusColor(player.status);
-        if (label.dataset.color !== labelColor) {
-          label.style.backgroundColor = labelColor;
-          const colorRed = Number.parseInt(labelColor.slice(1, 3), 16);
-          const colorGreen = Number.parseInt(labelColor.slice(3, 5), 16);
-          const colorBlue = Number.parseInt(labelColor.slice(5, 7), 16);
-          label.style.color = (colorRed * 299 + colorGreen * 587 + colorBlue * 114) / 1000 > 150 ? "#10212c" : "#fff";
-          label.dataset.color = labelColor;
+      } else {
+        nameTagsHiddenForMap2d = false;
+        const overlayRect = renderer.domElement.getBoundingClientRect();
+        for (const [id, player] of playersRef.current) {
+          let label = vehicleNameLabels.get(id);
+          if (!label) {
+            label = document.createElement("div");
+            label.className = "vehicle-name-label";
+            vehicleNameOverlay.appendChild(label);
+            vehicleNameLabels.set(id, label);
+          }
+          const labelText = playerName(player, id === localId);
+          if (label.textContent !== labelText) label.textContent = labelText;
+          const statusIcon = PLAYER_STATUS_ICONS[player.status ?? "available"];
+          if (statusIcon && label.dataset.statusIcon !== statusIcon) label.dataset.statusIcon = statusIcon;
+          else if (!statusIcon && label.dataset.statusIcon) delete label.dataset.statusIcon;
+          const labelColor = playerStatusColor(player.status);
+          if (label.dataset.color !== labelColor) {
+            label.style.backgroundColor = labelColor;
+            const colorRed = Number.parseInt(labelColor.slice(1, 3), 16);
+            const colorGreen = Number.parseInt(labelColor.slice(3, 5), 16);
+            const colorBlue = Number.parseInt(labelColor.slice(5, 7), 16);
+            label.style.color = (colorRed * 299 + colorGreen * 587 + colorBlue * 114) / 1000 > 150 ? "#10212c" : "#fff";
+            label.dataset.color = labelColor;
+          }
+          const isDriving = Boolean(player.vehicleId);
+          const nameAnchor = isDriving ? vehiclePositions.get(id) : avatars.get(id)?.position;
+          const characterHeightM = avatarAnimations.get(id)?.model.userData.characterHeightM as number | undefined;
+          const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : characterHeightM === undefined ? CHARACTER_NAME_TAG_HEIGHT_M : characterHeightM + CHARACTER_NAME_TAG_CLEARANCE_M;
+          const showNameTag = nameAnchor !== undefined && shouldShowNameTag({
+            isLocal: id === localId, map2d: false, firstPerson: firstPersonViewRef.current,
+            covered: campusOverviewRef.current && isCoveredPosition(player, roofZones), distanceToCameraM: nameAnchor.distanceTo(camera.position),
+          });
+          if (!nameAnchor || !showNameTag) { if (label.style.display !== "none") label.style.display = "none"; continue; }
+          const projected = vehicleNameProjection.set(nameAnchor.x, nameAnchor.y + nameHeight, nameAnchor.z).project(camera);
+          const visible = projected.z >= -1 && projected.z <= 1 && Math.abs(projected.x) <= 1.05 && Math.abs(projected.y) <= 1.05;
+          const display = visible ? "block" : "none";
+          if (label.style.display !== display) label.style.display = display;
+          if (visible) {
+            const left = Math.round((projected.x + 1) * 0.5 * overlayRect.width * 2) / 2;
+            const top = Math.round((1 - projected.y) * 0.5 * overlayRect.height * 2) / 2;
+            if (label.dataset.left !== String(left)) { label.style.left = `${left}px`; label.dataset.left = String(left); }
+            if (label.dataset.top !== String(top)) { label.style.top = `${top}px`; label.dataset.top = String(top); }
+          }
         }
-        const isDriving = Boolean(player.vehicleId);
-        const nameAnchor = isDriving ? vehiclePositions.get(id) : avatars.get(id)?.position;
-        const characterHeightM = avatarAnimations.get(id)?.model.userData.characterHeightM as number | undefined;
-        const nameHeight = isDriving ? VEHICLE_NAME_TAG_HEIGHT_M : characterHeightM === undefined ? CHARACTER_NAME_TAG_HEIGHT_M : characterHeightM + CHARACTER_NAME_TAG_CLEARANCE_M;
-        const showNameTag = nameAnchor !== undefined && shouldShowNameTag({
-          isLocal: id === localId, map2d: showMap2d, firstPerson: firstPersonViewRef.current,
-          covered: campusOverviewRef.current && isCoveredPosition(player, roofZones), distanceToCameraM: nameAnchor.distanceTo(camera.position),
-        });
-        if (!nameAnchor || !showNameTag) { if (label.style.display !== "none") label.style.display = "none"; continue; }
-        const projected = vehicleNameProjection.set(nameAnchor.x, nameAnchor.y + nameHeight, nameAnchor.z).project(camera);
-        const visible = projected.z >= -1 && projected.z <= 1 && Math.abs(projected.x) <= 1.05 && Math.abs(projected.y) <= 1.05;
-        const display = visible ? "block" : "none";
-        if (label.style.display !== display) label.style.display = display;
-        if (visible) {
-          const left = Math.round((projected.x + 1) * 0.5 * overlayRect.width * 2) / 2;
-          const top = Math.round((1 - projected.y) * 0.5 * overlayRect.height * 2) / 2;
-          if (label.dataset.left !== String(left)) { label.style.left = `${left}px`; label.dataset.left = String(left); }
-          if (label.dataset.top !== String(top)) { label.style.top = `${top}px`; label.dataset.top = String(top); }
-        }
+        for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
       }
-      for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
       map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing,
         editProps: buildModeRef.current && !mapEditModeRef.current,
         currentPrivateZoneId: currentPrivateZoneIdRef.current,
         visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: fullLayoutRef.current, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,
         projection: { center: map2dCenterRef.current, pxPerM: cameraStateRef.current.map2dScalePxPerM, widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
         players: playersRef.current, localId, speaking: speakingUsernamesRef?.current ?? new Set<string>(), decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs: performance.now(), deltaS: delta, destination: travelFeedbackRef.current?.destination ?? null, proximityDomes: sharedDomes }) ?? map2dCenterRef.current;
-      socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: fullLayoutRef.current, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: !showMap2d, nowMs: performance.now() });
-      if (!showMap2d) renderer.render(scene, camera);
+      socialOverlay.frame({ camera, players: playersRef.current, decorations: map2dDecorationsRef?.current ?? [], localId, layout: fullLayoutRef.current, offsetX: campusOverviewRef.current ? mapWorld.width / 2 : 0, offsetZ: campusOverviewRef.current ? mapWorld.depth / 2 : 0, visible: framePolicy.update3dOverlays, nowMs: performance.now() });
+      if (framePolicy.renderThreeScene) {
+        const renderStartedAtMs = performance.now();
+        renderer.render(scene, camera);
+        clientRuntimeMetrics.recordRender(performance.now() - renderStartedAtMs);
+      }
       if (document.visibilityState === "visible") {
-        clientRuntimeMetrics.recordFrame(performance.now() - frameStartedAtMs);
+        clientRuntimeMetrics.recordFrame(performance.now() - frameStartedAtMs, now);
         animationFrame = requestAnimationFrame(render);
       }
     };
     const onDocumentVisibilityChange = () => {
+      clientRuntimeMetrics.resetFrameSequence();
       if (document.visibilityState === "visible") {
         previousFrame = performance.now();
         animationFrame = requestAnimationFrame(render);
@@ -3943,6 +3987,10 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       petModels.clear();
       avatarAnimations.clear();
       avatarCharacterIds.clear();
+      avatarModelsLoaded.clear();
+      avatarModelsPending.clear();
+      avatarModelsFailed.clear();
+      avatarColorsBySessionId.clear();
       fallbackParts.clear();
       for (const entry of roomPortalMeshes.values()) {
         entry.root.traverse((object) => {
@@ -3960,6 +4008,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       }
       propSyncRef.current = null;
       proximityDomes.dispose();
+      proximityTopology.clear();
+      smoothProximityDomes.clear();
       renderer.dispose();
       destinationBeacon.dispose();
       socialOverlay.dispose();

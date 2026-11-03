@@ -26,10 +26,14 @@ export class ZoneRoofs {
   }
   update(covered: readonly RoomLayoutZone[], players: Iterable<ZoneOccupant>, camera: Camera, visible: boolean): void {
     const ids = new Set(covered.map(zone => zone.id));
+    for (const [id, entry] of this.entries) entry.roof.visible = ids.has(id);
+    if (!visible) {
+      for (const { label } of this.entries.values()) if (label.style.display !== "none") label.style.display = "none";
+      return;
+    }
     const occupants = [...players];
     for (const [id, entry] of this.entries) {
       const { roof, label, zone } = entry;
-      roof.visible = ids.has(id);
       const rows = roof.visible ? zoneOccupantRows(zone, occupants) : [];
       const rowsKey = JSON.stringify(rows);
       if (entry.rowsKey !== rowsKey) {
@@ -49,7 +53,7 @@ export class ZoneRoofs {
         }));
       }
       this.projection.set(roof.position.x, roof.position.y + ZONE_ROOF_LABEL_OFFSET_M, roof.position.z).project(camera);
-      const inView = visible && rows.length > 0 && this.projection.z >= -1 && this.projection.z <= 1 && Math.abs(this.projection.x) <= 1 && Math.abs(this.projection.y) <= 1;
+      const inView = rows.length > 0 && this.projection.z >= -1 && this.projection.z <= 1 && Math.abs(this.projection.x) <= 1 && Math.abs(this.projection.y) <= 1;
       label.style.display = inView ? "block" : "none";
       if (inView) {
         label.style.left = `${(this.projection.x + 1) * this.host.clientWidth / 2}px`;

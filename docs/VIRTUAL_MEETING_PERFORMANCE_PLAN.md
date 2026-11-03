@@ -1,7 +1,8 @@
 # Virtual meeting performance — implementation handoff
 
 Date: 2026-11-03
-Status: proposed; implementation and browser verification are not complete.
+Status: in progress; Phase 1 implementation is in the working tree. Phase 0
+matched workload measurements and Phase 1 browser acceptance remain incomplete.
 Implementer: Luna. Read `AGENTS.md` before starting. Each phase is one PR and
 must leave the office playable. Implement one phase at a time.
 
@@ -66,6 +67,46 @@ Do not call historical 150/200-user mock runs proof of single-room media capacit
 If browser measurement is unavailable, report that limitation; continue with
 scoped implementation checks but leave performance acceptance pending.
 
+### Phase 0 measurements captured so far (2026-11-03)
+
+The current worktree was built and the office-dev Compose stack was used. The
+synthetic script `.loadtest/office-load-test.mjs` completed 10, 25 and 50
+movement-client runs (60-second hold), with every client joining and leaving,
+zero join failures and zero script errors. Join p95 was 182 ms / 229 ms / 163 ms;
+movement messages were 670 / 1,895 / 4,061 respectively. The script does not
+render frames or connect LiveKit media. Its SDK also emitted repeated warnings
+for unregistered messages, so these runs do not characterize browser or media
+load.
+
+At 10 clients, sampled server CPU was 2.4–3.1%, RSS 155–157 MB, tick duration
+p95 about 0.46–0.49 ms, tick start-gap p95 about 50.8 ms, event-loop p99 about
+10.8–10.9 ms, and patch-cycle p95 about 0.07–0.47 ms. At 50 clients (plus one
+already-open browser participant), a stable 30-second sample had tick duration
+p95 1.12 ms, start-gap p95 50.9 ms, event-loop p99 10.9 ms, patch-cycle p95
+0.97 ms and RSS 193–196 MB. Over that interval, application frames increased
+by about 3.34 MB and state patches by about 2.23 MB; process CPU averaged about
+4.6%. These are dev-stack observations, not capacity limits or production
+benchmarks.
+
+A follow-up 25-client dev run (60-second hold, started 2026-11-03 15:00:04Z)
+captured a separate server metrics window. All 25 generated clients joined; join
+p95 was 191 ms, 1,895 movement messages were sent, and the harness reported no
+errors. During the metrics window there were 26 active clients across two rooms
+(the harness room held 25); database connections peaked at 21. Over 55 seconds,
+server CPU delta was about 3.7%, RSS grew from 201.6 MB to 224.1 MB during the
+window and measured 231.9 MB shortly after cleanup. Tick-duration p95 ranged
+0.41–0.60 ms, tick start-gap p95 50.82–50.86 ms, event-loop p99 10.8–11.3 ms,
+and patch-cycle p95 0.06–0.66 ms. Application frames increased 1.90 MB and
+state patches 0.91 MB across the window. The harness recorded 25 joins and 25
+leaves with no cleanup errors; after cleanup metrics returned to one active
+client/room. The harness sends synthetic movement only: it does not render or
+connect LiveKit, so these results are not a browser, media, or capacity claim.
+
+Still outstanding: matched before/after measurements, actual client RAF gaps,
+long tasks, client CPU/heap and renderer counts, browser/device and scene
+inventory, and two-account interaction/media scenarios. The synthetic server
+runs do not substitute for those checks.
+
 ## Phase 1 — Suspend unnecessary 3D work in 2D (priority 1)
 
 Entry: `client/src/world/WorldCanvas.tsx` shared RAF, avatar/pet creation and mixer
@@ -87,10 +128,53 @@ updates, and the final `if (!showMap2d) renderer.render(...)`.
    reset timing, and render current state. Do not replay time spent hidden or
    apply a huge animation delta. Guard stale async asset completions and cleanup.
 
+Implementation progress: avatar GLBs and pets are deferred while 2D is active;
+hidden 3D avatar mixers/procedural poses, name projections, and Three.js dome
+updates are gated. Current players and pets still update through the 2D path;
+returning to 3D reconciles positions and applies current poses. The separately
+requested 2D pet and dome presentation is implemented: pets use transparent GLB
+sprite atlases with eight directions, idle/walk frames and a bounded redraw
+cadence; 2D proximity domes consume the same smoothed entries as 3D. The idle
+map's dome comparison avoids per-frame signature strings/arrays. Focused pet,
+dome and transition-logic tests pass. `worldFramePolicy` now classifies shared
+state work separately from 3D assets, animation, presentation, overlays and
+rendering; mixer/phase tests prove hidden animation pauses and resumes without
+catch-up. New main-scene avatar roots are also deferred until 3D is needed,
+while lightweight position/audio bookkeeping continues for shared movement. If
+WebGL is unavailable or GLB atlas rendering fails, 2D pets use
+existing preview artwork (including explicitly mapped face crops from the
+Quaternius promotional collage) instead of disappearing. Browser acceptance and
+matched before/after rendering measurements are still outstanding; do not claim
+Phase 1 accepted.
+
 Acceptance: repeated 2D/3D switching, late joins/departures, pet replacement,
 seated/lying/vehicle poses, tab hide/resume and WebGL fallback remain correct;
 hidden 3D mixers stop ticking. Record before/after 2D CPU/frame-time and switch
 latency, including resource counts after repeated switching.
+
+### Latest verification status (2026-11-03)
+
+The implementation is on top of commit `a2b30fcf` with an uncommitted working
+diff; retain that diff and the private `packages/server/.devmode.json`. The
+current production build passes. The focused Phase 1 suites pass (19/19),
+covering deferred avatar roots, pet movement frames, fallback crops/retries,
+2D drawing and frame policy. Independent review confirmed the 21 Quaternius
+face mappings, fallback retry lifecycle, and the deferred-avatar offsets and
+cleanup.
+
+The required full `pnpm test` command stops in Shared after 3 known failing
+tests; the client suite was also run directly and has 19 known baseline
+failures. The server suite has 13 known baseline failures. Relevant focused
+spatial conversation and Phase 1 tests pass. These suite failures are recorded
+separately from this change; compare them against the starting checkout before
+attributing any regression.
+
+After the user rejoined, Chrome reported `1 online` and the stale-session alert
+cleared. Browser interaction was then returned to the user, so no controlled
+walk/run, 2D/3D transition, voice-continuity, or two-browser check has been
+recorded. No matched before/after browser trace has been collected, and
+viewport/DPR, device, scene inventory and renderer counts remain unrecorded.
+Phase 0 and Phase 1 acceptance remain open.
 
 ## Phase 2 — Cache decorative proximity topology (priority 2)
 

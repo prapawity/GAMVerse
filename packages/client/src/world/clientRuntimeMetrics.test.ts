@@ -22,3 +22,17 @@ test("client runtime sample buffers stay bounded", () => {
   assert.equal(metrics.snapshot().frameDurationMs.sampleCount, 512);
   assert.equal(metrics.snapshot().frameDurationMs.p50Ms, 343);
 });
+
+test("RAF gaps distinguish dropped frames from callback work and exclude hidden-tab time", () => {
+  const metrics = new ClientRuntimeMetrics();
+  metrics.recordFrame(2, 0);
+  metrics.recordFrame(3, 16);
+  metrics.recordFrame(4, 116);
+  metrics.recordRender(1);
+  metrics.resetFrameSequence();
+  metrics.recordFrame(2, 10_000);
+  assert.equal(metrics.snapshot().frameIntervalMs.sampleCount, 2);
+  assert.equal(metrics.snapshot().frameIntervalMs.maxMs, 100);
+  assert.equal(metrics.snapshot().frameDurationMs.maxMs, 4);
+  assert.equal(metrics.snapshot().renderSubmissionDurationMs.maxMs, 1);
+});

@@ -52,3 +52,11 @@ test("smoothers snap new domes, glide existing ones and forget dissolved groups"
   assert.deepEqual(smooth([], 32), []);
   assert.deepEqual(smooth(at(5, 6), 48)[0]!.shape, { x: 5, z: 0, radius: 6 });
 });
+
+test("clearing smoother state drops every cached group", () => {
+  const smooth = createDomeSmoothers();
+  const at = (x: number) => [{ key: "a", own: true, shape: { x, z: 0, radius: 10 } }];
+  smooth(at(0), 0);
+  smooth.clear();
+  assert.deepEqual(smooth(at(5), 16)[0]!.shape, { x: 5, z: 0, radius: 10 });
+});

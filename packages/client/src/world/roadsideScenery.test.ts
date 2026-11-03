@@ -42,13 +42,13 @@ test("chunk bounds include rotated prop extents beyond their grid cell", () => {
   assert.equal(shouldRenderRoadsideChunk(chunk.bounds, observer, false, false), true);
 });
 
-test("hidden chunks enter at the render distance inclusive and visible chunks exit after the hysteresis", () => {
+test("hidden chunks enter at the render distance inclusive and visible chunks respect the same cap", () => {
   assert.equal(shouldRenderRoadsideChunk(bounds, observer, false, false), true);
   assert.equal(shouldRenderRoadsideChunk(bounds, { x: -0.01, z: 0 }, false, false), false);
-  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H, z: 0 }, true, false), true);
+  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H, z: 0 }, true, false), false);
   assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H - 0.01, z: 0 }, true, false), false);
   assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H / 3, z: 0 }, false, false), false);
-  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H / 3, z: 0 }, true, false), true);
+  assert.equal(shouldRenderRoadsideChunk(bounds, { x: -H / 3, z: 0 }, true, false), false);
 });
 
 test("distance is circular to the nearest chunk extent, not a square or its center", () => {
@@ -102,8 +102,8 @@ test("every zone hides each prop family outside the directional area; the camera
   assert.equal(roadside.visibilityFor("unknown-prop"), undefined);
   assert.equal(shouldRenderDistanceCulledProp({ x: 240, z: 0 }, observer, true), false);
   assert.equal(shouldLoadPropModel({ x: 240, z: 0 }, observer), false);
-  assert.equal(shouldRenderDistanceCulledProp({ x: 200, z: 0 }, observer, true), true);
-  assert.equal(shouldRenderDistanceCulledProp({ x: 190, z: 0 }, observer, false), false);
+  assert.equal(shouldRenderDistanceCulledProp({ x: 100, z: 0 }, observer, true), true);
+  assert.equal(shouldRenderDistanceCulledProp({ x: 90, z: 0 }, observer, false), false);
 });
 
 test("no generated prop of the 560x292 campus is visible outside the grown directional area, for any facing", () => {
@@ -127,46 +127,46 @@ const at = (x: number, z: number, rotation = 0) => ({ x, z, rotation, bounds: { 
 const seen = (x: number, z: number, rotation: number, was = false) =>
   shouldRenderRoadsideProp(at(x, z).bounds, { x: 0, z: 0, rotation }, was, false);
 
-test("area constants are 150 front, 100 side, 50 back, with a 15 unit exit margin", () => {
-  assert.deepEqual([R, SIDE, BACK, H], [150, 100, 50, 15]);
+test("area constants are 100 front, 50 side, 25 back, with a 15 unit exit margin", () => {
+  assert.deepEqual([R, SIDE, BACK, H], [100, 50, 25, 15]);
 });
 
-test("facing 0 looks along +z: front 150, sides 100, back 50 by footprint edge", () => {
-  assert.equal(seen(0, 151, 0), true);
-  assert.equal(seen(0, 151.01, 0), false);
-  assert.equal(seen(101, 0, 0), true);
-  assert.equal(seen(101.01, 0, 0), false);
-  assert.equal(seen(-101, 0, 0), true);
-  assert.equal(seen(-101.01, 0, 0), false);
-  assert.equal(seen(0, -51, 0), true);
-  assert.equal(seen(0, -51.01, 0), false);
+test("facing 0 looks along +z: front 100, sides 50, back 25 by footprint edge", () => {
+  assert.equal(seen(0, 101, 0), true);
+  assert.equal(seen(0, 101.01, 0), false);
+  assert.equal(seen(51, 0, 0), true);
+  assert.equal(seen(51.01, 0, 0), false);
+  assert.equal(seen(-51, 0, 0), true);
+  assert.equal(seen(-51.01, 0, 0), false);
+  assert.equal(seen(0, -26, 0), true);
+  assert.equal(seen(0, -26.01, 0), false);
 });
 
 test("area is two half-ellipses: diagonal points use the ellipse of their half", () => {
-  assert.equal(seen(70, 100, 0), true);
-  assert.equal(seen(80, 130, 0), false);
-  assert.equal(seen(70, -30, 0), true);
-  assert.equal(seen(80, -40, 0), false);
+  assert.equal(seen(35, 65, 0), true);
+  assert.equal(seen(45, 90, 0), false);
+  assert.equal(seen(30, -15, 0), true);
+  assert.equal(seen(45, -22, 0), false);
 });
 
-test("rotating the character rotates the area; a quarter turn sends the 150 front along +x", () => {
+test("rotating the character rotates the area; a quarter turn sends the 100 front along +x", () => {
   const quarter = Math.PI / 2;
-  assert.equal(seen(151, 0, quarter), true);
-  assert.equal(seen(151.01, 0, quarter), false);
-  assert.equal(seen(0, 101, quarter), true);
-  assert.equal(seen(0, 101.01, quarter), false);
-  assert.equal(seen(-51, 0, quarter), true);
-  assert.equal(seen(-51.01, 0, quarter), false);
-  assert.equal(seen(0, -150, Math.PI), true);
-  assert.equal(seen(0, -151.01, Math.PI), false);
-  assert.equal(seen(0, 51.01, Math.PI), false);
+  assert.equal(seen(101, 0, quarter), true);
+  assert.equal(seen(101.01, 0, quarter), false);
+  assert.equal(seen(0, 51, quarter), true);
+  assert.equal(seen(0, 51.01, quarter), false);
+  assert.equal(seen(-26, 0, quarter), true);
+  assert.equal(seen(-26.01, 0, quarter), false);
+  assert.equal(seen(0, -100, Math.PI), true);
+  assert.equal(seen(0, -101.01, Math.PI), false);
+  assert.equal(seen(0, 26.01, Math.PI), false);
 });
 
 test("visible props stay until the area grown by the hysteresis, including after the character turns", () => {
-  assert.equal(seen(0, 151.01 + H - 0.02, 0, true), true);
-  assert.equal(seen(0, 151 + H + 0.01, 0, true), false);
-  assert.equal(seen(0, -51.01 - H + 0.02, 0, true), true);
-  assert.equal(seen(0, -51 - H - 0.01, 0, true), false);
+  assert.equal(seen(0, 101, 0, true), true);
+  assert.equal(seen(0, 101.01, 0, true), false);
+  assert.equal(seen(0, -26.01 - H + 0.02, 0, true), true);
+  assert.equal(seen(0, -26 - H - 0.01, 0, true), false);
   assert.equal(seen(0, -60, Math.PI, false), true);
   assert.equal(seen(0, -120, 0, false), false);
   const roadside = new RoadsideSceneryVisibility([prop("campus-landscape-1", 0, 100)]);
@@ -175,15 +175,15 @@ test("visible props stay until the area grown by the hysteresis, including after
   roadside.update({ x: 0, z: 0, rotation: Math.PI }, false);
   assert.equal(roadside.visibilityFor("campus-landscape-1"), false);
   roadside.update({ x: 0, z: 0, rotation: 0 }, false);
-  roadside.update({ x: 0, z: -60, rotation: 0 }, false);
-  assert.equal(roadside.visibilityFor("campus-landscape-1"), true);
+  roadside.update({ x: 0, z: -10, rotation: 0 }, false);
+  assert.equal(roadside.visibilityFor("campus-landscape-1"), false);
 });
 
 test("a footprint that surrounds or crosses the area without a corner inside it is visible", () => {
   const character = { x: 0, z: 0, rotation: 0 };
   assert.equal(intersectsRoadsideArea({ minX: -500, maxX: 500, minZ: -500, maxZ: 500 }, character, 0), true);
-  assert.equal(intersectsRoadsideArea({ minX: -500, maxX: 500, minZ: 100, maxZ: 101 }, character, 0), true);
-  assert.equal(intersectsRoadsideArea({ minX: -500, maxX: 500, minZ: 151, maxZ: 152 }, character, 0), false);
+  assert.equal(intersectsRoadsideArea({ minX: -500, maxX: 500, minZ: 50, maxZ: 51 }, character, 0), true);
+  assert.equal(intersectsRoadsideArea({ minX: -500, maxX: 500, minZ: 101, maxZ: 152 }, character, 0), false);
 });
 
 test("chunk rejection never removes a chunk that holds a prop of the area, whatever the facing", () => {
@@ -199,8 +199,8 @@ test("chunk rejection never removes a chunk that holds a prop of the area, whate
       assert.equal(shouldRenderRoadsideChunk(itemBounds, character, false, false), true);
     }
   }
-  assert.equal(shouldRenderRoadsideChunk({ minX: 150.01, maxX: 160, minZ: -1, maxZ: 1 }, observer, false, false), false);
-  assert.equal(shouldRenderRoadsideChunk({ minX: 150.01, maxX: 160, minZ: -1, maxZ: 1 }, observer, true, false), true);
+  assert.equal(shouldRenderRoadsideChunk({ minX: R + 0.01, maxX: R + 10, minZ: -1, maxZ: 1 }, observer, false, false), false);
+  assert.equal(shouldRenderRoadsideChunk({ minX: R + 0.01, maxX: R + 10, minZ: -1, maxZ: 1 }, observer, true, false), false);
 });
 
 test("editing keeps distant props culled and a missing observer shows every prop", () => {

@@ -1,7 +1,7 @@
 export const ROADSIDE_CHUNK_SIZE_M = 64;
-export const ROADSIDE_FRONT_M = 150;
-export const ROADSIDE_SIDE_M = 100;
-export const ROADSIDE_BACK_M = 50;
+export const ROADSIDE_FRONT_M = 100;
+export const ROADSIDE_SIDE_M = 50;
+export const ROADSIDE_BACK_M = 25;
 // Added to every semi-axis of the area while a prop is already visible.
 export const ROADSIDE_RENDER_HYSTERESIS_M = 15;
 
@@ -69,7 +69,7 @@ export function intersectsRoadsideArea(bounds: RoadsideBounds, character: Roadsi
     return { f: dx * sine + dz * cosine, l: dx * cosine - dz * sine };
   });
   const semiL = ROADSIDE_SIDE_M + growM;
-  const semiFront = ROADSIDE_FRONT_M + growM;
+  const semiFront = ROADSIDE_FRONT_M;
   const semiBack = ROADSIDE_BACK_M + growM;
   for (let index = 0; index < corners.length; index += 1) {
     const a = corners[index];
@@ -92,7 +92,7 @@ export function shouldRenderRoadsideChunk(
   if (!character) return true;
   const dx = Math.max(bounds.minX - character.x, 0, character.x - bounds.maxX);
   const dz = Math.max(bounds.minZ - character.z, 0, character.z - bounds.maxZ);
-  const radius = ROADSIDE_FRONT_M + (wasVisible ? ROADSIDE_RENDER_HYSTERESIS_M : 0);
+  const radius = ROADSIDE_FRONT_M;
   return dx * dx + dz * dz <= radius * radius;
 }
 

@@ -4,6 +4,7 @@ import { Map2dFrameChanges } from "./map2dFrameChanges";
 import { Map2dPlayerFrames } from "./map2dPlayerFrames";
 import type { Map2dPlayer } from "./map2dDynamicLayer";
 import { playerName } from "../../identity/playerName";
+import type { DomeEntry } from "../proximityGroupShape";
 
 const FRAME_DELTA_S = 1 / 60;
 function frameInputs() {
@@ -11,6 +12,7 @@ function frameInputs() {
     layout: null, configVersion: 0, widthM: 100, depthM: 100, view: "2d" as const,
     localId: "local", following: true, destination: { x: 0, z: 0 },
     speaking: new Set<string>(), decorations: [] as { sessionId: string; text: string; expiresAtMs: number }[], nowMs: 0,
+    proximityDomes: [] as DomeEntry[],
   };
 }
 function projection() {
@@ -110,6 +112,21 @@ test("reused projection and destination objects still detect movement and resize
   p.widthPx = 900;
   assert.equal(changes.update(input, p, 0, 0), true);
   input.destination.x = 5;
+  assert.equal(changes.update(input, p, 0, 0), true);
+});
+test("2D map redraws when a proximity group dome appears, moves or disappears", () => {
+  const changes = new Map2dFrameChanges();
+  const input = frameInputs();
+  const p = projection();
+  const entry = { key: "group-a", own: true, shape: { x: 1, z: 2, radius: 10 } };
+  input.proximityDomes = [entry];
+  assert.equal(changes.update(input, p, 0, 0), true);
+  for (let frame = 0; frame < 100; frame += 1) assert.equal(changes.update(input, p, 0, 0), false);
+  entry.shape.x = 3;
+  assert.equal(changes.update(input, p, 0, 0), true);
+  entry.own = false;
+  assert.equal(changes.update(input, p, 0, 0), true);
+  input.proximityDomes = [];
   assert.equal(changes.update(input, p, 0, 0), true);
 });
 test("image revisions, config, dimensions, local-player and resume invalidation wake an idle map", () => {

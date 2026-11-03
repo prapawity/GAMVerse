@@ -150,7 +150,7 @@ const officeActivityLocation = (activity: OfficeActivity) => {
     ? vehicleName.replaceAll("-", " ").replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
     : value;
 };
-type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer: boolean; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: UserStatus; customStatusText: string; customStatusEmoji: string; customStatusExpiresAtMs: number; presence: "online" | "away"; nearby: boolean; handRaised: boolean; microphoneEnabled: boolean; cameraEnabled: boolean; screenShareEnabled: boolean };
+type PlayerSnapshot = { x: number; z: number; rotation: number; username: string; displayName: string; isMaintainer: boolean; characterId: CharacterSelectionId; petId: KenneyPetId | ""; weaponId: KenneyBlasterId | ""; vehicleId: KenneyVehicleId | ""; vehicleMode: "" | "manual" | "auto"; vehiclePropId: string; vehiclePropX: number; vehiclePropZ: number; vehiclePropRotation: number; sittingPropId: string; dancing: boolean; status: UserStatus; customStatusText: string; customStatusEmoji: string; customStatusExpiresAtMs: number; presence: "online" | "away"; nearby: boolean; hasDetailedPosition: boolean; handRaised: boolean; microphoneEnabled: boolean; cameraEnabled: boolean; screenShareEnabled: boolean };
 
 type FollowAlert = { followerSessionId: string; followerName: string };
 type WaveAlert = { senderSessionId: string; senderName: string };
@@ -2508,6 +2508,7 @@ export function OfficeApp() {
               customStatusText: entry.customStatusText, customStatusEmoji: entry.customStatusEmoji, customStatusExpiresAtMs: entry.customStatusExpiresAtMs,
               presence: entry.presence === "away" ? "away" : "online",
               nearby: Boolean(localPlayer && sessionId !== localSessionIdRef.current && entry.presence === "online" && nearbySessionIdsRef.current.has(sessionId)),
+              hasDetailedPosition,
               microphoneEnabled: Boolean(entry.microphoneEnabled),
               cameraEnabled: Boolean(entry.cameraEnabled),
               screenShareEnabled: Boolean(entry.screenShareEnabled),

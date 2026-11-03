@@ -5,7 +5,8 @@ import { createProceduralHumanoidRig, updateProceduralHumanoidRig, type Procedur
 import { pickCharacterClips, shouldUseProceduralRig } from "../characterClips";
 import { fitCharacterModel } from "../characterModelFit";
 import { applyLyingCharacterPose } from "../lyingCharacterPose";
-import { rememberWebglFailure, webglFailedInThisTab } from "../webglFailureSession";
+import { webglFailedInThisTab } from "../webglFailureSession";
+import { queuePortraitSnapshot, type PortraitSnapshotRequest } from "./portraitSnapshotQueue";
 import {
   AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_DIRECTION_COUNT, AVATAR_SPRITE_FULL_CIRCLE_RAD, AVATAR_SPRITE_POSE_COUNT,
   AVATAR_SPRITE_SEATED_POSE_INDEX, AVATAR_SPRITE_LYING_POSE_INDEX, AVATAR_SPRITE_TILE_HEIGHT_PX, AVATAR_SPRITE_TILE_WIDTH_PX,
@@ -27,30 +28,12 @@ const SEATED_SHIN_ANGLE_RAD = Math.PI / 2;
 const SEATED_ROOT_OFFSET_M = -0.25;
 const SEATED_SAMPLE_DURATION_RATIO = 0.5;
 
-type SnapshotRequest = {
+type AvatarSnapshotRequest = {
   characterId: string;
   endpoint: string;
   active(): boolean;
   complete(portrait: HTMLCanvasElement | null): void;
 };
-const queue: SnapshotRequest[] = [];
-let draining = false;
-let renderer: THREE.WebGLRenderer | null = null;
-
-function snapshotRenderer(): THREE.WebGLRenderer {
-  if (!renderer) {
-    try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
-    } catch (error) {
-      rememberWebglFailure();
-      throw error;
-    }
-    renderer.setSize(AVATAR_SPRITE_TILE_WIDTH_PX, AVATAR_SPRITE_TILE_HEIGHT_PX, false);
-    renderer.setClearColor(PORTRAIT_LIGHT_PALETTE.clear, 0);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-  }
-  return renderer;
-}
 function snapshotScene(model: THREE.Object3D): THREE.Scene {
   const scene = new THREE.Scene();
   scene.add(model, new THREE.HemisphereLight(PORTRAIT_LIGHT_PALETTE.sky, PORTRAIT_LIGHT_PALETTE.ground, HEMISPHERE_INTENSITY));
@@ -105,7 +88,8 @@ function waitForSnapshotIdle(): Promise<void> {
     else setTimeout(resolve, SNAPSHOT_FALLBACK_DELAY_MS);
   });
 }
-async function renderSprites(asset: LoadedCharacterAsset, request: SnapshotRequest): Promise<HTMLCanvasElement | null> {
+async function renderSprites(asset: LoadedCharacterAsset, request: Pick<AvatarSnapshotRequest, "characterId" | "active">,
+  renderer: THREE.WebGLRenderer): Promise<HTMLCanvasElement | null> {
   const model = SkeletonUtils.clone(asset.scene);
   const root = new THREE.Group();
   const scene = snapshotScene(root);
@@ -124,6 +108,7 @@ async function renderSprites(asset: LoadedCharacterAsset, request: SnapshotReque
     canvas.width = AVATAR_SPRITE_TILE_WIDTH_PX * AVATAR_SPRITE_POSE_COUNT;
     canvas.height = AVATAR_SPRITE_TILE_HEIGHT_PX * AVATAR_SPRITE_DIRECTION_COUNT;
     const ctx = canvas.getContext("2d");
+    renderer.setClearColor(PORTRAIT_LIGHT_PALETTE.clear, 0);
     for (let direction = 0; direction < AVATAR_SPRITE_DIRECTION_COUNT; direction += 1) {
       await waitForSnapshotIdle();
       if (!request.active()) return null;
@@ -135,9 +120,8 @@ async function renderSprites(asset: LoadedCharacterAsset, request: SnapshotReque
         applyLyingCharacterPose(model, lying, restPosition, restRotation);
         if (!lying) model.position.y = restPosition.y;
         root.position.y = pose === AVATAR_SPRITE_SEATED_POSE_INDEX ? SEATED_ROOT_OFFSET_M : 0;
-        const sharedRenderer = snapshotRenderer();
-        sharedRenderer.render(scene, lying ? lyingCamera : camera);
-        ctx?.drawImage(sharedRenderer.domElement, pose * AVATAR_SPRITE_TILE_WIDTH_PX, direction * AVATAR_SPRITE_TILE_HEIGHT_PX);
+        renderer.render(scene, lying ? lyingCamera : camera);
+        ctx?.drawImage(renderer.domElement, pose * AVATAR_SPRITE_TILE_WIDTH_PX, direction * AVATAR_SPRITE_TILE_HEIGHT_PX);
       }
     }
     return canvas;
@@ -147,29 +131,15 @@ async function renderSprites(asset: LoadedCharacterAsset, request: SnapshotReque
     scene.clear();
   }
 }
-async function processRequest(request: SnapshotRequest): Promise<void> {
-  if (webglFailedInThisTab()) { request.complete(null); return; }
-  const asset = await loadCharacterAsset(request.characterId, request.endpoint);
-  if (request.active()) request.complete(webglFailedInThisTab() ? null : await renderSprites(asset, request));
-}
-async function drainQueue(): Promise<void> {
-  draining = true;
-  try {
-    while (queue.length) {
-      const request = queue.shift();
-      if (!request?.active()) continue;
-      // Failed model loads or unavailable WebGL leave the full-body fallback.
-      await processRequest(request).catch(() => request.complete(null));
-    }
-  } finally {
-    renderer?.dispose();
-    renderer?.forceContextLoss();
-    renderer = null;
-    draining = false;
-  }
-}
-export function queueAvatarSnapshot(request: SnapshotRequest): void {
-  if (webglFailedInThisTab()) { request.complete(null); return; }
-  queue.push(request);
-  if (!draining) void drainQueue();
+export function queueAvatarSnapshot(request: AvatarSnapshotRequest): void {
+  let asset: LoadedCharacterAsset | undefined;
+  const snapshotRequest: PortraitSnapshotRequest = {
+    widthPx: AVATAR_SPRITE_TILE_WIDTH_PX,
+    heightPx: AVATAR_SPRITE_TILE_HEIGHT_PX,
+    active: request.active,
+    prepare: async () => { asset = await loadCharacterAsset(request.characterId, request.endpoint); },
+    render: renderer => asset ? renderSprites(asset, request, renderer) : null,
+    complete: request.complete,
+  };
+  queuePortraitSnapshot(snapshotRequest);
 }

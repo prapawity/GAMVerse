@@ -17,6 +17,7 @@ import {
 import { isMap2dDrag, pickMap2dPlayer } from "./map2dInput";
 import { Map2dStaticLayer } from "./map2dStaticLayer";
 import { AvatarPortraits } from "./avatarPortraits";
+import { PetSpriteAtlases } from "./petSpriteAtlases";
 import {
   map2dWheelScale,
   screenToWorld,
@@ -30,6 +31,7 @@ import { drawMap2dSceneOverlay } from "./map2dSceneOverlay";
 import { map2dPropModelImages } from "./map2dPropModelImages";
 import { propPreviewImages } from "./propPreviewImages";
 import { map2dRestingPlayers } from "./map2dRestingPlayers";
+import { petSpriteAnimationRedrawDue } from "./petSpriteGeometry";
 export interface Map2dListener {
   pan(center: Map2dPoint): void;
   zoom(pxPerM: number): void;
@@ -76,11 +78,13 @@ export function persistMap2dPreference(view: "2d" | "3d"): void {
 export class Map2dRenderer {
   readonly staticLayer = new Map2dStaticLayer();
   private readonly portraits = new AvatarPortraits();
+  private readonly petSprites = new PetSpriteAtlases();
   private state: Map2dFrame | null = null;
   private readonly playerFrames = new Map2dPlayerFrames();
   private readonly changes = new Map2dFrameChanges();
   private previousEditing = false;
   private doorAnimationFrame = 0;
+  private lastPetAnimationDrawMs = Number.NEGATIVE_INFINITY;
   private staticLayoutSource: RoomLayout | null | undefined;
   private staticVehicleIds = "";
   private staticLayout: RoomLayout | null = null;
@@ -219,9 +223,17 @@ export class Map2dRenderer {
       state,
       p,
       map2dPropModelImages.revision + propPreviewImages.revision,
-      this.portraits.revision,
+      this.portraits.revision + this.petSprites.revision,
     );
-    if (playersChanged || sceneChanged) this.drawFrame(state);
+    let walkingPet = false;
+    for (const player of this.playerFrames.players.values()) {
+      if (player.petId && player.visual.motion === "walking") { walkingPet = true; break; }
+    }
+    const petAnimationDue = petSpriteAnimationRedrawDue(walkingPet, state.nowMs, this.lastPetAnimationDrawMs);
+    if (playersChanged || sceneChanged || petAnimationDue) {
+      this.drawFrame(state);
+      if (walkingPet) this.lastPetAnimationDrawMs = state.nowMs;
+    }
     return p.center;
   }
   private drawFrame(state: Map2dFrame): void {
@@ -311,6 +323,7 @@ export class Map2dRenderer {
         visibleProps,
         state.localId ? this.playerFrames.players.get(state.localId) : undefined,
       ),
+      this.petSprites,
     );
     if (doorAnimationActive && !this.doorAnimationFrame) {
       this.doorAnimationFrame = requestAnimationFrame(() => {
@@ -326,7 +339,9 @@ export class Map2dRenderer {
     this.doorAnimationFrame = 0;
     this.staticLayer.dispose();
     this.portraits.dispose();
+    this.petSprites.dispose();
     this.playerFrames.clear();
+    this.lastPetAnimationDrawMs = Number.NEGATIVE_INFINITY;
     this.staticLayoutSource = undefined;
     this.staticLayout = null;
     this.canvas.removeEventListener("pointerdown", this.pointerDown);

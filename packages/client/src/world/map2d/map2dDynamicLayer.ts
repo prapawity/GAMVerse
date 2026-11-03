@@ -11,6 +11,8 @@ import type { Map2dPlayer } from "./map2dAvatarVisual";
 import { AVATAR_SPRITE_TARGET_HEIGHT_M } from "./avatarSpriteGeometry";
 import { fitMap2dName, layoutMap2dNames, type Map2dNameCandidate, type Map2dNameRect } from "./map2dNameLayout";
 import { map2dRestingPlayers } from "./map2dRestingPlayers";
+import { map2dPetActor } from "./map2dPetDrawing";
+import type { PetSpriteAtlases } from "./petSpriteAtlases";
 export type { Map2dPlayer } from "./map2dAvatarVisual";
 export type Map2dDecoration = { sessionId: string; text: string; expiresAtMs: number };
 const FULL_CIRCLE_RAD = Math.PI * 2;
@@ -106,6 +108,7 @@ export function drawMap2dDynamic(
   layoutProps: readonly RoomLayoutProp[] = [],
   drawScene?: (actors: readonly Map2dSceneActor[]) => void,
   afterScene?: () => void,
+  petSprites?: PetSpriteAtlases,
 ): void {
   players = map2dRestingPlayers(players, layoutProps);
   const renderDistanceSquared = MAP2D_ACTOR_RENDER_DISTANCE_M * MAP2D_ACTOR_RENDER_DISTANCE_M;
@@ -116,7 +119,8 @@ export function drawMap2dDynamic(
     return dx * dx + dz * dz <= renderDistanceSquared;
   }));
   portraits?.setActiveCharacters(Array.from(players.values(), player => player.characterId));
-  const actors = Array.from(players, ([id, player]) => ({
+  petSprites?.setActivePets(Array.from(players.values(), player => player.petId));
+  const actors: Map2dSceneActor[] = Array.from(players, ([id, player]) => ({
     x: player.x,
     z: player.z,
     elevation: player.renderElevationM ?? 0,
@@ -124,6 +128,10 @@ export function drawMap2dDynamic(
     draw: (target: CanvasRenderingContext2D, projection: Map2dProjection) =>
       drawAvatarBody(target, projection, id, player, localId, speaking, portraits, presentation, layoutProps),
   }));
+  for (const [id, player] of players) {
+    const pet = map2dPetActor(id, player, petSprites, nowMs);
+    if (pet) actors.push(pet);
+  }
   if (drawScene) drawScene(actors);
   else for (const actor of actors.sort((a, b) => a.z - b.z)) actor.draw(ctx, p);
   afterScene?.();

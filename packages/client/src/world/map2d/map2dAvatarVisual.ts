@@ -9,6 +9,7 @@ export type Map2dPlayer = AvatarPose & {
   status?: string;
   handRaised?: boolean;
   characterId?: string;
+  petId?: string;
   sittingPropId?: string;
   /** Display-only height above the floor for seated and lying sprite placement. */
   renderElevationM?: number;
@@ -17,6 +18,7 @@ export type Map2dPlayer = AvatarPose & {
   vehiclePropX?: number;
   vehiclePropZ?: number;
   vehiclePropRotation?: number;
+  visual?: Map2dAvatarVisual;
 };
 export type Map2dRenderedPlayer = Map2dPlayer & { visual: Map2dAvatarVisual };
 export type Map2dAvatarStep = {

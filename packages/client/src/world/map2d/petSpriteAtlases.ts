@@ -10,7 +10,7 @@ import {
 } from "./petSpriteGeometry";
 import { samplePetAnimationFrame } from "./petSpriteAnimation";
 import { createPetFallbackAtlas } from "./petSpriteFallback";
-import { queuePortraitSnapshot, waitForPortraitSnapshotIdle } from "./portraitSnapshotQueue";
+import { PORTRAIT_POSES_PER_IDLE_SLICE, queuePortraitSnapshot, waitForPortraitSnapshotIdle } from "./portraitSnapshotQueue";
 
 const MAX_PET_SPRITE_CACHE_ENTRIES = 64;
 const MAX_PET_SPRITE_ATTEMPTS = 256;
@@ -179,10 +179,12 @@ export class PetSpriteAtlases {
     try {
       renderer.setClearColor(0x000000, 0);
       for (let direction = 0; direction < PET_SPRITE_DIRECTION_COUNT; direction += 1) {
-        await waitForPortraitSnapshotIdle();
-        if (!active()) return null;
         directionRoot.rotation.y = direction / AVATAR_SPRITE_DIRECTION_COUNT * AVATAR_SPRITE_FULL_CIRCLE_RAD;
         for (let pose = 0; pose < PET_SPRITE_POSE_COUNT; pose += 1) {
+          if (pose % PORTRAIT_POSES_PER_IDLE_SLICE === 0) {
+            await waitForPortraitSnapshotIdle();
+            if (!active()) return null;
+          }
           const walking = pose > 0;
           const clip = walking ? walkClip : idleClip;
           const phaseIndex = walking ? pose - 1 : 0;

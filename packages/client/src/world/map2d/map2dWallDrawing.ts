@@ -204,7 +204,8 @@ function segmentWall(wall: RoomLayoutWall, segment: SolidWallSpan): RoomLayoutWa
     z: wall.z + (wall.axis === "vertical" ? midpointM : 0) };
 }
 
-export type Map2dWallDrawItem = { depth: number; draw(ctx: CanvasRenderingContext2D, p: Map2dProjection, actors?: readonly Map2dActorPoint[]): void };
+export type Map2dWallDrawItem = { depth: number; draw(ctx: CanvasRenderingContext2D, p: Map2dProjection, actors?: readonly Map2dActorPoint[], doorProgress?: ReadonlyMap<string, number>): void };
+const wallDrawItemsCache = new WeakMap<RoomLayout, readonly Map2dWallDrawItem[]>();
 
 type Map2dWallLayoutIndex = {
   wallsById: ReadonlyMap<string, RoomLayoutWall>;
@@ -233,7 +234,9 @@ export function map2dWallLayoutIndex(layout: RoomLayout): Map2dWallLayoutIndex {
 }
 
 /** One painter item per solid span lets nearer props cover walls and walls hide props behind them. */
-export function map2dWallDrawItems(layout: RoomLayout, doorProgress: ReadonlyMap<string, number> = new Map()): Map2dWallDrawItem[] {
+export function map2dWallDrawItems(layout: RoomLayout): readonly Map2dWallDrawItem[] {
+  const cached = wallDrawItemsCache.get(layout);
+  if (cached) return cached;
   const items: Map2dWallDrawItem[] = [];
   const { doorsByWallId, wallColors } = map2dWallLayoutIndex(layout);
   for (const wall of layout.walls) {
@@ -247,14 +250,16 @@ export function map2dWallDrawItems(layout: RoomLayout, doorProgress: ReadonlyMap
     }
     for (const door of doors) {
       const thresholdDepth = wall.z + (wall.axis === "vertical" ? door.offset : 0);
-      items.push({ depth: thresholdDepth, draw: (ctx, p, actors = []) => drawDoorway(ctx, p, wall, door, actors, doorProgress.get(door.id) ?? 0) });
+      items.push({ depth: thresholdDepth, draw: (ctx, p, actors = [], doorProgress) => drawDoorway(ctx, p, wall, door, actors, doorProgress?.get(door.id) ?? 0) });
     }
   }
+  items.sort((a, b) => a.depth - b.depth);
+  wallDrawItemsCache.set(layout, items);
   return items;
 }
 
 export function drawMap2dWalls(ctx: CanvasRenderingContext2D, p: Map2dProjection, layout: RoomLayout): void {
   ctx.save();
-  for (const item of map2dWallDrawItems(layout).sort((a, b) => a.depth - b.depth)) item.draw(ctx, p);
+  for (const item of map2dWallDrawItems(layout)) item.draw(ctx, p);
   ctx.restore();
 }

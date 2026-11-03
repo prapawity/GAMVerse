@@ -26,16 +26,18 @@ export class PropModelVisibility {
       ? zones.find(zone => zone.kind === "private" && isInsideZone(focusInLayout, zone))
       : !editing && currentPrivateZoneId ? zones.find(zone => zone.id === currentPrivateZoneId && zone.kind === "private") : undefined;
     const key = JSON.stringify([covered.map(zone => zone.id), privateRoom?.id ?? null]);
-    if (this.coveredKey !== key) { this.nextLoadAtMs = 0; this.nextCullAtMs = 0; this.coveredKey = key; }
+    if (this.coveredKey !== key) { this.nextCullAtMs = 0; this.coveredKey = key; }
     const hiddenInLayout = (position: ZonePosition) => {
       if (privateRoom && !isInsideZone(position, privateRoom)) return true;
       return isCoveredPosition(position, covered);
     };
     const hiddenInWorld = (position: ZonePosition) => hiddenInLayout({ x: position.x - offset.x, z: position.z - offset.z });
-    if (now >= this.nextLoadAtMs) {
-      this.nextLoadAtMs = now + PROP_RENDER_CULL_INTERVAL_MS;
+    if (now >= this.nextCullAtMs) {
       const observer = editing ? { ...focusInLayout, rotation: focus.rotation } : local;
       roadsideScenery.update(observer, editing, prop => hiddenInLayout(prop));
+    }
+    if (now >= this.nextLoadAtMs) {
+      this.nextLoadAtMs = now + PROP_RENDER_CULL_INTERVAL_MS;
       const remainingLoads = PROP_MODEL_LOAD_BATCH_SIZE;
       // Prioritise the closest props, so the area at the centre of the
       // screen fills first rather than following the saved props' order.

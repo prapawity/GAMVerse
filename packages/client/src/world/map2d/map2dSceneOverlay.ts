@@ -68,8 +68,8 @@ export function drawMap2dSceneOverlay(
     doorProgress.set(door.id, progress.progress);
     doorAnimationActive ||= progress.animating;
   }
-  for (const wall of layout ? map2dWallDrawItems(layout, doorProgress) : []) {
-    items.push({ depth: wall.depth, elevation: 0, order: 0, draw: actors => wall.draw(ctx, projection, actors) });
+  for (const wall of layout ? map2dWallDrawItems(layout) : []) {
+    items.push({ depth: wall.depth, elevation: 0, order: 0, draw: actors => wall.draw(ctx, projection, actors, doorProgress) });
   }
   const hasElevatedProps = props.some(prop => (prop.elevation ?? 0) > 0);
   const supportIndex = hasElevatedProps

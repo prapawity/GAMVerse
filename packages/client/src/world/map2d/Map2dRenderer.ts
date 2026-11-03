@@ -236,6 +236,8 @@ export class Map2dRenderer {
     }
     return p.center;
   }
+  private readonly propIndexes = new WeakMap<readonly RoomLayoutProp[], Map<string, RoomLayoutProp>>();
+
   private drawFrame(state: Map2dFrame): void {
     const p = this.projection;
     const ctx = this.canvas.getContext("2d");
@@ -246,10 +248,15 @@ export class Map2dRenderer {
     const movingVehicleProps: RoomLayoutProp[] = [];
     const movingVehicleIds = new Set<string>();
     if (state.layout) {
-      const propsById = new Map(state.layout.props.map(prop => [prop.id, prop]));
       for (const player of this.playerFrames.players.values()) {
         if (!player.vehiclePropId || movingVehicleIds.has(player.vehiclePropId)) continue;
-        const prop = propsById.get(player.vehiclePropId);
+        const props = state.layout.props;
+        let index = this.propIndexes.get(props);
+        if (!index) {
+          index = new Map(props.map(prop => [prop.id, prop]));
+          this.propIndexes.set(props, index);
+        }
+        const prop = index.get(player.vehiclePropId);
         if (!prop) continue;
         movingVehicleIds.add(player.vehiclePropId);
         const driving = Boolean(player.vehicleId);
@@ -285,7 +292,8 @@ export class Map2dRenderer {
         ? { ...state.layout, props: state.layout.props.filter(prop => !movingVehicleIds.has(prop.id)) }
         : state.layout;
     }
-    const visibleProps = [...(this.staticLayout?.props ?? []), ...movingVehicleProps];
+    const staticProps = this.staticLayout?.props ?? [];
+    const visibleProps = movingVehicleProps.length ? [...staticProps, ...movingVehicleProps] : staticProps;
     this.staticLayer.update(
       this.staticLayout,
       state.widthM,

@@ -6,7 +6,7 @@ import { pickCharacterClips, shouldUseProceduralRig } from "../characterClips";
 import { fitCharacterModel } from "../characterModelFit";
 import { applyLyingCharacterPose } from "../lyingCharacterPose";
 import { webglFailedInThisTab } from "../webglFailureSession";
-import { queuePortraitSnapshot, type PortraitSnapshotRequest } from "./portraitSnapshotQueue";
+import { PORTRAIT_POSES_PER_IDLE_SLICE, queuePortraitSnapshot, waitForPortraitSnapshotIdle, type PortraitSnapshotRequest } from "./portraitSnapshotQueue";
 import {
   AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_DIRECTION_COUNT, AVATAR_SPRITE_FULL_CIRCLE_RAD, AVATAR_SPRITE_POSE_COUNT,
   AVATAR_SPRITE_SEATED_POSE_INDEX, AVATAR_SPRITE_LYING_POSE_INDEX, AVATAR_SPRITE_TILE_HEIGHT_PX, AVATAR_SPRITE_TILE_WIDTH_PX,
@@ -17,8 +17,6 @@ const CAMERA_NEAR_M = 0.01;
 const CAMERA_FAR_M = 100;
 const CAMERA_DISTANCE_M = 4;
 const CAMERA_ELEVATION_M = 1.4;
-const SNAPSHOT_IDLE_TIMEOUT_MS = 1000;
-const SNAPSHOT_FALLBACK_DELAY_MS = 16;
 const PORTRAIT_LIGHT_PALETTE = { clear: 0x000000, sky: 0xeaf8ff, ground: 0x637887, key: 0xffffff };
 const HEMISPHERE_INTENSITY = 1.35;
 const KEY_LIGHT_INTENSITY = 1.9;
@@ -82,12 +80,6 @@ function spritePose(model: THREE.Object3D, asset: LoadedCharacterAsset, characte
     mixer.update(0);
   };
 }
-function waitForSnapshotIdle(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: SNAPSHOT_IDLE_TIMEOUT_MS });
-    else setTimeout(resolve, SNAPSHOT_FALLBACK_DELAY_MS);
-  });
-}
 async function renderSprites(asset: LoadedCharacterAsset, request: Pick<AvatarSnapshotRequest, "characterId" | "active">,
   renderer: THREE.WebGLRenderer): Promise<HTMLCanvasElement | null> {
   const model = SkeletonUtils.clone(asset.scene);
@@ -110,10 +102,12 @@ async function renderSprites(asset: LoadedCharacterAsset, request: Pick<AvatarSn
     const ctx = canvas.getContext("2d");
     renderer.setClearColor(PORTRAIT_LIGHT_PALETTE.clear, 0);
     for (let direction = 0; direction < AVATAR_SPRITE_DIRECTION_COUNT; direction += 1) {
-      await waitForSnapshotIdle();
-      if (!request.active()) return null;
       root.rotation.y = direction / AVATAR_SPRITE_DIRECTION_COUNT * AVATAR_SPRITE_FULL_CIRCLE_RAD;
       for (let pose = 0; pose < AVATAR_SPRITE_POSE_COUNT; pose += 1) {
+        if (pose % PORTRAIT_POSES_PER_IDLE_SLICE === 0) {
+          await waitForPortraitSnapshotIdle();
+          if (!request.active()) return null;
+        }
         if (webglFailedInThisTab()) return null;
         setPose(pose);
         const lying = pose === AVATAR_SPRITE_LYING_POSE_INDEX;

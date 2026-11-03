@@ -6,7 +6,7 @@ export const PROP_RENDER_CULL_INTERVAL_MS = 100;
 /** Start loading models just before they can enter the 100 m render radius. */
 export const PROP_MODEL_LOAD_DISTANCE_M = 125;
 /** Spread scene creation over frames instead of cloning thousands of models at once. */
-export const PROP_MODEL_LOAD_BATCH_SIZE = 32;
+export const PROP_MODEL_LOAD_BATCH_SIZE = 4;
 
 export function shouldRenderDistanceCulledProp(
   prop: { x: number; z: number },

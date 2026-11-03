@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { rememberWebglFailure, webglFailedInThisTab } from "../webglFailureSession";
 
+export const PORTRAIT_POSES_PER_IDLE_SLICE = 2;
+const PORTRAIT_IDLE_TIMEOUT_MS = 100;
+
 export type PortraitSnapshotRequest = {
   widthPx: number;
   heightPx: number;
@@ -13,7 +16,7 @@ export type PortraitSnapshotRequest = {
 
 export function waitForPortraitSnapshotIdle(): Promise<void> {
   return new Promise(resolve => {
-    if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 1000 });
+    if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: PORTRAIT_IDLE_TIMEOUT_MS });
     else setTimeout(resolve, 16);
   });
 }

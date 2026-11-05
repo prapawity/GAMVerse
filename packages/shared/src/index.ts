@@ -20,6 +20,7 @@ import { CAMPUS_LAYOUT, campusPropPlacements } from "./campusLayout.js";
 import { readRoomLayout, roomPropCollisionClearanceRadius, roomPropCollisionFootprint } from "./roomLayout.js";
 import { isRoomWallProp } from "./roomWallProps.js";
 import type { RoomLayout } from "./roomLayout.js";
+export { VEHICLE_MODEL_LENGTH_M } from "./vehicleFootprints.js";
 
 export { roomBoundaryWalls, roomWallSolidSegments } from "./roomWallSegments.js";
 export { isRoomWallProp } from "./roomWallProps.js";

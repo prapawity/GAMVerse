@@ -373,6 +373,8 @@ export const EXTERNAL_ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [
     "width": 0.555,
     "depth": 0.15,
     "collision": false,
+    "placementClass": "small",
+    "allowFloorPlacement": true,
     "modelUrl": "/assets/external/pixel-modern-office/props/pixel-modern-office-keyboard-and-mouse-fb746f0a.glb",
     "format": "gltf",
     "group": "Imported · Pixel Modern Office"
@@ -2757,8 +2759,8 @@ export const EXTERNAL_ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [
     "width": 9.002,
     "depth": 17.855,
     "collision": true,
-    "collisionWidth": 9.002,
-    "collisionDepth": 17.855,
+    "collisionWidth": 4.503,
+    "collisionDepth": 3.004,
     "modelUrl": "/assets/external/cozy-home-interiors/props/cozy-home-interiors-home-connector-cases-1b43f818-starter-scene.glb",
     "format": "gltf",
     "group": "Imported · Cozy Home Interiors"

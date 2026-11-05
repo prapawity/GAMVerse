@@ -15,6 +15,7 @@ import { loadCharacterAsset, petModelUrl, type LoadedCharacterAsset } from "../a
 import { loadGltfAsset, loadRoomPropAsset } from "../assets/loaders";
 import { roomPropAssetPaths } from "../assets/roomPropPaths";
 import { vehicleModelUrl } from "../assets/vehicleAssets";
+import { VEHICLE_MODEL_LENGTH_M } from "@gammyverse/shared";
 import { getRealtimeEndpoint } from "../realtimeEndpoint";
 import { createOfficePropGeometry } from "./officePropGeometry";
 import { createMapPropHitTarget } from "./mapPropHitTargets";
@@ -585,7 +586,7 @@ function fitVehicleToDriveScale(object: THREE.Object3D) {
   const bounds = new THREE.Box3().setFromObject(object);
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  const scale = 2.2 / Math.max(size.x, size.z, 0.001);
+  const scale = VEHICLE_MODEL_LENGTH_M / Math.max(size.x, size.z, 0.001);
   object.scale.setScalar(scale);
   object.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
 }
@@ -1222,7 +1223,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const driveableProps = (fullLayoutRef.current?.props ?? []).flatMap((placed) => {
       const definition = ROOM_PROP_CATALOG.find((item) => item.asset === placed.asset);
       return definition?.vehicleId && KENNEY_VEHICLE_IDS.includes(definition.vehicleId as KenneyVehicleId)
-        ? [{ id: placed.id, vehicleId: definition.vehicleId as KenneyVehicleId, x: placed.x, z: placed.z, rotation: placed.rotation }]
+        ? [{ ...placed, vehicleId: definition.vehicleId as KenneyVehicleId, initialFootprint: roomPropCollisionFootprint(placed) }]
         : [];
     });
     const mapRaycaster = new THREE.Raycaster();
@@ -1244,6 +1245,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       return { x: THREE.MathUtils.clamp(mapGroundHit.x, 0, mapWorld.width), z: THREE.MathUtils.clamp(mapGroundHit.z, 0, mapWorld.depth) };
     };
     const snapPlacementPoint = (point: { x: number; z: number }, item: (typeof ROOM_PROP_CATALOG)[number]) => {
+      if (item.placementClass === "small") return point;
       const zones = roomLayout?.zones ?? [];
       const localX = point.x - mapWorld.width / 2;
       const localZ = point.z - mapWorld.depth / 2;
@@ -1273,7 +1275,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const topY = (prop.elevation ?? 0) + definition.height;
         return compatible && Math.abs(hit.point.y - topY) <= Math.max(0.18, definition.height * 0.12);
       });
-      if (!topHit) return item.placementClass === "small" ? null : groundPoint;
+      if (!topHit) return item.placementClass === "small" && !item.allowFloorPlacement ? null : groundPoint;
 
       // The clicked point is where the cursor landed, not the center of the
       // new prop. Clamp that center into the support's usable top footprint so
@@ -1303,6 +1305,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         x: supportCenterX + clampedLocalX * cos - clampedLocalZ * sin,
         z: supportCenterZ + clampedLocalX * sin + clampedLocalZ * cos,
       };
+      if (item.placementClass === "small") {
+        return roomPropPlacementSupport(fullLayoutRef.current?.props ?? [], item.asset, center.x - mapWorld.width / 2, center.z - mapWorld.depth / 2) ? center : null;
+      }
 
       // Keep the 1 m map grid while choosing a nearby grid point that still
       // fits entirely on the same support. The bounded search is small and is
@@ -1323,7 +1328,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       );
       return validGridPoints.sort((a, b) =>
         Math.hypot(a.x - topHit.point.x, a.z - topHit.point.z) - Math.hypot(b.x - topHit.point.x, b.z - topHit.point.z),
-      )[0] ?? (item.placementClass === "small" ? null : groundPoint);
+      )[0] ?? groundPoint;
     };
     const zonePositionFromPointer = (event: { clientX: number; clientY: number }) => {
       // Let zone drawing reach the real map perimeter. The zone creation
@@ -1985,6 +1990,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           // Use that exact footprint for selection feedback so the orange frame
           // no longer turns with the mesh or disagrees with the green blocker.
           const collisionFootprint = roomPropCollisionFootprint(prop);
+          const tabletopItem = catalog.placementClass === "small";
+          const selectionHeight = tabletopItem ? catalog.height : Math.max(0.18, catalog.height);
+          const dragHeight = tabletopItem ? catalog.height : Math.max(0.25, catalog.height);
           const selection = new THREE.Group();
           selection.position.set(prop.x + mapWorld.width / 2, prop.elevation ?? 0, prop.z + mapWorld.depth / 2);
           selection.visible = false;
@@ -1992,16 +2000,16 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           selection.userData.mapPropSelection = true;
           if (catalog.vehicleId) trackMovableVehicleHandle(prop.id, selection);
           const selectedFootprint = new THREE.Mesh(
-            new THREE.BoxGeometry(collisionFootprint.width, 0.035, collisionFootprint.depth),
+            new THREE.BoxGeometry(collisionFootprint.width, tabletopItem ? 0.006 : 0.035, collisionFootprint.depth),
             new THREE.MeshBasicMaterial({ color: "#ffb703", transparent: true, opacity: 0.22, depthWrite: false }),
           );
-          selectedFootprint.position.y = 0.055;
+          selectedFootprint.position.y = tabletopItem ? 0.008 : 0.055;
           selectedFootprint.renderOrder = 5;
           const selectedBounds = new THREE.LineSegments(
-            new THREE.EdgesGeometry(new THREE.BoxGeometry(collisionFootprint.width, Math.max(0.18, catalog.height), collisionFootprint.depth)),
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(collisionFootprint.width, selectionHeight, collisionFootprint.depth)),
             new THREE.LineBasicMaterial({ color: "#fb8500", depthTest: false }),
           );
-          selectedBounds.position.y = Math.max(0.18, catalog.height) / 2;
+          selectedBounds.position.y = selectionHeight / 2;
           selectedBounds.renderOrder = 6;
           selection.add(selectedFootprint, selectedBounds);
           mapSceneLayers.selections.add(selection);
@@ -2013,12 +2021,12 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           // have sparse geometry, so raycasting only the visible mesh makes
           // it feel like the prop jumps or refuses to follow the cursor.
           const dragTarget = createMapPropHitTarget(
-            new THREE.BoxGeometry(collisionFootprint.width, Math.max(0.25, catalog.height), collisionFootprint.depth),
+            new THREE.BoxGeometry(collisionFootprint.width, dragHeight, collisionFootprint.depth),
             prop.id, "drag",
           );
           dragTarget.position.set(
             prop.x + mapWorld.width / 2,
-            (prop.elevation ?? 0) + Math.max(0.25, catalog.height) / 2,
+            (prop.elevation ?? 0) + dragHeight / 2,
             prop.z + mapWorld.depth / 2,
           );
           if (catalog.vehicleId) trackMovableVehicleHandle(prop.id, dragTarget);
@@ -2697,13 +2705,14 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const rawPoint = mapPositionFromPointer(event, draggingMapProp.pointerPlaneY);
         if (!rawPoint) return;
         const prop = fullLayoutRef.current?.props.find((item) => item.id === draggingMapProp!.id);
-        const point = prop
-          ? snapCampusPropPoint({ x: rawPoint.x + draggingMapProp.offset.x, z: rawPoint.z + draggingMapProp.offset.z }, prop.width, prop.depth, prop.rotation, mapWorld)
-          : draggingMapProp.center;
+        const definition = prop && ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
+        const unsnapped = { x: rawPoint.x + draggingMapProp.offset.x, z: rawPoint.z + draggingMapProp.offset.z };
+        const point = !prop ? draggingMapProp.center
+          : definition?.placementClass === "small" ? unsnapped
+          : snapCampusPropPoint(unsnapped, prop.width, prop.depth, prop.rotation, mapWorld);
         if (prop) {
           const support = roomPropPlacementSupport(fullLayoutRef.current?.props.filter((item) => item.id !== prop.id) ?? [], prop.asset, point.x - mapWorld.width / 2, point.z - mapWorld.depth / 2, prop.rotation);
-          const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
-          if (definition?.placementClass === "small" && !support) return;
+          if (definition?.placementClass === "small" && !definition.allowFloorPlacement && !support) return;
         }
         const dx = point.x - draggingMapProp.center.x;
         const dz = point.z - draggingMapProp.center.z;
@@ -3162,12 +3171,14 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         const occupant = occupantsByProp.get(prop.id);
         const parkedAt = parkedByProp.get(prop.id);
         const vehicleState = occupant ?? parkedAt;
-        if (vehicleState) {
-          const worldX = vehicleState.vehiclePropX ?? prop.x;
-          const worldZ = vehicleState.vehiclePropZ ?? prop.z;
-          mapSceneLayers.syncVehicleHandles(movableVehicleEditHandles.get(prop.id) ?? [], {
-            x: worldX + mapWorld.width / 2, z: worldZ + mapWorld.depth / 2,
-          });
+        const handles = movableVehicleEditHandles.get(prop.id);
+        if (handles?.length && draggingMapProp?.id !== prop.id) {
+          const rotation = vehicleState?.vehiclePropRotation ?? prop.rotation;
+          const footprint = rotation === prop.rotation ? prop.initialFootprint : roomPropCollisionFootprint({ ...prop, rotation });
+          mapSceneLayers.syncVehicleHandles(handles, {
+            x: (vehicleState?.vehiclePropX ?? prop.x) + mapWorld.width / 2,
+            z: (vehicleState?.vehiclePropZ ?? prop.z) + mapWorld.depth / 2,
+          }, { x: footprint.width / prop.initialFootprint.width, z: footprint.depth / prop.initialFootprint.depth });
         }
         let parked = parkedVehicleGroups.get(prop.id);
         if (occupant || (occupiedVehiclePropIds.has(prop.id) && !parkedAt)) {
@@ -3763,10 +3774,11 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           if (definition) {
             const footprintWidth = definition.width;
             const footprintDepth = definition.depth;
+            const tabletopItem = definition.placementClass === "small";
             placementFootprint.geometry.dispose();
-            placementFootprint.geometry = new THREE.BoxGeometry(footprintWidth, 0.025, footprintDepth);
+            placementFootprint.geometry = new THREE.BoxGeometry(footprintWidth, tabletopItem ? 0.006 : 0.025, footprintDepth);
             placementOutline.geometry.dispose();
-            placementOutline.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(footprintWidth, 0.03, footprintDepth));
+            placementOutline.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(footprintWidth, tabletopItem ? 0.008 : 0.03, footprintDepth));
             const fill = placementFootprint.material as THREE.MeshBasicMaterial;
             fill.color.set(definition.collision ? "#ffb703" : "#219ebc");
             const outline = placementOutline.material as THREE.LineBasicMaterial;

@@ -16,6 +16,7 @@ import { ReactionPicker } from "./social/ReactionPicker";
 import { HandRaiseButton } from "./social/HandRaiseButton";
 import { OfficePanelHeader, type OfficePanel } from "./workspace/OfficeNavigation";
 import { PeoplePanel } from "./workspace/PeoplePanel";
+import { FollowingStatus } from "./workspace/FollowingStatus";
 import { WorkspaceChrome } from "./workspace/WorkspaceChrome";
 import { OfficeGeneralSettings } from "./workspace/OfficeGeneralSettings";
 import { OfficeSettingsDialog } from "./workspace/OfficeSettingsDialog";
@@ -337,8 +338,9 @@ export function OfficeApp() {
   const [routePath, setRoutePath] = useState(() => {
     const path = window.location.pathname;
     if (isKnownAppRoute(path)) return path;
-    window.history.replaceState(window.history.state, "", "/");
-    return "/";
+    const fallbackPath = path.startsWith("/maintainer") ? "/maintainer" : "/";
+    window.history.replaceState(window.history.state, "", fallbackPath);
+    return fallbackPath;
   });
   const [meetingEntry, setMeetingEntry] = useState(() => Boolean(getMeetingRouteOfficeId(window.location.pathname)));
   const [meetingTargetZoneId, setMeetingTargetZoneId] = useState(() => getMeetingRouteZoneId(window.location.search));
@@ -560,7 +562,8 @@ export function OfficeApp() {
   const localPetIdRef = useRef<KenneyPetId | "">("");
   const [characterDialogInitialPetId, setCharacterDialogInitialPetId] = useState<KenneyPetId | "">("");
   const [autoMoveNotice, setAutoMoveNotice] = useState<string | null>(null);
-  const [followingSessionId, setFollowingSessionId] = useState<string | null>(null);
+  const [following, setFollowing] = useState<{ sessionId: string; name: string } | null>(null);
+  const followingSessionId = following?.sessionId ?? null;
   const [mapPlayerAction, setMapPlayerAction] = useState<{ sessionId: string } | null>(null);
   const [followAlerts, setFollowAlerts] = useState<FollowAlert[]>([]);
   const [waveAlerts, setWaveAlerts] = useState<WaveAlert[]>([]);
@@ -1948,7 +1951,7 @@ export function OfficeApp() {
       // Resolve height against the final clamped point and latest draft. This
       // keeps stacked shelf/tabletop placement from saving a stale preview Y.
       const support = roomPropPlacementSupport(current, asset, x, z);
-      if (definition.placementClass === "small" && !support) return current;
+      if (definition.placementClass === "small" && !definition.allowFloorPlacement && !support) return current;
       const elevation = support?.elevation ?? 0;
       const prop: RoomLayoutProp = { id, asset, x, z, rotation: 0, collision: definition.collision, width: definition.width, depth: definition.depth, ...(elevation > 0 ? { elevation } : {}) };
       return [...current, prop];
@@ -1977,7 +1980,7 @@ export function OfficeApp() {
       if (prop.id !== id) return prop;
       const support = roomPropPlacementSupport(current.filter((item) => item.id !== id), prop.asset, position.x, position.z, prop.rotation);
       const definition = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset);
-      if (definition?.placementClass === "small" && !support) return prop;
+      if (definition?.placementClass === "small" && !definition.allowFloorPlacement && !support) return prop;
       const elevation = support?.elevation ?? 0;
       return { ...prop, x: position.x, z: position.z, ...(elevation > 0 ? { elevation } : { elevation: undefined }) };
     }));
@@ -1986,6 +1989,7 @@ export function OfficeApp() {
   const rotateOfficeProp = (id: string) => setModifyPropsDraft((current) => current.map((prop) => {
     if (prop.id !== id) return prop;
     const rotation = (prop.rotation + Math.PI / 2) % (Math.PI * 2);
+    const isTabletopItem = ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset)?.placementClass === "small";
     const cos = Math.abs(Math.cos(rotation));
     const sin = Math.abs(Math.sin(rotation));
     const footprintWidth = prop.width * cos + prop.depth * sin;
@@ -1995,8 +1999,8 @@ export function OfficeApp() {
       const maxCell = Math.max(0, Math.floor(boundary - footprint));
       return Math.min(maxCell, Math.max(0, Math.round(center - half))) + half;
     };
-    const x = snapCenter(prop.x + mapDimensions.width / 2, footprintWidth, mapDimensions.width) - mapDimensions.width / 2;
-    const z = snapCenter(prop.z + mapDimensions.depth / 2, footprintDepth, mapDimensions.depth) - mapDimensions.depth / 2;
+    const x = isTabletopItem ? prop.x : snapCenter(prop.x + mapDimensions.width / 2, footprintWidth, mapDimensions.width) - mapDimensions.width / 2;
+    const z = isTabletopItem ? prop.z : snapCenter(prop.z + mapDimensions.depth / 2, footprintDepth, mapDimensions.depth) - mapDimensions.depth / 2;
     const wasElevated = (prop.elevation ?? 0) > 0.001;
     const support = roomPropPlacementSupport(current.filter((item) => item.id !== id), prop.asset, x, z, rotation);
     // Keep supported props on their table/shelf after rotation. If the rotated
@@ -2373,6 +2377,7 @@ export function OfficeApp() {
 
   useEffect(() => {
     if (!authReady || !connectionUsername || !connectionOfficeId) return;
+    setFollowing(null);
     let disposed = false;
     let inputTimer: number | undefined;
     let rejoinTimer: number | undefined;
@@ -2569,13 +2574,15 @@ export function OfficeApp() {
           window.setTimeout(() => setBlasterHitNotice((current) => current === sequence ? null : current), 450);
         });
         room.onMessage("follow-status", (payload: unknown) => {
+          if (disposed) return;
           if (typeof payload !== "object" || payload === null || !("status" in payload) || typeof payload.status !== "string") return;
           const targetSessionId = "targetSessionId" in payload && typeof payload.targetSessionId === "string" ? payload.targetSessionId : null;
-          if (payload.status === "started") {
-            setFollowingSessionId(targetSessionId);
+          if (payload.status === "started" && targetSessionId) {
+            const name = "targetName" in payload && typeof payload.targetName === "string" ? payload.targetName : "Someone";
+            setFollowing({ sessionId: targetSessionId, name });
             return;
           }
-          setFollowingSessionId((current) => !targetSessionId || current === targetSessionId ? null : current);
+          setFollowing((current) => current?.sessionId === targetSessionId ? null : current);
           if (payload.status === "unavailable" || payload.status === "unreachable" || payload.status === "blocked") {
             setAutoMoveNotice(payload.status === "unavailable" ? "Can't follow that person right now" : "Can't reach that person");
             if (autoMoveNoticeTimerRef.current !== undefined) window.clearTimeout(autoMoveNoticeTimerRef.current);
@@ -2818,7 +2825,7 @@ export function OfficeApp() {
           setError(code === REMOVED_CLOSE_CODE ? null : reason ?? null);
           setPeople([]);
           setPlayerCount(0);
-          setFollowingSessionId(null);
+          setFollowing(null);
           setFollowAlerts([]);
           setWaveAlerts([]);
           playersRef.current.clear();
@@ -3440,7 +3447,8 @@ export function OfficeApp() {
 
       {(travel.requestNotice || autoMoveNotice) && <div className="auto-move-toast" role="status">{travel.requestNotice ?? autoMoveNotice}</div>}
 
-      {followAlerts.length > 0 && <div className="social-alert-stack follow-alert-stack" role="region" aria-label="People following you">
+      {(following || followAlerts.length > 0) && <div className="social-alert-stack follow-alert-stack" role="region" aria-label="Follow activity">
+        {following && <FollowingStatus targetName={following.name} onStop={() => roomRef.current?.send("follow-stop")} />}
         {followAlerts.map((alert) => <div className="social-alert follow-alert" key={alert.followerSessionId} role="status">
           <span className="social-alert-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4v6h6M4 10a8 8 0 1 1 2 8"/><path d="m12 16 4-4-4-4m4 4H9"/></svg></span>
           <span className="social-alert-copy"><strong>{alert.followerName} is following you</strong><small>They are walking over to your location.</small></span>

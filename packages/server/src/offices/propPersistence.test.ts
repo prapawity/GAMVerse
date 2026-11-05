@@ -121,6 +121,22 @@ test("prop save returns interaction metadata and a new version after persistence
   assert.equal(seam.released, true);
 });
 
+test("unrelated saves tolerate an existing unsupported prop but reject moving it to another unsupported point", async () => {
+  const seam = new PersistenceSeam();
+  const monitor = { id: "old-monitor", asset: "computerScreen", x: 0, z: 0, rotation: 0 };
+  seam.props = [monitor];
+  const save = (props: unknown[]) => saveOfficeProps(USERNAME, OFFICE_ID,
+    { configVersion: seam.propsVersion, props }, false, seam.dependencies());
+  const saved = await save([monitor, PROP]);
+  assert.equal(saved.props.length, 2);
+  await assert.rejects(save([{ ...monitor, x: 1 }, PROP]), /"Monitor" needs a table or shelf/);
+  const desk = { id: "desk", asset: "desk", x: 0, z: 0, rotation: 0 };
+  const elevation = ROOM_PROP_CATALOG.find((item) => item.asset === desk.asset)!.height;
+  const supported = { ...monitor, elevation };
+  await save([desk, supported, PROP]);
+  await assert.rejects(save([supported, PROP]), /"Monitor" would lose its support/);
+});
+
 test("stale prop version returns current interaction and does not overwrite it", async () => {
   const seam = new PersistenceSeam();
   seam.propsVersion = CURRENT_PROPS_VERSION;

@@ -166,6 +166,43 @@ test("wall model props stay in the wall collision set even when their catalog pr
   assert.equal(isPositionWalkable({ x: 0, z: 0 }, world), false);
 });
 
+test("multiple small props fit side by side on a single-cell table", async () => {
+  const { createRoomPropSupportIndex, roomPropPlacementSupport } = await import("./index.ts");
+  const item = ROOM_PROP_CATALOG.find((prop) => prop.asset === "computerScreen")!;
+  const table = { id: "table", asset: "desk", x: 0, z: 0, width: 1, depth: 1, rotation: 0, collision: true };
+  const index = createRoomPropSupportIndex([table]);
+  for (const z of [-0.25, 0.25]) {
+    assert.equal(roomPropPlacementSupport([table], item.asset, 0, z)?.prop.id, table.id);
+    assert.equal(index.find(item.asset, 0, z)?.prop.id, table.id);
+  }
+  assert.equal(index.find(item.asset, 0, 0.49), null);
+});
+
+test("the Pixel Modern Office keyboard and mouse keep their compact tabletop footprint", async () => {
+  const { readRoomLayout, roomPropDefinition, roomPropPlacementSupport } = await import("./index.ts");
+  const asset = "external-pixel-modern-office-pixel-modern-office-keyboard-and-mouse-fb746f0a";
+  const item = roomPropDefinition(asset)!;
+  const table = { id: "table", asset: "desk", x: 0, z: 0, width: 1, depth: 1, rotation: 0, collision: true };
+  assert.equal(item.collision, false);
+  assert.equal(item.allowFloorPlacement, true);
+  assert.deepEqual([item.width, item.depth], [0.555, 0.15]);
+  assert.equal(roomPropPlacementSupport([table], asset, 0, 0.25)?.prop.id, table.id);
+  const legacyProp = { ...table, asset, collision: false };
+  const normalized = readRoomLayout({ layout: { version: 1, props: [legacyProp] } }).props[0]!;
+  assert.deepEqual([normalized.width, normalized.depth, normalized.elevation], [0.555, 0.15, undefined]);
+});
+
+test("vehicles and narrow props use model dimensions for collision", () => {
+  const car = { asset: "vehicle-speedster", width: 3, depth: 5, rotation: 0 };
+  assert.deepEqual(roomPropCollisionFootprint(car), { width: 1.383, depth: 2.2 });
+  const rotated = roomPropCollisionFootprint({ ...car, rotation: Math.PI / 2 });
+  assert.ok(Math.abs(rotated.width - 2.2) < 1e-9);
+  assert.ok(Math.abs(rotated.depth - 1.383) < 1e-9);
+
+  const fence = { asset: "kenney-editor-graveyard-kit-iron-fence-bar", width: 1, depth: 1, rotation: 0 };
+  assert.deepEqual(roomPropCollisionFootprint(fence), { width: 0.045, depth: 0.045 });
+});
+
 test("seat collision follows chair and sofa model footprints instead of the 1 m editor cells", () => {
   const chair = roomPropCollisionFootprint({ asset: "kit:chair", width: 1, depth: 1, rotation: 0 });
   assert.ok(Math.abs(chair.width - 0.383 * 0.9) < 1e-9);

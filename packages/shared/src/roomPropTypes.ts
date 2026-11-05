@@ -54,6 +54,8 @@ export type RoomPropDefinition = Pick<
   supportsPlacement?: "tabletop" | "shelf-top";
   /** This item is small enough to be placed on a supporting surface. */
   placementClass?: "floor" | "small" | "shelf" | "surface" | "seat";
+  /** Tabletop accessory that can also be saved at ground level. */
+  allowFloorPlacement?: boolean;
   /** Shelving units can be stacked; seat props can offer a sit interaction. */
   stackable?: boolean;
   interaction?: "sit";

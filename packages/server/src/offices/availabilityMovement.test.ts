@@ -685,7 +685,8 @@ test("initial follow uses a worker route, tick repaths stay unique, and stop fen
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(pending.length, 1);
     assert.equal(pending[0]!.request.priority, "follow");
-    assert.equal(followerEvents.some(event => typeof event === "object" && event !== null && "status" in event && event.status === "started"), false);
+    assert.deepEqual(followerEvents, [{ status: "started", targetSessionId: "target-session", targetName: "Target" }]);
+    assert.deepEqual(targetEvents, []);
     pending[0]!.resolve({ points: [{ x: 3.65, z: 0 }] });
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(internals.activeFollowsBySessionId.has(SESSION_ID), true);
@@ -711,8 +712,8 @@ test("initial follow uses a worker route, tick repaths stay unique, and stop fen
   } finally { room.onDispose(); room.clock.stop(); roomClass.routeSearchPool = previousPool; mock.restoreAll(); }
 });
 
-test("initial follow discards results after target movement or departure", async () => {
-  for (const change of ["movement", "departure"] as const) {
+test("initial follow discards results after a target position jump or departure", async () => {
+  for (const change of ["jump", "departure"] as const) {
     const room = new OfficeRoom();
     const handlers = new Map<string, Handler>();
     const roomClass = OfficeRoom as unknown as { routeSearchPool?: unknown };
@@ -735,16 +736,16 @@ test("initial follow discards results after target movement or departure", async
       const target = new PlayerState(); target.presence = "online"; target.x = 5; target.z = 0;
       room.state.players.set(SESSION_ID, follower); room.state.players.set("target-session", target);
       const events: unknown[] = [];
-      const client = { sessionId: SESSION_ID, send: (_event: string, payload: unknown) => events.push(payload) };
+      const client = { sessionId: SESSION_ID, send: (event: string, payload: unknown) => { if (event === "follow-status") events.push(payload); } };
       const targetClient = { sessionId: "target-session", send() {} };
       (room.clients as unknown as unknown[]).push(client, targetClient);
       handlers.get("follow-player")!(client, { targetSessionId: "target-session" });
-      if (change === "movement") target.x = 7;
+      if (change === "jump") target.x = 7;
       else room.onLeave(targetClient as never);
       complete({ points: [{ x: 3.65, z: 0 }] });
       await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(internals.autoRoutes.has(SESSION_ID), false, `${change} must not commit a stale route`);
-      assert.equal(events.some(event => typeof event === "object" && event !== null && "status" in event && event.status === "started"), false);
+      if (change === "departure") assert.deepEqual(events.at(-1), { status: "target-left", targetSessionId: "target-session" });
     } finally { room.onDispose(); room.clock.stop(); roomClass.routeSearchPool = previousPool; mock.restoreAll(); }
   }
 });

@@ -3,7 +3,7 @@ import { getInviteRouteToken, getOfficeShareRouteToken } from "./officeEntryLink
 
 const OFFICE_ROUTE = /^\/office\/[0-9a-f-]{36}\/?$/i;
 const RESET_ROUTE = /^\/reset\/[A-Za-z0-9_-]{30,100}\/?$/;
-const MAINTAINER_ROUTE = /^\/maintainer(?:\/diagnostics)?\/?$/i;
+const MAINTAINER_ROUTE = /^\/maintainer(?:\/(?:offices|platform|diagnostics))?\/?$/i;
 
 /** Keep valid direct-entry links and send unknown app paths back to the landing page. */
 export function isKnownAppRoute(path: string): boolean {

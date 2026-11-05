@@ -1,0 +1,32 @@
+export const VEHICLE_MODEL_LENGTH_M = 2.2;
+
+// Widths measured from the shipped GLBs after uniform scaling to the driving size.
+export const VEHICLE_MODEL_WIDTH_M: Readonly<Record<string, number | undefined>> = {
+  "vehicle-speedster": 1.383,
+  "vehicle-racer": 1.320,
+  "vehicle-suv": 1.320,
+  "vehicle-monster-truck": 1.571,
+  "vehicle-truck": 1.339,
+  "car-sedan": 1.294,
+  "car-hatchback-sports": 1.004,
+  "car-taxi": 1.200,
+  "car-kart-oopi": 1.320,
+  "kenney-editor-car-kit-ambulance": 1.015,
+  "kenney-editor-car-kit-delivery-flat": 1.015,
+  "kenney-editor-car-kit-delivery": 1.015,
+  "kenney-editor-car-kit-firetruck": 0.971,
+  "kenney-editor-car-kit-garbage-truck": 1.020,
+  "kenney-editor-car-kit-police": 1.065,
+  "kenney-editor-car-kit-race-future": 0.993,
+  "kenney-editor-car-kit-race": 1.117,
+  "kenney-editor-car-kit-sedan-sports": 1.122,
+  "kenney-editor-car-kit-suv-luxury": 1.158,
+  "kenney-editor-car-kit-suv": 1.222,
+  "kenney-editor-car-kit-tractor-police": 1.283,
+  "kenney-editor-car-kit-tractor-shovel": 1.479,
+  "kenney-editor-car-kit-tractor": 1.341,
+  "kenney-editor-car-kit-truck-flat": 1.202,
+  "kenney-editor-car-kit-truck": 1.119,
+  "kenney-editor-car-kit-van": 1.200,
+  "kenney-editor-retro-urban-kit-truck-flat": 1.111,
+};

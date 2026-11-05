@@ -32,6 +32,7 @@ import { randomBytes } from "node:crypto";
 import { RouteSearchBudget, RouteWorkLimiter } from "./routeWorkBudget.js";
 import { RouteSearchPool } from "./routeSearchPool.js";
 import { autoMoveDriveSpeed } from "./autoMoveTiming.js";
+import { MOVEMENT_INPUT_TIMEOUT_MS, travelSpeedMps } from "./travelSpeed.js";
 import { autoMoveTravelMode, findAutoRoute } from "./routeNavigation.js";
 import type { RouteSearchRequest, RouteSearchResult } from "./routeSearchProtocol.js";
 import { autoMoveLandingPoint } from "./autoTeleport.js";
@@ -79,7 +80,6 @@ type Position = { x: number; z: number };
 type AutoRoute = { points: Position[]; index: number; stalledTicks: number; driveSpeedMps?: number; followTargetSessionId?: string; sitOnArrivalPropId?: string; sitOnArrivalZoneId?: string; destination?: Position; deskZoneId?: string };
 
 // Normal walking uses one and a half times the base world movement speed.
-const NORMAL_WALK_SPEED_MULTIPLIER = 1.5;
 const AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M = 0.48;
 type SeatApproachWorld = { world: WorldConfig; propId: string };
 type ActiveFollow = { targetSessionId: string; nextRepathAt: number; lastTargetX: number; lastTargetZ: number; repathPending?: boolean; initialPending?: boolean };
@@ -486,6 +486,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       if (!player || typeof payload !== "object" || payload === null || !("enabled" in payload) || typeof payload.enabled !== "boolean") return;
       const enabled = payload.enabled;
       this.ghostModeBySessionId.set(client.sessionId, enabled);
+      if (enabled && this.activeFollowsBySessionId.has(client.sessionId)) this.stopFollowing(client.sessionId);
       if (enabled && this.autoRoutes.delete(client.sessionId)) {
         this.movementInputs.set(client.sessionId, { x: 0, z: 0, sprint: false, receivedAt: performance.now() });
         if (player.vehicleMode === "auto") this.exitVehicle(client.sessionId, player);
@@ -528,7 +529,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       this.navigationIntent(client.sessionId);
-      this.stopFollowing(client.sessionId, "stopped", false);
+      this.stopFollowing(client.sessionId);
       this.movementInputs.set(client.sessionId, { x: 0, z: 0, sprint: false, receivedAt: performance.now() });
       this.pendingSitsBySessionId.delete(client.sessionId);
       if (this.autoRoutes.delete(client.sessionId) || pendingDesk || pendingRoute) {
@@ -623,7 +624,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     if (!current || current.ownerUsername !== player.username || current.x !== zone.x || current.z !== zone.z
       || locks.has(current.id) && !this.canEnterMediaZone(sessionId, current.id)) return false;
     if (player.vehicleId && !this.exitVehicle(sessionId, player)) this.detachVehicleForTeleport(sessionId, player);
-    this.stopFollowing(sessionId, "stopped", false);
+    this.stopFollowing(sessionId);
     player.sittingPropId = "";
     player.dancing = false;
     this.pendingSitsBySessionId.delete(sessionId);
@@ -1350,7 +1351,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     const player = this.state.players.get(route.sessionId)!;
     this.conversationActions?.invalidateApproach(route.sessionId);
     this.deskTravel?.invalidate(route.sessionId);
-    this.stopFollowing(route.sessionId, "stopped", false);
+    this.stopFollowing(route.sessionId);
     this.pendingSitsBySessionId.delete(route.sessionId);
     this.seatApproachWorldsBySessionId.delete(route.sessionId);
     player.sittingPropId = "";
@@ -1719,7 +1720,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     }
     this.clearPendingAutoMove(client.sessionId);
     this.navigationIntent(client.sessionId);
-    this.stopFollowing(client.sessionId, "stopped", false);
+    this.stopFollowing(client.sessionId);
     this.autoRoutes.delete(client.sessionId);
     player.sittingPropId = "";
     player.dancing = false;
@@ -1831,7 +1832,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       return;
     }
     this.navigationIntent(client.sessionId);
-    this.stopFollowing(client.sessionId, "stopped", false);
+    this.stopFollowing(client.sessionId);
     this.autoRoutes.delete(client.sessionId);
     const previousVehicleId = follower.vehicleId;
     const previousVehicleMode = follower.vehicleMode;
@@ -1935,7 +1936,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       followerClient?.send("follow-status", { status: "unavailable", targetSessionId });
       return;
     }
-    this.stopFollowing(followerSessionId, "stopped", false);
+    this.stopFollowing(followerSessionId);
     this.autoRoutes.delete(followerSessionId);
     const destination = this.followApproachPoint(followerSessionId, follower, target);
     const now = performance.now();
@@ -1947,6 +1948,8 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       initialPending: true,
     };
     this.activeFollowsBySessionId.set(followerSessionId, follow);
+    const targetName = target.displayName || this.usernamesBySessionId.get(targetSessionId) || "Someone";
+    followerClient?.send("follow-status", { status: "started", targetSessionId, targetName });
     this.movementInputs.set(followerSessionId, { x: 0, z: 0, sprint: false, receivedAt: now });
     if (Math.hypot(destination.x - follower.x, destination.z - follower.z) <= 1.45) {
       this.finishInitialFollow(followerSessionId, follow, follower, target);
@@ -1961,7 +1964,6 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     follow.lastTargetZ = target.z;
     follow.nextRepathAt = performance.now() + 350;
     const followerName = follower.displayName || this.usernamesBySessionId.get(followerSessionId) || "Someone";
-    this.clients.find((client) => client.sessionId === followerSessionId)?.send("follow-status", { status: "started", targetSessionId: follow.targetSessionId, targetName: target.displayName });
     this.clients.find((client) => client.sessionId === follow.targetSessionId)?.send("follow-alert", { followerSessionId, followerName });
   }
 
@@ -1986,6 +1988,8 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     const navigationWorld = this.movementAccessWorld(followerSessionId, follower.vehicleId
       ? { ...this.worldForVehicle(follower), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) }
       : this.world);
+    const searchStartedAtMs = performance.now();
+    const targetSpeedMps = this.followSpeedMps(follow.targetSessionId, searchStartedAtMs);
     follow.repathPending = true;
     void this.searchRoute(start, destination, followerSessionId, navigationWorld, "follow").then((points) => {
       if (this.activeFollowsBySessionId.get(followerSessionId) !== follow) return;
@@ -2001,11 +2005,11 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
         follow.nextRepathAt = performance.now();
         return;
       }
-      const currentDestination = this.followApproachPoint(followerSessionId, follower, target);
-      if (Math.hypot(follower.x - start.x, follower.z - start.z) > 1.25 ||
-          Math.hypot(target.x - targetPosition.x, target.z - targetPosition.z) > 0.65 ||
-          Math.hypot(currentDestination.x - destination.x, currentDestination.z - destination.z) > 0.65) {
-        follow.nextRepathAt = performance.now();
+      const nowMs = performance.now();
+      const targetDriftM = Math.hypot(target.x - targetPosition.x, target.z - targetPosition.z);
+      const expectedTravelM = Math.max(targetSpeedMps, this.followSpeedMps(follow.targetSessionId, nowMs)) * (nowMs - searchStartedAtMs) / 1000;
+      if (targetDriftM > 0.65 + expectedTravelM || (!points && targetDriftM > 0.65)) {
+        follow.nextRepathAt = nowMs;
         return;
       }
       if (!points) {
@@ -2018,9 +2022,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
       const currentRouteWorld = this.movementAccessWorld(followerSessionId, follower.vehicleId
         ? { ...this.worldForVehicle(follower), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M) }
         : this.world);
-      if (!routeIsWalkable(start, points, currentRouteWorld)) { follow.nextRepathAt = performance.now(); return; }
-      follow.lastTargetX = target.x;
-      follow.lastTargetZ = target.z;
+      if (!routeIsWalkable({ x: follower.x, z: follower.z }, points, currentRouteWorld)) { follow.nextRepathAt = performance.now(); return; }
       follow.nextRepathAt = performance.now() + 350;
       if (points.length) this.autoRoutes.set(followerSessionId, { points, index: 0, stalledTicks: 0, followTargetSessionId: follow.targetSessionId });
       else {
@@ -2028,10 +2030,13 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
         if (route?.followTargetSessionId === follow.targetSessionId) this.autoRoutes.delete(followerSessionId);
       }
       if (follow.initialPending) this.finishInitialFollow(followerSessionId, follow, follower, target);
+      // Repath again if the target moved while the search was in flight.
+      follow.lastTargetX = targetPosition.x;
+      follow.lastTargetZ = targetPosition.z;
     });
   }
 
-  private stopFollowing(followerSessionId: string, reason: "stopped" | "cancelled" | "target-left" | "blocked" = "stopped", notifyFollower = true) {
+  private stopFollowing(followerSessionId: string, reason: "stopped" | "cancelled" | "target-left" | "blocked" = "stopped") {
     this.invalidateRouteIntent(followerSessionId);
     this.deskTravel?.invalidate(followerSessionId);
     const follow = this.activeFollowsBySessionId.get(followerSessionId);
@@ -2042,8 +2047,15 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
     const follower = this.state.players.get(followerSessionId);
     if (follower?.vehicleMode === "auto") this.exitVehicle(followerSessionId, follower);
     const followerClient = this.clients.find((client) => client.sessionId === followerSessionId);
-    if (notifyFollower) followerClient?.send("follow-status", { status: reason, targetSessionId: follow.targetSessionId });
+    followerClient?.send("follow-status", { status: reason, targetSessionId: follow.targetSessionId });
     if (!follow.initialPending) this.clients.find((client) => client.sessionId === follow.targetSessionId)?.send("follow-ended", { followerSessionId, reason });
+  }
+
+  private followSpeedMps(targetSessionId: string, now: number): number {
+    const target = this.state.players.get(targetSessionId);
+    const input = this.movementInputs.get(targetSessionId);
+    const sprinting = !!input?.sprint && now - input.receivedAt <= MOVEMENT_INPUT_TIMEOUT_MS;
+    return travelSpeedMps(this.world.movementSpeed, Boolean(target?.vehicleId), sprinting, this.autoRoutes.get(targetSessionId)?.driveSpeedMps);
   }
 
   private parseMapLayout(config: unknown) {
@@ -2094,7 +2106,7 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
 
       // Stop a player if the connection has gone quiet; a held key cannot move
       // an avatar forever after the browser stops sending input.
-      let intent: InputState = now - input.receivedAt > 150 ? { x: 0, z: 0, sprint: false, receivedAt: now } : input;
+      let intent: InputState = now - input.receivedAt > MOVEMENT_INPUT_TIMEOUT_MS ? { x: 0, z: 0, sprint: false, receivedAt: now } : input;
       const route = this.autoRoutes.get(sessionId);
       const seatApproach = this.seatApproachWorldsBySessionId.get(sessionId);
       if (intent.x === 0 && intent.z === 0 && !route && !player.vehicleId && !seatApproach
@@ -2112,13 +2124,16 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
         return Math.abs(player.x - seatVehicle.x) <= halfWidth && Math.abs(player.z - seatVehicle.z) <= halfDepth;
       })();
       if (seatApproach && !route?.sitOnArrivalPropId && !stillInsideVehicle) this.seatApproachWorldsBySessionId.delete(sessionId);
+      const movementSpeed = route?.followTargetSessionId
+        ? this.followSpeedMps(route.followTargetSessionId, now)
+        : travelSpeedMps(this.world.movementSpeed, Boolean(player.vehicleId), intent.sprint, route?.driveSpeedMps);
       let movementWorld = player.vehicleId
-        ? { ...this.worldForVehicle(player), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M), movementSpeed: route?.driveSpeedMps ?? this.world.movementSpeed * (intent.sprint ? 10 : 5) }
+        ? { ...this.worldForVehicle(player), playerRadius: Math.max(this.world.playerRadius, AUTO_MOVE_VEHICLE_COLLISION_RADIUS_M), movementSpeed }
         : route?.sitOnArrivalPropId && seatApproach
-          ? { ...seatApproach.world, movementSpeed: this.world.movementSpeed * NORMAL_WALK_SPEED_MULTIPLIER * (intent.sprint ? 2 : 1) }
+          ? { ...seatApproach.world, movementSpeed }
           : seatApproach && stillInsideVehicle
-            ? { ...seatApproach.world, movementSpeed: this.world.movementSpeed * NORMAL_WALK_SPEED_MULTIPLIER * (intent.sprint ? 2 : 1) }
-        : { ...this.world, movementSpeed: this.world.movementSpeed * NORMAL_WALK_SPEED_MULTIPLIER * (intent.sprint ? 2 : 1) };
+            ? { ...seatApproach.world, movementSpeed }
+        : { ...this.world, movementSpeed };
       if (this.ghostModeBySessionId.get(sessionId) && !route) movementWorld = ghostCollisionWorld(movementWorld);
       if (route) movementWorld = this.movementAccessWorld(sessionId, movementWorld);
       let movementSeconds = deltaSeconds;
@@ -2151,8 +2166,8 @@ export class OfficeRoom extends Room<{ state: InstanceType<typeof OfficeState> }
                 } else if (route.sitOnArrivalZoneId && this.routeToAvailableSeat(sessionId, player, route.sitOnArrivalZoneId, budget)) continue;
                 this.clients.find((client) => client.sessionId === sessionId)?.send("auto-move-status", { status: "arrived" });
               }
-              this.autoRoutes.delete(sessionId);
             }
+            if (!route.followTargetSessionId || route.index >= route.points.length) this.autoRoutes.delete(sessionId);
           } else {
             intent = { x: dx / distance, z: dz / distance, sprint: input.sprint, receivedAt: input.receivedAt };
             movementSeconds = Math.min(deltaSeconds, distance / movementWorld.movementSpeed);

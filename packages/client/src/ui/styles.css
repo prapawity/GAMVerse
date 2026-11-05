@@ -207,24 +207,35 @@ button:focus-visible { outline: 3px solid var(--color-focus, #5b52d6); outline-o
 .vehicle-name-overlay { position: absolute; z-index: 3; inset: 0; overflow: hidden; pointer-events: none; }
 .vehicle-name-label { position: absolute; transform: translate(-50%, -100%); min-width: 50px; max-width: 180px; padding: 3px 11px; overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: 999px; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.45); font: 700 11px/1.2 "DM Sans", sans-serif; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .vehicle-name-label[data-status-icon]::before { content: attr(data-status-icon); display: inline-block; margin-right: 4px; font-weight: 800; }
-.voice-participant-roster { position: fixed; z-index: 20; top: calc(var(--office-header-height, 70px) + 12px); left: 50%; display: grid; justify-items: center; gap: 6px; width: max-content; max-width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 250px); overflow: auto; padding: 6px 8px 9px; border: 1px solid rgba(255,255,255,.78); border-radius: 14px; background: rgba(239,248,249,.7); box-shadow: 0 8px 28px rgba(2,48,71,.16); transform: translateX(-50%); backdrop-filter: blur(14px); pointer-events: auto; }
-.voice-participant-roster-heading { color: #748b8f; font: 750 8px/1 "DM Sans", sans-serif; letter-spacing: .14em; }
-.voice-participant-roster-header { display: flex; align-items: center; justify-content: center; gap: 9px; max-width: 100%; }
+.voice-participant-roster { position: fixed; z-index: 20; top: calc(var(--office-header-height, 70px) + 12px); left: 50%; display: grid; justify-items: center; gap: 6px; width: max-content; max-width: min(384px, calc(100vw - 32px)); max-height: calc(100dvh - 250px); overflow: auto; padding: 3px 6px 7px; border: 1px solid rgba(255,255,255,.78); border-radius: 14px; background: rgba(239,248,249,.7); box-shadow: 0 8px 28px rgba(2,48,71,.16); transform: translateX(-50%); backdrop-filter: blur(14px); pointer-events: auto; }
+.voice-participant-roster-heading { color: #405a62; font: 750 10px/1.2 "DM Sans", sans-serif; letter-spacing: .1em; }
+.voice-participant-roster-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; max-width: 100%; }
+.voice-participant-roster.is-minimized { width: max-content; min-width: 160px; gap: 0; padding: 0 6px 6px 10px; }
+.voice-participant-roster.is-minimized .voice-participant-roster-header { justify-content: space-between; flex-wrap: nowrap; width: 100%; }
+.voice-participant-roster.is-minimized .voice-participant-roster-heading { flex-shrink: 0; }
+.voice-participant-roster-names { display: grid; align-content: start; width: 100%; min-width: 0; max-height: min(144px, 30dvh); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; color: #123247; font-size: 12px; font-weight: 700; }
+.voice-participant-roster-names > span { min-width: 0; padding: 4px 6px; line-height: 16px; overflow-wrap: anywhere; }
+.voice-participant-roster-names > span + span { border-top: 1px solid rgba(2,48,71,.09); }
+.voice-participant-roster-names:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.voice-participant-roster-toggle { display: grid; flex: 0 0 auto; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: #294953; cursor: pointer; }
+.voice-participant-roster-toggle:hover { background: rgba(255,255,255,.7); }
+.voice-participant-roster-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
+.voice-participant-roster-toggle svg { width: 16px; height: 16px; }
 .voice-participant-mute-all { display: flex; align-items: center; gap: 3px; }
 .voice-participant-mute-all button { display: flex; align-items: center; gap: 4px; min-height: 23px; padding: 0 6px; border: 1px solid rgba(163,77,66,.2); border-radius: 7px; background: #fff7f5; color: #98483f; font: 700 8px "DM Sans", sans-serif; cursor: pointer; white-space: nowrap; }
 .voice-participant-mute-all button:hover { background: #ffe9e5; }
 .voice-participant-mute-all svg { width: 12px; height: 12px; }
 .voice-participant-list-wrap { position: relative; width: 100%; min-width: 0; }
-.voice-participant-roster ul { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 6px; width: 100%; max-height: min(52dvh, 340px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
-.voice-participant-roster li { position: relative; isolation: isolate; display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; width: clamp(200px, 22vw, 216px); min-width: clamp(200px, 22vw, 216px); max-width: clamp(200px, 22vw, 216px); min-height: 0; aspect-ratio: 16 / 9; padding: 9px 10px; overflow: hidden; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
+.voice-participant-roster ul { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 6px; width: 100%; max-height: min(42dvh, 272px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
+.voice-participant-roster li { position: relative; isolation: isolate; display: grid; flex: 0 0 auto; grid-template-columns: 9px minmax(0,1fr) 20px; grid-template-areas: "dot copy menu" "activity activity activity"; align-items: center; gap: 6px; width: clamp(160px, 17.6vw, 173px); min-width: clamp(160px, 17.6vw, 173px); max-width: clamp(160px, 17.6vw, 173px); min-height: 0; aspect-ratio: 16 / 9; padding: 9px 10px; overflow: hidden; border: 1px solid rgba(2,48,71,.09); border-radius: 11px; background: rgba(255,255,255,.84); }
 .voice-participant-roster li.has-camera-background { color: #fff; border-color: rgba(255,255,255,.7); background: #18313b; }
 .voice-participant-camera-background { position: absolute; z-index: -1; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; opacity: .62; }
 .voice-participant-roster li.has-camera-background::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(180deg,rgba(4,22,31,.24),rgba(4,22,31,.72)); content: ""; }
 .voice-participant-roster li.has-camera-background .voice-participant-copy strong,.voice-participant-roster li.has-camera-background .voice-participant-copy small { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 .voice-participant-roster li.has-camera-background .voice-participant-settings-trigger { color: #fff; }
-.voice-participant-roster.is-compact { max-width: min(960px, calc(100vw - 32px)); }
+.voice-participant-roster.is-compact { max-width: min(768px, calc(100vw - 32px)); }
 .voice-participant-roster.is-compact ul { flex-wrap: nowrap; justify-content: flex-start; overflow: auto hidden; overscroll-behavior-x: contain; }
-.voice-participant-roster.is-compact li { flex: 0 0 clamp(210px, 22vw, 260px); padding: 7px 8px; width: auto; min-width: 0; max-width: none; }
+.voice-participant-roster.is-compact li { flex: 0 0 clamp(168px, 17.6vw, 208px); padding: 7px 8px; width: auto; min-width: 0; max-width: none; }
 .voice-participant-roster.is-compact .voice-participant-media { width: 22px; height: 22px; }
 .voice-participant-roster.is-compact .voice-participant-media svg { width: 13px; height: 13px; }
 .voice-participant-status-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--participant-status-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--participant-status-color) 15%, transparent); }
@@ -612,8 +623,9 @@ button.voice-participant-media:disabled { opacity: .45; cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .voice-participant-roster { top: calc(var(--office-header-height, 52px) + 12px); left: calc(var(--office-rail-width, 74px) + 8px); width: calc(100vw - var(--office-rail-width, 74px) - 16px); max-width: 480px; transform: none; max-height: calc(100dvh - 250px); padding: 6px 8px 9px; }
+  .voice-participant-roster { top: calc(var(--office-header-height, 52px) + 12px); left: calc(var(--office-rail-width, 74px) + 8px); width: calc((100vw - var(--office-rail-width, 74px) - 16px) * .8); max-width: 384px; transform: none; max-height: calc(100dvh - 250px); }
   .voice-participant-roster-header { justify-content: space-between; width: 100%; gap: 4px; }
+  .voice-participant-roster.is-minimized { max-width: min(384px, calc(100vw - var(--office-rail-width, 74px) - 16px)); }
   .voice-participant-mute-all button { padding: 0 4px; font-size: 7px; }
   .voice-participant-mute-all button span { display: none; }
   .voice-participant-roster ul { flex-wrap: nowrap; justify-content: flex-start; max-height: none; overflow: auto hidden; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; }

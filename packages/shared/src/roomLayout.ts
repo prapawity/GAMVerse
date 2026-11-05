@@ -6,6 +6,7 @@ import { NATURE_ROOM_PROP_CATALOG } from "./natureRoomProps.js";
 import { CIVIC_PARK_PROP_CATALOG } from "./campusCivicParkCatalog.js";
 import { CIVIC_ROOM_PROP_CATALOG } from "./campusCivicRoomCatalog.js";
 import { KENNEY_EDITOR_PROP_CATALOG } from "./kenneyEditorProps.js";
+import { VEHICLE_MODEL_LENGTH_M, VEHICLE_MODEL_WIDTH_M } from "./vehicleFootprints.js";
 /** Office-owned shared props snapshot; configVersion is independent from the admin map version. */
 export type { RoomLayoutProp, RoomPropDefinition, RoomPropEditorRole } from "./roomPropTypes.js";
 export { ROOM_PROP_BLOCK_SIZE_M, roomPropBlockFootprint } from "./roomLayoutProps.js";
@@ -26,7 +27,7 @@ export function roomPropCollisionFootprint(prop: Pick<RoomLayoutProp, "width" | 
   // Small seat props keep a cell-sized editor footprint, but their movement
   // blocker must match the authored furniture size. Sofas still block their
   // full natural length, while single chairs stay chair-sized.
-  const definition = prop.asset ? ROOM_PROP_CATALOG.find((item) => item.asset === prop.asset) : undefined;
+  const definition = prop.asset ? roomPropDefinition(prop.asset) : undefined;
   const width = definition?.collision && definition.collisionWidth != null ? definition.collisionWidth : definition?.interaction === "sit" ? definition.collisionWidth ?? definition.width : prop.width;
   const depth = definition?.collision && definition.collisionDepth != null ? definition.collisionDepth : definition?.interaction === "sit" ? definition.collisionDepth ?? definition.depth : prop.depth;
   const scale = definition?.interaction === "sit" ? definition.collisionScale ?? 1 : 1;
@@ -124,7 +125,7 @@ const SUBURBAN_PATH_PROPS = kenneyRoadAssets("city-kit-suburban", [
 
 const OFFICE_GEOMETRY_PROPS: RoomPropDefinition[] = [
   { asset: "office-townhall-stage", label: "Town Hall · Stage", width: 6, depth: 3, height: 0.45, collision: false, geometry: "townhall-stage", group: "Town Hall", preview: "/assets/office-props/townhall-stage.svg" },
-  { asset: "office-townhall-podium", label: "Town Hall · Podium", width: 1.2, depth: 1, height: 1.2, collision: true, geometry: "townhall-podium", group: "Town Hall", preview: "/assets/office-props/townhall-podium.svg" },
+  { asset: "office-townhall-podium", label: "Town Hall · Podium", width: 1.2, depth: 1, height: 1.2, collision: true, collisionWidth: 0.813, collisionDepth: 0.655, geometry: "townhall-podium", group: "Town Hall", preview: "/assets/office-props/townhall-podium.svg" },
   { asset: "office-restroom-partition", label: "Restroom · Privacy divider", width: 2, depth: 1, height: 2, collision: false, geometry: "restroom-partition", group: "Restroom", preview: "/assets/office-props/restroom-partition.svg" },
   { asset: "office-restroom-wash-backboard", label: "Restroom · Wash island backboard", width: 10.8, depth: 0.16, height: 2.2, collision: true, collisionWidth: 10.8, collisionDepth: 0.16, geometry: "restroom-wash-backboard", group: "Restroom", preview: "/assets/office-props/restroom-partition.svg" },
   { asset: "office-wayfinding-sign", label: "Wayfinding · Blank sign", width: 1.2, depth: 1, height: 2, collision: false, geometry: "wayfinding-sign", group: "Roads · Signs", preview: "/assets/office-props/wayfinding-sign.svg" },
@@ -852,6 +853,10 @@ function isCampusTreeAsset(asset: string) {
 }
 const INDUSTRIAL_BUILDING_PREFAB_SCALE = 3.375;
 const FINISHED_BUILDING_SCALE_BOOST = 1.5;
+const SUBURBAN_TREE_COLLISION_M: Readonly<Record<string, readonly [number, number] | undefined>> = {
+  "kenney-city-kit-suburban-tree-large": [2.846, 3.287],
+  "kenney-city-kit-suburban-tree-small": [1.904, 2.199],
+};
 
 /** Shared behavioral hints for the prop library. Placement/interaction support can be enabled progressively. */
 export const ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [...ROOM_PROP_CATALOG_BASE, ...EXTERNAL_ROOM_PROP_CATALOG, ...NATURE_ROOM_PROP_CATALOG, ...KENNEY_EDITOR_PROP_CATALOG].map((item) => {
@@ -869,25 +874,31 @@ export const ROOM_PROP_CATALOG: ReadonlyArray<RoomPropDefinition> = [...ROOM_PRO
   const seat = isSeatProp(sizedItem);
   const bed = isRoomPropBed(sizedItem.asset);
   const surface = isSurfaceProp(sizedItem);
-  const small = isSmallProp(sizedItem);
+  const small = sizedItem.placementClass === "small" || isSmallProp(sizedItem);
+  const tabletopItem = small && !shelf && !seat && !surface;
   const editorRole = roomPropEditorRole(sizedItem);
+  const vehicleWidth = sizedItem.vehicleId ? VEHICLE_MODEL_WIDTH_M[sizedItem.vehicleId] : undefined;
+  const treeFootprint = SUBURBAN_TREE_COLLISION_M[sizedItem.asset];
   const blockFootprint = sizedItem.group === "Floor tiles"
     ? { width: sizedItem.width, depth: sizedItem.depth }
     : roomPropBlockFootprint(sizedItem.width, sizedItem.depth);
   return {
     ...sizedItem,
     editorRole,
-    // Keep catalog dimensions authoritative so preview, placement bounds,
-    // collision, and legacy layouts all agree on the minimum footprint.
-    width: Math.max(MIN_ROOM_PROP_FOOTPRINT, blockFootprint.width),
-    depth: Math.max(MIN_ROOM_PROP_FOOTPRINT, blockFootprint.depth),
+    // Tabletop items fit by model size. Floor placement uses the editor grid.
+    width: tabletopItem ? sizedItem.width : Math.max(MIN_ROOM_PROP_FOOTPRINT, blockFootprint.width),
+    depth: tabletopItem ? sizedItem.depth : Math.max(MIN_ROOM_PROP_FOOTPRINT, blockFootprint.depth),
+    ...(sizedItem.collision && sizedItem.group !== "Floor tiles" ? {
+      collisionWidth: vehicleWidth ?? treeFootprint?.[0] ?? sizedItem.collisionWidth ?? sizedItem.width,
+      collisionDepth: vehicleWidth !== undefined ? VEHICLE_MODEL_LENGTH_M : treeFootprint?.[1] ?? sizedItem.collisionDepth ?? sizedItem.depth,
+    } : {}),
     placementClass: shelf ? "shelf" : seat ? "seat" : surface ? "surface" : small ? "small" : "floor",
     ...(shelf ? { supportsPlacement: "shelf-top" as const, stackable: true } : {}),
     ...(surface ? { supportsPlacement: "tabletop" as const } : {}),
     ...(seat || bed ? {
       interaction: "sit" as const,
-      collisionWidth: blockFootprint.width,
-      collisionDepth: blockFootprint.depth,
+      collisionWidth: sizedItem.collisionWidth ?? sizedItem.width,
+      collisionDepth: sizedItem.collisionDepth ?? sizedItem.depth,
       collisionScale: bed ? 1 : 0.9,
       collisionClearanceRadius: 0.2,
       // Seat surfaces sit well below the top of a chair/sofa model. A fixed

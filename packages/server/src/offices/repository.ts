@@ -66,7 +66,7 @@ export function validateOfficePropInteractions(props: unknown[]) {
 }
 
 /** Validate raw props and apply the server-owned fields; throws a user-facing Error when anything is wrong. */
-async function normalizeOfficeProps(rawProps: unknown[], loadDimensions: () => Promise<{ width: number; depth: number }>): Promise<RoomLayoutProp[]> {
+function normalizeOfficeProps(rawProps: unknown[], dimensions: { width: number; depth: number }, previousProps: readonly RoomLayoutProp[]): RoomLayoutProp[] {
   validateOfficePropInteractions(rawProps);
   const props = readRoomLayout({ layout: { props: rawProps } }).props;
   if (props.length !== rawProps.length) {
@@ -76,10 +76,11 @@ async function normalizeOfficeProps(rawProps: unknown[], loadDimensions: () => P
     const detail = typeof rejected === "object" && rejected !== null ? ` First rejected: id "${String((rejected as { id?: unknown }).id)}", asset "${String((rejected as { asset?: unknown }).asset)}".` : "";
     throw new Error(`Office props contain unsupported or malformed items (${rawProps.length - props.length} of ${rawProps.length}).${detail}`);
   }
-  const dimensions = await loadDimensions();
   const ids = new Set<string>();
   // One spatial index replaces a scan of every prop for each stacked/small prop.
   const supportIndex = createRoomPropSupportIndex(props);
+  let previousById: Map<string, RoomLayoutProp> | undefined;
+  let previousSupportIndex: ReturnType<typeof createRoomPropSupportIndex> | undefined;
   for (let index = 0; index < props.length; index += 1) {
     const prop = props[index]!;
     const original = rawProps[index];
@@ -95,11 +96,26 @@ async function normalizeOfficeProps(rawProps: unknown[], loadDimensions: () => P
     if (![x, z, rotation].every(Number.isFinite)) throw new Error("Office prop coordinates are invalid.");
     const rawElevation = "elevation" in original ? original.elevation : 0;
     if (typeof rawElevation !== "number" || !Number.isFinite(rawElevation) || rawElevation < 0 || rawElevation > 15) throw new Error("Office prop elevation is invalid.");
-    if (catalog.placementClass === "small" || rawElevation > 0.001) {
+    if ((catalog.placementClass === "small" && !catalog.allowFloorPlacement) || rawElevation > 0.001) {
       if (!catalog.wallMounted) {
         const support = supportIndex.find(prop.asset, x, z, rotation, prop.id);
-        if (!support || Math.abs(support.elevation - rawElevation) > 0.02) throw new Error("Place small props on a table or shelf, and stack shelves on another shelf.");
-        props[index]!.elevation = support.elevation;
+        if (support && Math.abs(support.elevation - rawElevation) <= 0.02) {
+          props[index]!.elevation = support.elevation;
+        } else {
+          // A prop that was already unsupported must not block unrelated edits.
+          // Still reject new overhangs, including when a valid support is removed.
+          previousById ??= new Map(previousProps.map((item) => [item.id, item]));
+          const previous = previousById.get(prop.id);
+          if (!previous || previous.asset !== prop.asset || previous.x !== x || previous.z !== z
+            || previous.rotation !== rotation || (previous.elevation ?? 0) !== rawElevation) {
+            throw new Error(`"${catalog.label}" needs a table or shelf that fits its footprint. Shelves can stack on another shelf.`);
+          }
+          previousSupportIndex ??= createRoomPropSupportIndex(previousProps);
+          const oldSupport = previousSupportIndex.find(prop.asset, x, z, rotation, prop.id);
+          if (oldSupport && Math.abs(oldSupport.elevation - rawElevation) <= 0.02) {
+            throw new Error(`"${catalog.label}" would lose its support. Move or remove it before moving its table or shelf.`);
+          }
+        }
       }
     }
     const cos = Math.abs(Math.cos(rotation));
@@ -126,7 +142,8 @@ export async function saveOfficeProps(username: string, officeId: string, value:
   const body = value as { props?: unknown; configVersion?: unknown };
   if (!Number.isInteger(body.configVersion) || Number(body.configVersion) < 1) throw new Error("Office props version is invalid.");
   if (!Array.isArray(body.props) || body.props.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
-  const props = await normalizeOfficeProps(body.props, () => officeMapDimensions(storage, officeId));
+  validateOfficePropInteractions(body.props);
+  const dimensions = await officeMapDimensions(storage, officeId);
 
   const client = await storage.connect();
   try {
@@ -148,6 +165,8 @@ export async function saveOfficeProps(username: string, officeId: string, value:
         configVersion: row.config_version,
       });
     }
+    const previousProps = readRoomLayout({ layout: { props: row.props } }).props;
+    const props = normalizeOfficeProps(body.props, dimensions, previousProps);
     const next = await client.query<{ props: unknown; config_version: number }>(
       `UPDATE app_office_props SET config_version = config_version + 1, props = $2::jsonb, updated_at = now()
        WHERE office_id = $1 RETURNING props, config_version`, [officeId, JSON.stringify(props)],
@@ -230,7 +249,8 @@ async function runPropOpsTransaction(storage: PropOpsStorage, officeId: string, 
       "SELECT props, config_version FROM app_office_props WHERE office_id = $1 FOR UPDATE", [officeId],
     );
     const row = current.rows[0]!;
-    let state: RoomLayoutProp[] = readRoomLayout({ layout: { props: row.props } }).props;
+    const previousProps = readRoomLayout({ layout: { props: row.props } }).props;
+    let state = previousProps;
     const results: { applied: number; conflicts: PropOpConflict[] }[] = [];
     let applied = 0;
     for (const ops of opsLists) {
@@ -245,7 +265,7 @@ async function runPropOpsTransaction(storage: PropOpsStorage, officeId: string, 
     }
     if (state.length > MAX_OFFICE_PROPS) throw new Error(`Office props limit exceeded (maximum ${MAX_OFFICE_PROPS.toLocaleString()}).`);
     // The merged result goes through the same validation as a full save.
-    const props = await normalizeOfficeProps(state, async () => dimensions);
+    const props = normalizeOfficeProps(state, dimensions, previousProps);
     const next = await client.query<{ config_version: number }>(
       `UPDATE app_office_props SET config_version = config_version + 1, props = $2::jsonb, updated_at = now()
        WHERE office_id = $1 RETURNING config_version`, [officeId, JSON.stringify(props)],

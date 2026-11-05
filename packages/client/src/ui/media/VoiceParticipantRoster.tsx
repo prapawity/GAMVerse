@@ -1,6 +1,6 @@
 import type { RemoteMediaSource, RemoteMediaTile } from "./remoteMediaState";
 import type { UserStatus } from "@gammyverse/shared";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { playerName } from "../../identity/playerName";
 
@@ -75,6 +75,8 @@ export function VoiceParticipantRoster({
   onModeratePerson: (username: string, source: "microphone" | "camera" | "screen_share") => void;
   onMuteAll: (source: "microphone" | "camera" | "screen_share") => void;
 }) {
+  const listId = useId();
+  const [minimized, setMinimized] = useState(false);
   const [settingsPersonId, setSettingsPersonId] = useState<string | null>(null);
   const [settingsPosition, setSettingsPosition] = useState<{ top: number; left: number } | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -98,17 +100,31 @@ export function VoiceParticipantRoster({
   const visiblePeople = people.filter((person) => !person.local);
   if (!visiblePeople.length) return null;
 
-  return <section className={`voice-participant-roster${visiblePeople.length > ROSTER_COMPACT_MIN_PEOPLE ? " is-compact" : ""}`} aria-label="People you can talk to" aria-live="polite">
+  const rosterMode = minimized ? " is-minimized" : visiblePeople.length > ROSTER_COMPACT_MIN_PEOPLE ? " is-compact" : "";
+  const toggleLabel = minimized ? "Expand Voice People" : "Minimize Voice People";
+  return <section className={`voice-participant-roster${rosterMode}`} aria-label="People you can talk to" aria-live="polite">
     <div className="voice-participant-roster-header">
-      <span className="voice-participant-roster-heading">VOICE · {visiblePeople.length} {visiblePeople.length === 1 ? "PERSON" : "PEOPLE"}</span>
-      {canMuteAll && <span className="voice-participant-mute-all" role="group" aria-label="Mute all participants in this voice zone">
+      <span className="voice-participant-roster-heading">{minimized ? "VOICE PEOPLE" : `VOICE · ${visiblePeople.length} ${visiblePeople.length === 1 ? "PERSON" : "PEOPLE"}`}</span>
+      {!minimized && canMuteAll && <span className="voice-participant-mute-all" role="group" aria-label="Mute all participants in this voice zone">
         <button type="button" title="Mute all microphones in this zone" aria-label="Mute all microphones in this voice zone" onClick={() => onMuteAll("microphone")}><MediaGlyph source="microphone" /><span>All mic</span></button>
         <button type="button" title="Mute all cameras in this zone" aria-label="Mute all cameras in this voice zone" onClick={() => onMuteAll("camera")}><MediaGlyph source="camera" /><span>All camera</span></button>
         <button type="button" title="Stop all screen shares in this zone" aria-label="Stop all screen shares in this voice zone" onClick={() => onMuteAll("screen_share")}><MediaGlyph source="screen" /><span>All share</span></button>
       </span>}
+      <button type="button" className="voice-participant-roster-toggle" aria-label={toggleLabel} title={toggleLabel} aria-expanded={!minimized} aria-controls={listId} onClick={() => {
+        setMinimized(!minimized);
+        setSettingsPersonId(null);
+        setSettingsPosition(null);
+      }}>
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d={minimized ? "m5 8 5 5 5-5" : "m5 12 5-5 5 5"} />
+        </svg>
+      </button>
     </div>
-    <div className="voice-participant-list-wrap">
-    <ul>
+    {minimized && <div className="voice-participant-roster-names" role="list" aria-label="Voice participants" tabIndex={0}>
+      {visiblePeople.map((person) => <span key={person.sessionId} role="listitem">{playerName(person)}</span>)}
+    </div>}
+    <div className="voice-participant-list-wrap" id={listId} hidden={minimized}>
+    {!minimized && <ul>
       {visiblePeople.map((person) => {
         const activityKnown = activities.has(person.username.toLocaleLowerCase());
         const activity = activities.get(person.username.toLocaleLowerCase()) ?? { microphone: false, camera: false, screenShare: false };
@@ -149,7 +165,7 @@ export function VoiceParticipantRoster({
           </div>, document.body)}
         </li>;
       })}
-    </ul>
+    </ul>}
     </div>
   </section>;
 }

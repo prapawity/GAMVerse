@@ -26,11 +26,13 @@ export class OfficeMapSceneLayers {
     this.selections.visible = editing;
   }
 
-  syncVehicleHandles(handles: readonly Object3D[], position: { x: number; z: number }) {
+  syncVehicleHandles(handles: readonly Object3D[], position: { x: number; z: number }, scale = { x: 1, z: 1 }) {
     for (const handle of handles) {
-      if (handle.position.x === position.x && handle.position.z === position.z) continue;
+      if (handle.position.x === position.x && handle.position.z === position.z && handle.scale.x === scale.x && handle.scale.z === scale.z) continue;
       handle.position.x = position.x;
       handle.position.z = position.z;
+      handle.scale.x = scale.x;
+      handle.scale.z = scale.z;
       if (handle.parent instanceof StaticSceneGroup) handle.parent.invalidate();
     }
   }

@@ -38,3 +38,37 @@ test("a static box stays unchanged when no feet are detected", () => {
   model.add(new Mesh(new BoxGeometry()));
   assert.equal(prepareStaticAvatarRig(model), null);
 });
+
+test("detected humanoid arms bind skin and swing against the legs on the same side", () => {
+  const model = new Group();
+  const torso = new Mesh(new BoxGeometry(0.32, 0.44, 0.22));
+  torso.position.y = 0.58;
+  const head = new Mesh(new SphereGeometry(0.13, 16, 12));
+  head.position.y = 0.88;
+  model.add(torso, head);
+  for (const side of [-1, 1]) {
+    const foot = new Mesh(new SphereGeometry(0.09, 16, 12));
+    foot.position.set(side * 0.14, 0.14, 0);
+    foot.scale.y = 1.55;
+    const arm = new Mesh(new SphereGeometry(0.09, 16, 12));
+    arm.position.set(side * 0.24, 0.60, 0);
+    arm.scale.y = 2.1;
+    model.add(foot, arm);
+  }
+
+  const rig = prepareStaticAvatarRig(model);
+  assert.ok(rig);
+  const instance = clone(rig.scene);
+  const mixer = new AnimationMixer(instance);
+  mixer.clipAction(rig.animations[1]).play();
+  mixer.setTime(0);
+  for (const index of [0, 1]) {
+    const leg = instance.getObjectByName("AutoRigLeg" + index)!;
+    const arm = instance.getObjectByName("AutoRigArm" + index)!;
+    assert.ok(leg.quaternion.x * arm.quaternion.x < 0);
+    const mesh = rig.scene.children[index === 0 ? 4 : 6] as Mesh;
+    const { skinIndex, skinWeight } = mesh.geometry.attributes;
+    assert.ok(Array.from({ length: skinIndex.count }, (_, vertex) =>
+      skinIndex.getY(vertex) === index + 3 && skinWeight.getY(vertex) > 0.2).some(Boolean));
+  }
+});

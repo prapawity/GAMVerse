@@ -37,3 +37,17 @@ test("natural walking takes a 1.6 m full stride and fast travel cannot exceed 1.
   const slower = advance(3, 0.2);
   assert.ok(Math.abs(slower.stridePhaseRad - fast.stridePhaseRad * 2) < 1e-12);
 });
+
+test("a stationary dancer starts at the first beat and movement or seating clears the loop", () => {
+  const visual = createMap2dAvatarVisual();
+  const still = { previousX: 0, previousZ: 0, x: 0, z: 0, deltaS: 0.1, dancing: true };
+  assert.equal(advanceMap2dAvatarVisual(visual, still), true);
+  assert.equal(visual.danceElapsedS, 0);
+  assert.equal(advanceMap2dAvatarVisual(visual, still), false);
+  assert.equal(visual.danceElapsedS, 0.1);
+  assert.equal(advanceMap2dAvatarVisual(visual, { ...still, x: 0.1 }), true);
+  assert.equal(visual.danceElapsedS, undefined);
+  advanceMap2dAvatarVisual(visual, still);
+  assert.equal(advanceMap2dAvatarVisual(visual, { ...still, sittingPropId: "seat" }), true);
+  assert.equal(visual.danceElapsedS, undefined);
+});

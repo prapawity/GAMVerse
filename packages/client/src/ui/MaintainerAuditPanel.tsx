@@ -37,7 +37,7 @@ export function MaintainerAuditPanel({ endpoint }: { endpoint: string }) {
   const [targetInput, setTargetInput] = useState("");
   const [filters, setFilters] = useState<AuditFilters>({ action: "", targetId: "" });
   const query = new URLSearchParams(filters).toString();
-  const collection = useLobbyCollection<MaintainerAuditEvent>(endpoint, "/maintainer/audit", "events", undefined, query);
+  const collection = useLobbyCollection<MaintainerAuditEvent>(endpoint, "/api/maintainer/audit", "events", undefined, query);
   const { items: events, loading: busy, error } = collection;
   const applyFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

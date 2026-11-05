@@ -6,9 +6,7 @@ import { useRemoteMediaViewer } from "./media/useRemoteMediaViewer";
 import { readVoiceRosterActivity } from "./media/voiceRosterActivity";
 import { playerName } from "../identity/playerName";
 import { vehicleLabel } from "../assets/vehicleAssets";
-import { useClientDiagnostics } from "./diagnostics/useClientDiagnostics";
 import { MaintainerDiagnosticsPage } from "./diagnostics/MaintainerDiagnosticsPage";
-import { reportClientDiagnostic } from "./diagnostics/clientDiagnostics";
 import { createOfficeMediaSession } from "./media/officeMediaSession";
 import { voiceParticipantUsername } from "./media/mediaIdentity";
 import { type ChatTransport } from "./social/ChatPanel";
@@ -39,6 +37,7 @@ import { useOfficeDesks } from "./workspace/useOfficeDesks";
 import { SHARE_OFFICE_LABEL } from "./workspace/officeShareLinks";
 import { useOfficeShareLinks } from "./workspace/useOfficeShareLinks";
 import { acceptOfficeEntryLink, acceptPendingOfficeInvite, getInviteRouteToken, getOfficeShareRouteToken } from "./workspace/officeEntryLink";
+import { isKnownAppRoute } from "./workspace/defaultAppRoute";
 import { useSignOutConfirmation } from "./workspace/useSignOutConfirmation";
 import { CreateOfficeDialog } from "./workspace/CreateOfficeDialog";
 import { areOfficeTeamNamesValid, createDefaultOfficeTeamNames, normalizeOfficeTeamNames, resizeOfficeTeamNames } from "./workspace/teamNames";
@@ -103,7 +102,7 @@ import { MeetingToolsMenu } from "./meetings/MeetingToolsMenu";
 import { browserPrejoinStorage, readPrejoinSkipPreference, writePrejoinSkipPreference } from "./meetings/prejoinPreference";
 import { useMeetingRecording } from "./meetings/useMeetingRecording";
 import { MeetingRecordingControl } from "./meetings/MeetingRecordingControl";
-import { countMeetingRoomSeats } from "@gammyverse/shared";
+import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_MAX_MIB, CHARACTER_MODEL_SIZE_ERROR, countMeetingRoomSeats } from "@gammyverse/shared";
 import { meetingAudioStatus, meetingAudioStatusLabel } from "./meetings/meetingAudioStatus";
 import "./meetings/MeetingPrejoin.css";
 import { playSocialNotificationSound, unlockSocialNotificationAudio } from "../audio/notificationSounds";
@@ -335,7 +334,12 @@ const getOfficeRouteId = (path = window.location.pathname) => path.match(/^\/off
 export function OfficeApp() {
   const workspaceTheme = useWorkspaceTheme();
   const pwaInstall = usePwaInstall();
-  const [routePath, setRoutePath] = useState(() => window.location.pathname);
+  const [routePath, setRoutePath] = useState(() => {
+    const path = window.location.pathname;
+    if (isKnownAppRoute(path)) return path;
+    window.history.replaceState(window.history.state, "", "/");
+    return "/";
+  });
   const [meetingEntry, setMeetingEntry] = useState(() => Boolean(getMeetingRouteOfficeId(window.location.pathname)));
   const [meetingTargetZoneId, setMeetingTargetZoneId] = useState(() => getMeetingRouteZoneId(window.location.search));
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
@@ -655,7 +659,6 @@ export function OfficeApp() {
   const toiletReturnPositionRef = useRef<{ x: number; z: number } | null>(null);
   const availability = useAvailabilityStatus(status === "connected" ? roomRef.current : null);
   const officeDesks = useOfficeDesks({ endpoint, officeId: activeOffice?.id ?? null, username: authUser?.username ?? null, sessionKey: status === "connected" ? roomRef.current?.sessionId ?? null : null, configVersion: mapServerVersion });
-  useClientDiagnostics(endpoint, authUser?.username ?? null, activeOffice?.id ?? null, voiceRetryExhausted);
   const deskAssignmentNotice = useDeskAssignmentNotice({ room: status === "connected" ? roomRef.current : null,
     officeId: activeOffice?.id ?? null, sessionKey: status === "connected" ? roomRef.current?.sessionId ?? null : null,
     username: authUser?.username ?? null, desks: officeDesks.desks, configVersion: officeDesks.configVersion, onRefresh: officeDesks.refresh });
@@ -941,8 +944,8 @@ export function OfficeApp() {
       setPersonalModelsError("Choose a .glb model file.");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setPersonalModelsError("Model must be 10 MB or smaller.");
+    if (file.size > CHARACTER_MODEL_MAX_BYTES) {
+      setPersonalModelsError(CHARACTER_MODEL_SIZE_ERROR);
       return;
     }
     const header = new Uint8Array(await file.slice(0, 4).arrayBuffer());
@@ -1338,7 +1341,8 @@ export function OfficeApp() {
     setPendingOfficeEntry(null);
     localStorage.removeItem("gammyverse.activeOfficeId");
     exitMapEditMode();
-    if (syncUrl && (getOfficeRouteId() || getMeetingRouteOfficeId(window.location.pathname))) window.history.pushState({}, "", "/");
+    const returnPath = authUser?.role === "maintainer" ? "/maintainer/offices" : "/";
+    if (syncUrl && (getOfficeRouteId() || getMeetingRouteOfficeId(window.location.pathname))) window.history.pushState({}, "", returnPath);
     if (syncUrl) setRoutePath(window.location.pathname);
     setActiveOffice(null);
     setMeetingEntry(false);
@@ -1358,6 +1362,9 @@ export function OfficeApp() {
 
   useEffect(() => {
     const onPopState = () => {
+      if (!isKnownAppRoute(window.location.pathname)) {
+        window.history.replaceState(window.history.state, "", "/");
+      }
       const path = window.location.pathname;
       setRoutePath(path);
       setMeetingEntry(Boolean(getMeetingRouteOfficeId(path)));
@@ -1658,7 +1665,7 @@ export function OfficeApp() {
             window.history.replaceState(null, "", "/");
             setRoutePath("/");
             setMeetingEntry(false);
-          } else if (currentPath.replace(/\/+$/, "") !== "/maintainer/diagnostics") {
+          } else if (!currentPath.replace(/\/+$/, "").startsWith("/maintainer")) {
             const savedOfficeId = localStorage.getItem("gammyverse.activeOfficeId");
             const destination = (result.offices ?? []).find((office) => office.id === savedOfficeId);
             if (destination) selectOffice(destination);
@@ -1690,7 +1697,7 @@ export function OfficeApp() {
   const issueResetLink = async (username: string) => {
     setAccountError(null);
     try {
-      const response = await fetch(`${endpoint}/maintainer/users/${encodeURIComponent(username)}/password-reset`, { method: "POST", credentials: "include" });
+      const response = await fetch(`${endpoint}/api/maintainer/users/${encodeURIComponent(username)}/password-reset`, { method: "POST", credentials: "include" });
       const result = await response.json() as { resetPath?: string; expiresAt?: string; error?: string };
       if (!response.ok || !result.resetPath) throw new Error(result.error ?? "Could not create reset link.");
       setResetUrls((current) => ({ ...current, [username]: `${window.location.origin}${result.resetPath}` }));
@@ -1733,7 +1740,8 @@ export function OfficeApp() {
     setOfficeName("");
     setCreateOfficeDialogOpen(false);
     setLobbyBusy(false);
-    selectOffice(outcome.office);
+    if (authUser?.role === "maintainer") activateOffice(outcome.office);
+    else selectOffice(outcome.office);
   };
 
   const deleteManagedOffice = async () => {
@@ -2770,7 +2778,6 @@ export function OfficeApp() {
         room.onDrop((code, reason) => {
           console.info(DROP_EVENT_LABEL, { roomId: room.roomId, sessionId: room.sessionId, code, reason });
           if (disposed) return;
-          reportClientDiagnostic("connection_drop", { closeCode: code });
           reconnectingRef.current = true;
           meetingZoneActiveRef.current = false;
           privateZoneIdRef.current = null;
@@ -2796,7 +2803,6 @@ export function OfficeApp() {
           console.info(LEAVE_EVENT_LABEL, { roomId: room.roomId, sessionId: room.sessionId, code, reason });
           if (disposed) return;
           if (![CONSENTED_CLOSE_CODE, REPLACED_CLOSE_CODE, REMOVED_CLOSE_CODE].includes(code)) {
-            reportClientDiagnostic("connection_drop", { closeCode: code });
           }
           if ([CONSENTED_CLOSE_CODE, REPLACED_CLOSE_CODE, REMOVED_CLOSE_CODE].includes(code)) voiceSessionRef.current?.dispose();
           else voiceSessionRef.current?.suspend("realtime");
@@ -2832,7 +2838,6 @@ export function OfficeApp() {
         });
         room.onError((_code, message) => {
           if (!disposed) {
-            reportClientDiagnostic("connection_error", { closeCode: Math.max(0, Math.min(_code, 3_600_000)) });
             if (/authentication required|session (expired|invalid)|unauthori[sz]ed/i.test(message ?? "")) {
               returnToSignIn();
               return;
@@ -2848,7 +2853,6 @@ export function OfficeApp() {
         }, INPUT_HEARTBEAT_INTERVAL_MS);
       } catch (cause) {
         if (!disposed) {
-          reportClientDiagnostic("join_error");
           const reason = cause instanceof Error ? cause.message : String(cause);
           if (/authentication required|session (expired|invalid)|unauthori[sz]ed/i.test(reason)) {
             returnToSignIn();
@@ -3266,7 +3270,7 @@ export function OfficeApp() {
           </section>
           <CharacterPicker value={characterDraft} currentCharacterId={authUser.characterId ?? DEFAULT_CHARACTER_ID} onChange={setCharacterDraft} />
           <section className="personal-models-section" aria-label="Personal 3D models">
-            <div className="personal-models-heading"><div><span className="eyebrow">YOUR MODELS</span><p className="personal-model-help">One GLB file with embedded model textures, up to 10 MiB. Only you can choose or remove it.</p></div><button type="button" className="personal-model-add" disabled={avatarUploadBusy} onClick={() => avatarUploadInputRef.current?.click()}>{avatarUploadBusy ? "Uploading…" : "Add model"}</button></div>
+            <div className="personal-models-heading"><div><span className="eyebrow">YOUR MODELS</span><p className="personal-model-help">One GLB file with embedded textures, up to {CHARACTER_MODEL_MAX_MIB} MiB. Embed Idle and Walk clips for human or animal characters. Up to three models per account. Only you can choose or remove it.</p></div><button type="button" className="personal-model-add" disabled={avatarUploadBusy} onClick={() => avatarUploadInputRef.current?.click()}>{avatarUploadBusy ? "Uploading…" : "Add model"}</button></div>
             <input ref={avatarUploadInputRef} className="visually-hidden" type="file" accept=".glb,model/gltf-binary" onChange={(event) => void uploadPersonalAvatar(event)} aria-label="Upload a GLB character model" />
             {personalModelsBusy && <p className="personal-model-status">Loading your models…</p>}
             {personalModelsError && <p className="auth-error" role="alert">{personalModelsError}</p>}

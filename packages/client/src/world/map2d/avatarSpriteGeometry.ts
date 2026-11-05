@@ -35,6 +35,20 @@ const AVATAR_SPRITE_STATIONARY_POSE_COUNT = 3;
 export const AVATAR_SPRITE_POSE_COUNT = AVATAR_SPRITE_WALK_FRAME_COUNT + AVATAR_SPRITE_STATIONARY_POSE_COUNT;
 export const AVATAR_SPRITE_SEATED_POSE_INDEX = AVATAR_SPRITE_POSE_COUNT - 2;
 export const AVATAR_SPRITE_LYING_POSE_INDEX = AVATAR_SPRITE_POSE_COUNT - 1;
+export const AVATAR_SPRITE_IDLE_FRAME_COUNT = 4;
+export const AVATAR_SPRITE_ANIMATED_POSE_COUNT = AVATAR_SPRITE_POSE_COUNT + AVATAR_SPRITE_IDLE_FRAME_COUNT - 1;
+const AVATAR_SPRITE_IDLE_MIN_CYCLE_MS = 400;
+const idleCycleMsByAtlas = new WeakMap<HTMLCanvasElement, number>();
+export function setAvatarSpriteIdleCycle(atlas: HTMLCanvasElement, durationMs: number): void {
+  idleCycleMsByAtlas.set(atlas, Math.max(AVATAR_SPRITE_IDLE_MIN_CYCLE_MS, durationMs));
+}
+export function avatarSpriteIdleCycle(atlas: HTMLCanvasElement): number | undefined {
+  return idleCycleMsByAtlas.get(atlas);
+}
+export function avatarSpriteIdlePoseIndex(nowMs: number, cycleMs: number): number {
+  const frame = Math.floor(nowMs % cycleMs / cycleMs * AVATAR_SPRITE_IDLE_FRAME_COUNT);
+  return frame === 0 ? 0 : AVATAR_SPRITE_POSE_COUNT + frame - 1;
+}
 export const AVATAR_SPRITE_FULL_CIRCLE_RAD = Math.PI * 2;
 
 function wrappedSpriteAngleRad(angleRad: number): number {
@@ -54,9 +68,9 @@ export function avatarSpritePoseIndex(visual: Map2dAvatarVisual): number {
   const turn = wrappedSpriteAngleRad(visual.stridePhaseRad);
   return 1 + Math.floor(turn / AVATAR_SPRITE_FULL_CIRCLE_RAD * AVATAR_SPRITE_WALK_FRAME_COUNT);
 }
-export function avatarSpriteSourceRect(rotationRad: number, visual: Map2dAvatarVisual) {
+export function avatarSpriteSourceRect(rotationRad: number, visual: Map2dAvatarVisual, idlePose = 0) {
   return {
-    x: avatarSpritePoseIndex(visual) * AVATAR_SPRITE_TILE_WIDTH_PX,
+    x: (visual.motion === "idle" ? idlePose : avatarSpritePoseIndex(visual)) * AVATAR_SPRITE_TILE_WIDTH_PX,
     y: avatarSpriteDirectionIndex(rotationRad) * AVATAR_SPRITE_TILE_HEIGHT_PX,
     width: AVATAR_SPRITE_TILE_WIDTH_PX,
     height: AVATAR_SPRITE_TILE_HEIGHT_PX,

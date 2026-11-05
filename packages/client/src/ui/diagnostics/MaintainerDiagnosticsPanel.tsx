@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CLIENT_DIAGNOSTIC_CODES, SERVER_DIAGNOSTIC_CODES, type DiagnosticItem, type DiagnosticPage } from "@gammyverse/shared";
+import { SERVER_DIAGNOSTIC_CODES, type DiagnosticItem, type DiagnosticPage } from "@gammyverse/shared";
 import "./MaintainerDiagnosticsPanel.css";
 
 const EVENTS_PER_PAGE = 10;
@@ -26,7 +26,7 @@ export function MaintainerDiagnosticsPanel({ endpoint }: { endpoint: string }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${endpoint}/maintainer/diagnostics${before ? `?before=${encodeURIComponent(before)}` : ""}`, {
+      const response = await fetch(`${endpoint}/api/maintainer/diagnostics${before ? `?before=${encodeURIComponent(before)}` : ""}`, {
         credentials: "include", signal: request.signal,
       });
       if (!response.ok) throw new Error(`Could not load diagnostics (HTTP ${response.status}).`);
@@ -62,20 +62,20 @@ export function MaintainerDiagnosticsPanel({ endpoint }: { endpoint: string }) {
       <button className="lobby-button quiet" disabled={loading} onClick={() => void load()}>{loading ? "Refreshing…" : "Refresh diagnostics"}</button>
     </div>
     <div className="diagnostics-context" aria-label="Collection scope">
-      <span>Browser & server</span><span>Rate-limited collection</span><span>No private content</span>
+      <span>Backend · API and realtime</span><span>Rate-limited collection</span><span>No private content</span>
     </div>
     <details className="diagnostics-collection"><summary>About collection & thresholds</summary>
-      <p>Browser reports are unverified client observations. Server CPU is process CPU (100% = one core), not container CPU.</p>
-      <p>Frame stalls ≥250 ms, average frames ≥50 ms over 5 s, long tasks ≥250 ms, connection failures and uncaught errors. Server: CPU ≥80% of one core over 5 s or event-loop stalls ≥250 ms. No chat, error text, URLs, tokens or form contents are stored.</p>
+      <p>Server CPU is process CPU (100% = one core), not container CPU.</p>
+      <p>Records sampled backend error event names, CPU ≥80% of one core over 5 s, and event-loop stalls ≥250 ms. Error messages and stack traces remain in backend logs.</p>
     </details>
     {error && <p className="diagnostics-error" role="alert">{error}</p>}
     {loading && <p role="status">Loading diagnostics…</p>}
     <div className="diagnostics-filters">
       <div><label htmlFor="diagnostic-source">Source</label><select id="diagnostic-source" value={source} onChange={event => setSource(event.target.value)}>
-        <option value="all">All sources</option>{["browser", "api", "realtime"].map(value => <option key={value}>{value}</option>)}
+        <option value="all">All sources</option>{["api", "realtime"].map(value => <option key={value}>{value}</option>)}
       </select></div>
       <div><label htmlFor="diagnostic-event">Event</label><select id="diagnostic-event" value={eventCode} onChange={event => setEventCode(event.target.value)}>
-        <option value="all">All events</option>{[...CLIENT_DIAGNOSTIC_CODES, ...SERVER_DIAGNOSTIC_CODES].sort().map(value => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+        <option value="all">All events</option>{[...SERVER_DIAGNOSTIC_CODES].sort().map(value => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
       </select></div>
       <label>Office ID<input type="search" value={office} onChange={event => setOffice(event.target.value)} placeholder="Office ID or Process / lobby" /></label>
     </div>
@@ -87,11 +87,11 @@ export function MaintainerDiagnosticsPanel({ endpoint }: { endpoint: string }) {
       <tbody>{visibleItems.map(item => <tr key={item.id}>
         <td className="diagnostics-time"><time dateTime={item.occurredAt}>{new Date(item.occurredAt).toLocaleDateString()}<small>{new Date(item.occurredAt).toLocaleTimeString()}</small></time></td>
         <td><span className={`diagnostics-source is-${item.source}`}>{item.source}</span></td>
-        <td className="diagnostics-event-name">{item.code.replaceAll("_", " ")}</td><td className="diagnostics-office">{item.officeId ?? "Process / lobby"}</td>
-        <td className="diagnostics-measurements">{Object.entries(item.metrics).map(([key, value]) => <span key={key}>{key} <strong>{typeof value === "number" ? Math.round(value * 100) / 100 : "Unavailable"}</strong></span>)}{!Object.keys(item.metrics).length && <span>Event only</span>}</td>
+        <td className="diagnostics-event-name">{item.metrics.serverEvent ?? item.code.replaceAll("_", " ")}</td><td className="diagnostics-office">{item.officeId ?? "Process / lobby"}</td>
+        <td className="diagnostics-measurements">{Object.entries(item.metrics).filter(([key]) => key !== "serverEvent").map(([key, value]) => <span key={key}>{key} <strong>{typeof value === "number" ? Math.round(value * 100) / 100 : "Unavailable"}</strong></span>)}{!Object.keys(item.metrics).some(key => key !== "serverEvent") && <span>Event only</span>}</td>
         <td><details><summary>Event {item.id}</summary>
           <dl><dt>Event ID</dt><dd>{item.id}</dd><dt>Timestamp (UTC)</dt><dd>{item.occurredAt}</dd>
-            <dt>Event code</dt><dd>{item.code}</dd><dt>Evidence</dt><dd>{item.source === "browser" ? "Unverified browser observation" : "Server process observation"}</dd>
+            <dt>Event code</dt><dd>{item.code}</dd><dt>Evidence</dt><dd>Server process observation</dd>
           </dl><pre>{JSON.stringify(item, null, 2)}</pre>
         </details></td>
       </tr>)}</tbody>

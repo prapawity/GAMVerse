@@ -38,7 +38,9 @@ GAMVerse is a self-hosted virtual office that runs in a browser. Members share a
 - Room privacy in Talk supports server-authorized locking, knocking, admission and revocation. Lockers can add an optional access note that members see when requesting entry. Knocks expire after 30 seconds and guest access after 10 minutes. Changes rotate the room's media epoch; revoked guests lose private audio/chat access, and a failed media transition exposes a retry. New guest admissions start muted. Existing occupants retain microphone intent, but camera and screen sharing stop across an epoch change, including admission or departure, and require explicit re-enabling. Existing desk-owner and meeting-occupant permissions apply.
 - Account edits preserve the office session; transient realtime drops attempt to resume the reserved session before automatically joining again.
 - Per-device idle-animation preference and office-persisted availability with custom text, emoji and expiry. Busy, In meeting and Away suppress automatic media and interruptions while leaving movement available; returning to Available keeps microphone/camera off until explicitly enabled.
-- Uploaded GLB characters use their animation clips when available. Humanoid models without a walking clip can use automatic skeletal motion: upright humanoid skeleton structure and limb positions determine the limbs and rotation axes, with known bone names as a fallback. Models need a skeleton bound to the mesh; unusual body layouts may remain unsupported.
+- In the 3D campus view, translucent nameplates identify nearby team areas above their rooms.
+- Press Z while standing still to dance. The looping routine combines hip-hop grooves, cover-style moves, a low spin and a backflip in both 3D and 2D.
+- Personal character uploads accept self-contained GLB files, including Meshopt-compressed GLB, up to 15 MiB each, with up to three models (45 MiB total) per account. Embed looping `Idle` and in-place `Walk` clips to animate human or animal characters in 3D and 2D. For static models with recognizable upright two-leg or four-leg geometry, the app can generate a rig and Idle and Walk clips in memory. For two-legged models with detectable arms, the generated walk also swings the arms. Shapes it cannot classify remain static. The importer also recognises animal clips such as `Rest` and `Trot`. A named run or jog clip can substitute for walking. If no locomotion clip is recognised, humanoid models can use automatic skeletal motion: upright humanoid skeleton structure and limb positions determine the limbs and rotation axes, with known bone names as a fallback. Models need a skeleton bound to the mesh; unusual body layouts may remain unsupported.
 - Character models fit within a 2.5 m height and 1.55 m width/depth at load time. Uniform scaling preserves the original proportions; unusually wide or deep models become shorter to fit. The world, character preview and 2D sprites share this sizing rule.
 - Authoritative travel progress, cancel and failure feedback. Destination markers are hidden after replacing an active route or a response timeout until the office session resets, because the existing route protocol has no request identifiers.
 - A voice roster shows nearby or same-zone participants, their status, and active microphone, camera, and screen-share tracks. Participant cards keep a 16:9 ratio for both small and large groups on desktop and mobile. Audio remains subscribed for the whole voice zone; remote video subscribes only to the selected camera or screen share, plus that screen sharer's camera as a small overlay. Use the roster camera/screen buttons or the on-screen selector to switch sources. Minimize the viewer and expand it again without stopping video. The view moves to another active source when the selected one stops; camera and screen permission errors identify which browser or system access to check; each participant can adjust another member's playback volume or mute that member's published track in their current voice zone. Office owners/admins can mute a media source for everyone in their current zone.
@@ -94,17 +96,10 @@ Each visible page contains up to 10 events, fetched in bounded 50-event cursor b
 Filters apply to the current visible page; Refresh returns to the newest events. The page shows technical incidents across all offices
 for platform maintainers only (office owners/admins cannot read it). PostgreSQL
 migration `030` adds seven-day persistence; the API prunes expired events hourly.
-Authenticated browsers automatically report visible frame stalls/slow frames,
-long tasks, uncaught/resource errors, failed realtime joins/connections and
-exhausted voice retries. API/realtime sample process CPU and event-loop stalls.
-No chat, error messages/stacks, URLs, usernames, session tokens or form contents
-are included in these diagnostic records. Browser CPU percentages are not measured.
-
-Collection is deliberately sampled and rate-limited: one browser event per kind
-per minute, at most six submissions per account and 120 total per API process per
-minute. Offline queues/retries are bounded and may lose events during outages or
-browser closure; an empty panel is not proof of an error-free system. Refresh
-the panel to load new events. Server CPU uses one-core units (100% = one core,
+API and realtime record sampled backend error event names and process CPU and event-loop stalls.
+The table shows the service, timestamp, and event name, with expandable structured details.
+Raw error messages and stack traces stay in backend logs. Browser events are excluded.
+Each backend process records at most one event per category per minute. Refresh the panel to load new events. Server CPU uses one-core units (100% = one core,
 including worker threads), not container-wide CPU. See the
 [diagnostics implementation and verification record](docs/REALTIME_WORKLOAD_SEPARATION_PLAN.md#maintainer-runtime-diagnostics)
 for thresholds and remaining verification limits.

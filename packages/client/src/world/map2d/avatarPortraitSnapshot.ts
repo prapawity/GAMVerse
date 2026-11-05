@@ -10,7 +10,7 @@ import { PORTRAIT_POSES_PER_IDLE_SLICE, queuePortraitSnapshot, waitForPortraitSn
 import {
   AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_DIRECTION_COUNT, AVATAR_SPRITE_FULL_CIRCLE_RAD, AVATAR_SPRITE_POSE_COUNT,
   AVATAR_SPRITE_SEATED_POSE_INDEX, AVATAR_SPRITE_LYING_POSE_INDEX, AVATAR_SPRITE_TILE_HEIGHT_PX, AVATAR_SPRITE_TILE_WIDTH_PX,
-  AVATAR_SPRITE_WALK_FRAME_COUNT,
+  AVATAR_SPRITE_WALK_FRAME_COUNT, AVATAR_SPRITE_ANIMATED_POSE_COUNT, AVATAR_SPRITE_IDLE_FRAME_COUNT, setAvatarSpriteIdleCycle,
 } from "./avatarSpriteGeometry";
 
 const CAMERA_NEAR_M = 0.01;
@@ -56,14 +56,16 @@ function poseSeatedRig(rig: ProceduralHumanoidRig): void {
     if (shin) shin.bone.quaternion.copy(shin.rest).multiply(shin.deltaA.setFromAxisAngle(shin.axisA, SEATED_SHIN_ANGLE_RAD));
   }
 }
-function spritePose(model: THREE.Object3D, asset: LoadedCharacterAsset, characterId: string): (poseIndex: number) => void {
+function spritePose(model: THREE.Object3D, asset: LoadedCharacterAsset, characterId: string) {
   const clips = pickCharacterClips(asset.animations, characterId.startsWith("custom-"));
   const procedural = shouldUseProceduralRig(characterId, clips)
     ? createProceduralHumanoidRig(model, characterId.startsWith("custom-")) : null;
   const mixer = new THREE.AnimationMixer(model);
   const { idle, sit } = clips;
   const walk = clips.walk ?? clips.run;
-  return (poseIndex) => {
+  const idleDurationMs = characterId.startsWith("custom-") && !procedural && idle && idle.duration > 0
+    ? idle.duration * 1000 : 0;
+  const setPose = (poseIndex: number) => {
     const walking = poseIndex > 0 && poseIndex < AVATAR_SPRITE_SEATED_POSE_INDEX;
     const seated = poseIndex === AVATAR_SPRITE_SEATED_POSE_INDEX;
     const phaseRatio = walking ? (poseIndex - 1) / AVATAR_SPRITE_WALK_FRAME_COUNT : 0;
@@ -76,9 +78,12 @@ function spritePose(model: THREE.Object3D, asset: LoadedCharacterAsset, characte
     const clip = seated ? sit ?? idle : walking ? walk ?? idle : idle;
     if (!clip) return;
     const action = mixer.clipAction(clip).reset().play();
-    action.time = clip.duration * (seated ? SEATED_SAMPLE_DURATION_RATIO : phaseRatio);
+    const idlePhaseRatio = poseIndex >= AVATAR_SPRITE_POSE_COUNT
+      ? (poseIndex - AVATAR_SPRITE_POSE_COUNT + 1) / AVATAR_SPRITE_IDLE_FRAME_COUNT : 0;
+    action.time = clip.duration * (seated ? SEATED_SAMPLE_DURATION_RATIO : walking ? phaseRatio : idlePhaseRatio);
     mixer.update(0);
   };
+  return { setPose, idleDurationMs };
 }
 async function renderSprites(asset: LoadedCharacterAsset, request: Pick<AvatarSnapshotRequest, "characterId" | "active">,
   renderer: THREE.WebGLRenderer): Promise<HTMLCanvasElement | null> {
@@ -95,15 +100,17 @@ async function renderSprites(asset: LoadedCharacterAsset, request: Pick<AvatarSn
     lyingCamera.lookAt(0, 0, 0);
     const restPosition = model.position.clone();
     const restRotation = model.rotation.clone();
-    const setPose = spritePose(model, asset, request.characterId);
+    const { setPose, idleDurationMs } = spritePose(model, asset, request.characterId);
+    const poseCount = idleDurationMs > 0 ? AVATAR_SPRITE_ANIMATED_POSE_COUNT : AVATAR_SPRITE_POSE_COUNT;
     const canvas = document.createElement("canvas");
-    canvas.width = AVATAR_SPRITE_TILE_WIDTH_PX * AVATAR_SPRITE_POSE_COUNT;
+    canvas.width = AVATAR_SPRITE_TILE_WIDTH_PX * poseCount;
     canvas.height = AVATAR_SPRITE_TILE_HEIGHT_PX * AVATAR_SPRITE_DIRECTION_COUNT;
+    if (idleDurationMs > 0) setAvatarSpriteIdleCycle(canvas, idleDurationMs);
     const ctx = canvas.getContext("2d");
     renderer.setClearColor(PORTRAIT_LIGHT_PALETTE.clear, 0);
     for (let direction = 0; direction < AVATAR_SPRITE_DIRECTION_COUNT; direction += 1) {
       root.rotation.y = direction / AVATAR_SPRITE_DIRECTION_COUNT * AVATAR_SPRITE_FULL_CIRCLE_RAD;
-      for (let pose = 0; pose < AVATAR_SPRITE_POSE_COUNT; pose += 1) {
+      for (let pose = 0; pose < poseCount; pose += 1) {
         if (pose % PORTRAIT_POSES_PER_IDLE_SLICE === 0) {
           await waitForPortraitSnapshotIdle();
           if (!request.active()) return null;

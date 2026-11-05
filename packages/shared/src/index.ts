@@ -1,4 +1,5 @@
 export * from "./officeShareLinks.js";
+export * from "./characterModelUpload.js";
 export * from "./diagnostics.js";
 export { isValidAutoMoveInput, isValidTargetPlayerInput } from "./routeInputs.js";
 export * from "./privateConversations.js";

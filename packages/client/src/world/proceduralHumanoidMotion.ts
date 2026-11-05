@@ -161,3 +161,17 @@ export function updateProceduralHumanoidRig(rig: ProceduralHumanoidRig, phase: n
   setPose(rig.leftFoot, -kneeBend * 0.45);
   setPose(rig.rightFoot, -Math.max(0, -Math.cos(phase)) * (moving ? (sprinting ? 0.22 : 0.14) : 0));
 }
+
+export function poseProceduralHumanoidDance(rig: ProceduralHumanoidRig,
+  { armSweepRad, legSweepRad, tuckRad }: { armSweepRad: number; legSweepRad: number; tuckRad: number }): void {
+  setPose(rig.leftArm, (rig.leftArm?.restAngleRad ?? 1.12) - Math.abs(armSweepRad) * 0.55, armSweepRad - tuckRad);
+  setPose(rig.rightArm, (rig.rightArm?.restAngleRad ?? -1.12) + Math.abs(armSweepRad) * 0.55, -armSweepRad - tuckRad);
+  setPose(rig.leftForearm, 0.1 + Math.abs(armSweepRad) * 0.8);
+  setPose(rig.rightForearm, -0.1 - Math.abs(armSweepRad) * 0.8);
+  setPose(rig.leftLeg, legSweepRad - tuckRad);
+  setPose(rig.rightLeg, -legSweepRad - tuckRad);
+  setPose(rig.leftShin, Math.max(0, -legSweepRad) + tuckRad * 1.35);
+  setPose(rig.rightShin, Math.max(0, legSweepRad) + tuckRad * 1.35);
+  setPose(rig.leftFoot, 0);
+  setPose(rig.rightFoot, 0);
+}

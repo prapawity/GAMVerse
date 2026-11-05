@@ -1,0 +1,3 @@
+export const CHARACTER_MODEL_MAX_MIB = 15;
+export const CHARACTER_MODEL_MAX_BYTES = CHARACTER_MODEL_MAX_MIB * 1024 * 1024;
+export const CHARACTER_MODEL_SIZE_ERROR = `Model must be no larger than ${CHARACTER_MODEL_MAX_MIB} MiB.`;

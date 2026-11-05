@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_SIZE_ERROR } from "@gammyverse/shared";
 import { database } from "../infra/db.js";
+import { hasEmbeddedMeshoptFallback } from "./embeddedMeshopt.js";
 
-const maxModelBytes = 10 * 1024 * 1024;
 const maxModelsPerUser = 3;
-const maxTotalBytesPerUser = 20 * 1024 * 1024;
 const customIdPattern = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type CharacterModelSummary = { id: string; label: string; modelUrl: string };
@@ -13,8 +13,8 @@ export function isCustomCharacterId(value: unknown): value is string {
 }
 
 export function validateGlb(model: Buffer): string | null {
-  if (model.length < 20 || model.length > maxModelBytes) return "Model must be a GLB file no larger than 10 MiB.";
-  if (model.readUInt32LE(0) !== 0x46546c67 || model.readUInt32LE(4) !== 2 || model.readUInt32LE(8) !== model.length) {
+  if (model.length > CHARACTER_MODEL_MAX_BYTES) return CHARACTER_MODEL_SIZE_ERROR;
+  if (model.length < 20 || model.readUInt32LE(0) !== 0x46546c67 || model.readUInt32LE(4) !== 2 || model.readUInt32LE(8) !== model.length) {
     return "This file is not a valid binary glTF 2.0 (GLB) model.";
   }
   let offset = 12;
@@ -53,8 +53,10 @@ export function validateGlb(model: Buffer): string | null {
     return "Choose a GLB model with a glTF 2.0 scene and meshes.";
   }
   if (Array.isArray(buffers)) {
-    if (buffers.length > 1) return "The GLB model can contain only its embedded binary buffer.";
-    for (const buffer of buffers) {
+    if (buffers.length > 1 && !hasEmbeddedMeshoptFallback(json, binaryLength)) {
+      return "The GLB model must contain its data in a single embedded binary buffer.";
+    }
+    for (const buffer of buffers.slice(0, 1)) {
       if (!buffer || typeof buffer !== "object" || ("uri" in buffer && (typeof buffer.uri !== "string" || !buffer.uri.startsWith("data:")))) {
         return "The GLB model cannot reference external files.";
       }
@@ -99,15 +101,14 @@ export async function uploadUserCharacterModel(username: string, labelValue: unk
     await client.query("BEGIN");
     const owner = await client.query("SELECT username FROM app_users WHERE username = $1 FOR UPDATE", [username]);
     if (!owner.rowCount) { await client.query("ROLLBACK"); return { error: "Account not found." }; }
-    const usage = await client.query<{ count: string; bytes: string }>(
-      "SELECT count(*)::text AS count, COALESCE(sum(octet_length(model)), 0)::text AS bytes FROM app_user_character_models WHERE username = $1",
+    const usage = await client.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM app_user_character_models WHERE username = $1",
       [username],
     );
     const count = Number(usage.rows[0]?.count ?? 0);
-    const bytes = Number(usage.rows[0]?.bytes ?? 0);
-    if (count >= maxModelsPerUser || bytes + model.length > maxTotalBytesPerUser) {
+    if (count >= maxModelsPerUser) {
       await client.query("ROLLBACK");
-      return { error: "You can store up to 3 models and 20 MiB in total." };
+      return { error: `You can store up to ${maxModelsPerUser} models.` };
     }
     const id = randomUUID();
     await client.query("INSERT INTO app_user_character_models(id, username, label, model) VALUES ($1, $2, $3, $4)", [id, username, label, model]);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CHARACTER_MAX_HEIGHT_M, CHARACTER_MAX_WIDTH_M } from "../characterModelFit";
-import { AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_ABOVE_ANCHOR_PX, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_TILE_WIDTH_PX, AVATAR_SPRITE_TILE_HEIGHT_PX, avatarSpriteDirectionIndex, avatarSpritePoseIndex, avatarSpriteSourceRect, avatarSpriteScreenRect } from "./avatarSpriteGeometry";
+import { AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_ABOVE_ANCHOR_PX, AVATAR_SPRITE_TARGET_HEIGHT_M, AVATAR_SPRITE_TILE_WIDTH_PX, AVATAR_SPRITE_TILE_HEIGHT_PX, avatarSpriteDirectionIndex, avatarSpriteIdlePoseIndex, avatarSpritePoseIndex, avatarSpriteSourceRect, avatarSpriteScreenRect } from "./avatarSpriteGeometry";
 
 test("server yaw selects south, east, north and west sprites with wrapped angles", () => {
   assert.equal(avatarSpriteDirectionIndex(0), 0);
@@ -37,4 +37,12 @@ test("maximum-height lying characters fit the snapshot at every facing angle", (
     assert.ok(widthM < frameWidthM);
     assert.ok(depthM < AVATAR_SPRITE_FRAME_HEIGHT_M);
   }
+});
+
+test("imported idle frames loop without changing walking or seated frames", () => {
+  const idle = { motion: "idle", stridePhaseRad: 0 } as const;
+  const poses = [0, 250, 500, 750, 1000].map(nowMs => avatarSpriteIdlePoseIndex(nowMs, 1000));
+  assert.deepEqual(poses, [0, 11, 12, 13, 0]);
+  assert.equal(avatarSpriteSourceRect(0, idle, poses[1]).x, 11 * AVATAR_SPRITE_TILE_WIDTH_PX);
+  assert.equal(avatarSpriteSourceRect(0, { ...idle, motion: "seated" }, poses[1]).x, 9 * AVATAR_SPRITE_TILE_WIDTH_PX);
 });

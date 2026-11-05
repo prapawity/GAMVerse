@@ -22,6 +22,7 @@ import { cacheLocalMatrix, cacheStaticModelLocalMatrices } from "./staticModelTr
 import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
 import { shouldShowNameTag } from "./nameTagVisibility";
+import { applyAvatarDance, restoreAvatarDance } from "./avatarDanceVisual";
 import { updateProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 import { advanceDeferredAvatarPosition, createAvatarModelVisual, jumpHasExpired, shouldCreateAvatarRoot, shouldLoadAvatarModel, type AvatarAnimationState } from "./avatarModelVisual";
 import { petFollowTarget, updatePetFollowPosition } from "./petFollowPosition";
@@ -977,6 +978,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         vehicleInteractRef.current?.("");
       };
       window.addEventListener("keydown", onVehicleExit);
+      const reducedMotionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
       const disposeMap2d = mountMap2dWithoutWebgl(host, map2dListener, (nowMs, deltaS) => {
         if (heldKeysRef?.current && hasCameraMovement(heldKeysRef.current)) dispatchCamera({ type: "walk-input" });
         const locate = locateRequestRef?.current;
@@ -1013,7 +1015,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           widthPx: host.clientWidth, heightPx: host.clientHeight, dpr: window.devicePixelRatio || 1 },
         players: playersRef.current, localId: localSessionIdRef.current,
         speaking: speakingUsernamesRef?.current ?? new Set<string>(),
-        decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs, deltaS,
+        decorations: [...locateDecorationsRef.current, ...(map2dDecorationsRef?.current ?? [])], nowMs, deltaS, reduceMotion: reducedMotionPreference.matches,
         destination: travelFeedbackRef.current?.destination ?? null,
         proximityDomes,
         following: cameraStateRef.current.following,
@@ -2337,6 +2339,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       avatarAnimations.set(id, {
         model: fallback.bodyPivot,
         lyingModel: fallback.proceduralRig,
+        danceModel: fallback.group,
         proceduralMotion: true,
         rotationOffset: Math.PI,
         phase: 0,
@@ -3351,6 +3354,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         if (id === localId) updateFootstepSound(moving && !vehicleId && !sittingProp, sprinting, delta);
         if (id === localId) localVehicleMoving = moving && Boolean(vehicleId);
         const animation = avatarAnimations.get(id);
+        const dancing = Boolean(player.dancing) && !moving && !sittingProp && !vehicleId;
+        if (framePolicy.update3dAnimation && animation) restoreAvatarDance(animation, dancing);
         if (framePolicy.update3dAnimation && animation?.proceduralRig) {
           const idleEnabled = idleAnimationsEnabledRef.current;
           const rigMoving = moving && !sittingProp && !vehicleId;
@@ -3361,7 +3366,6 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
         if (framePolicy.update3dAnimation && animation?.mixer) {
           const idleEnabled = idleAnimationsEnabledRef.current;
-          const dancing = Boolean(player.dancing) && !moving && !sittingProp && !vehicleId;
           const targetAction = dancing && animation.danceAction
             ? animation.danceAction
             : sittingProp && !lying
@@ -3373,19 +3377,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
             animation.currentAction = targetAction;
           }
           updateWorldAnimationMixer(framePolicy, animation.mixer, delta * motionScale);
-          if (dancing && !animation.danceAction) {
-            const phase = performance.now() / 1000;
-            animation.model.position.y = (animation.danceBasePosition?.y ?? 0) + Math.abs(Math.sin(phase * 7)) * 0.09;
-            animation.model.rotation.y = (animation.danceBaseRotation?.y ?? 0) + Math.sin(phase * 3.5) * 0.22;
-            animation.model.rotation.z = (animation.danceBaseRotation?.z ?? 0) + Math.sin(phase * 7) * 0.07;
-            animation.proceduralDanceActive = true;
-          } else if (animation.proceduralDanceActive && animation.danceBasePosition && animation.danceBaseRotation) {
-            animation.model.position.copy(animation.danceBasePosition);
-            animation.model.rotation.copy(animation.danceBaseRotation);
-            animation.proceduralDanceActive = false;
-          }
         } else if (framePolicy.update3dAnimation && animation?.proceduralMotion) {
-          const dancing = Boolean(player.dancing) && !moving && !sittingProp && !vehicleId;
           const animateIdle = idleAnimationsEnabledRef.current;
           animation.phase = advanceWorldAnimationPhase(framePolicy, animation.phase, delta * motionScale,
             dancing ? 7 : moving ? (sprinting ? 12 : 8) : animateIdle ? 2.4 : 0);
@@ -3408,6 +3400,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         if (framePolicy.update3dPresentation && animation?.lyingModel) applyLyingCharacterPose(animation.lyingModel, lying, undefined, undefined, -1);
         else if (framePolicy.update3dPresentation && animation?.danceBasePosition && animation.danceBaseRotation)
           applyLyingCharacterPose(animation.model, lying, animation.danceBasePosition, animation.danceBaseRotation);
+        if (framePolicy.update3dAnimation && animation && dancing && !reduceMotion) applyAvatarDance(animation, delta);
         const blend = avatarPoseBlend(delta, id === localId);
         const rotationOffset = animation?.rotationOffset ?? Math.PI;
         // Kenney's authored sit clip faces the opposite local direction from
@@ -3881,7 +3874,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         }
         for (const [id, label] of vehicleNameLabels) if (!playersRef.current.has(id)) { label.remove(); vehicleNameLabels.delete(id); }
       }
-      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing,
+      map2dCenterRef.current = map2dRenderer.frame({ presentation: mapPresentationRef.current, editing, reduceMotion, idleAnimationsEnabled: idleAnimationsEnabledRef.current,
         editProps: buildModeRef.current && !mapEditModeRef.current,
         currentPrivateZoneId: currentPrivateZoneIdRef.current,
         visible: showMap2d, following: cameraStateRef.current.following, view: cameraStateRef.current.view, layout: fullLayoutRef.current, widthM: mapWorld.width, depthM: mapWorld.depth, configVersion: propsConfigVersion,

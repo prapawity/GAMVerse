@@ -1,9 +1,10 @@
+import { sampleAvatarDance } from "../avatarDance";
 import { MAP2D_COLORS } from "./constants";
 import { worldToScreen, type Map2dProjection } from "./map2dProjection";
 import { map2dHeadRadiusPx } from "./avatarPortraitGeometry";
 import type { AvatarPortraits } from "./avatarPortraits";
 import type { Map2dPlayer, Map2dAvatarVisual } from "./map2dAvatarVisual";
-import { avatarSpriteScreenRect, avatarSpriteSourceRect, avatarSpriteScale, avatarFallbackScale, avatarMarkerScale } from "./avatarSpriteGeometry";
+import { avatarSpriteIdleCycle, avatarSpriteIdlePoseIndex, avatarSpriteScreenRect, avatarSpriteSourceRect, avatarSpriteScale, AVATAR_SPRITE_TARGET_HEIGHT_M, avatarFallbackScale, avatarMarkerScale } from "./avatarSpriteGeometry";
 import { drawAvatarFallback } from "./avatarSpriteFallback";
 
 const FULL_CIRCLE_RAD = Math.PI * 2;
@@ -36,7 +37,7 @@ function outerRingRadiusPx(radiusPx: number, local: boolean, speaking: boolean, 
 }
 export function drawMap2dAvatar(
   ctx: CanvasRenderingContext2D, p: Map2dProjection, player: DrawablePlayer,
-  local: boolean, speaking: boolean, portraits: Pick<AvatarPortraits, "get"> | undefined, immersive: boolean, lying = false,
+  local: boolean, speaking: boolean, portraits: Pick<AvatarPortraits, "get"> | undefined, immersive: boolean, lying = false, idleNowMs?: number,
 ): void {
   const screen = worldToScreen(p, player, player.renderElevationM);
   const radiusPx = map2dHeadRadiusPx(p.pxPerM);
@@ -51,8 +52,17 @@ export function drawMap2dAvatar(
   ctx.shadowBlur = Math.min(AVATAR_SHADOW_BLUR_MAX_PX, Math.max(1, p.pxPerM * AVATAR_SHADOW_BLUR_PER_M));
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = Math.min(AVATAR_SHADOW_OFFSET_MAX_PX, Math.max(1, p.pxPerM * 0.035));
+  const dance = visual.danceElapsedS === undefined ? undefined : sampleAvatarDance(visual.danceElapsedS, AVATAR_SPRITE_TARGET_HEIGHT_M / 2);
+  if (dance) {
+    const centerY = screen.y - AVATAR_SPRITE_TARGET_HEIGHT_M * p.pxPerM / 2;
+    ctx.translate(screen.x, centerY - dance.liftM * p.pxPerM);
+    ctx.rotate(dance.pitchRad + dance.rollRad);
+    ctx.translate(-screen.x, -centerY);
+  }
   if (sprite) {
-    const source = avatarSpriteSourceRect(player.rotation, visual);
+    const idleCycleMs = idleNowMs === undefined ? undefined : avatarSpriteIdleCycle(sprite);
+    const idlePose = idleCycleMs && idleNowMs !== undefined ? avatarSpriteIdlePoseIndex(idleNowMs, idleCycleMs) : 0;
+    const source = avatarSpriteSourceRect(player.rotation + (dance?.yawRad ?? 0), visual, idlePose);
     const target = avatarSpriteScreenRect(screen.x, screen.y, p.pxPerM);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";

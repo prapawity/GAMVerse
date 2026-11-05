@@ -40,7 +40,7 @@ export type Map2dSceneActor = {
 
 function drawAvatarBody(ctx: CanvasRenderingContext2D, p: Map2dProjection, id: string, player: Map2dPlayer,
   localId: string | null, speaking: ReadonlySet<string>, portraits: AvatarPortraits | undefined,
-  presentation: Map2dPresentation, layoutProps: readonly RoomLayoutProp[]): void {
+  presentation: Map2dPresentation, layoutProps: readonly RoomLayoutProp[], idleNowMs?: number): void {
   const local = id === localId;
   const isSpeaking = speaking.has(player.username.toLocaleLowerCase());
   if (player.vehicleId) {
@@ -56,7 +56,7 @@ function drawAvatarBody(ctx: CanvasRenderingContext2D, p: Map2dProjection, id: s
   }
   const restingPropId = player.sittingPropId ? parseRoomPropSeatReference(player.sittingPropId)?.propId : undefined;
   drawMap2dAvatar(ctx, p, player, local, isSpeaking, portraits, presentation === "immersive",
-    Boolean(restingPropId && layoutProps.some(prop => prop.id === restingPropId && isRoomPropBed(prop.asset))));
+    Boolean(restingPropId && layoutProps.some(prop => prop.id === restingPropId && isRoomPropBed(prop.asset))), idleNowMs);
 }
 
 function drawNames(ctx: CanvasRenderingContext2D, p: Map2dProjection,
@@ -109,6 +109,7 @@ export function drawMap2dDynamic(
   drawScene?: (actors: readonly Map2dSceneActor[]) => void,
   afterScene?: () => void,
   petSprites?: PetSpriteAtlases,
+  idleAnimationsEnabled = false,
 ): void {
   players = map2dRestingPlayers(players, layoutProps);
   const renderDistanceSquared = MAP2D_ACTOR_RENDER_DISTANCE_M * MAP2D_ACTOR_RENDER_DISTANCE_M;
@@ -126,7 +127,7 @@ export function drawMap2dDynamic(
     elevation: player.renderElevationM ?? 0,
     local: id === localId,
     draw: (target: CanvasRenderingContext2D, projection: Map2dProjection) =>
-      drawAvatarBody(target, projection, id, player, localId, speaking, portraits, presentation, layoutProps),
+      drawAvatarBody(target, projection, id, player, localId, speaking, portraits, presentation, layoutProps, idleAnimationsEnabled ? nowMs : undefined),
   }));
   for (const [id, player] of players) {
     const pet = map2dPetActor(id, player, petSprites, nowMs);

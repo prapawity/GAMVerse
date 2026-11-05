@@ -103,7 +103,7 @@ import { MeetingToolsMenu } from "./meetings/MeetingToolsMenu";
 import { browserPrejoinStorage, readPrejoinSkipPreference, writePrejoinSkipPreference } from "./meetings/prejoinPreference";
 import { useMeetingRecording } from "./meetings/useMeetingRecording";
 import { MeetingRecordingControl } from "./meetings/MeetingRecordingControl";
-import { countMeetingRoomSeats } from "@gammyverse/shared";
+import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_MAX_MIB, CHARACTER_MODEL_SIZE_ERROR, countMeetingRoomSeats } from "@gammyverse/shared";
 import { meetingAudioStatus, meetingAudioStatusLabel } from "./meetings/meetingAudioStatus";
 import "./meetings/MeetingPrejoin.css";
 import { playSocialNotificationSound, unlockSocialNotificationAudio } from "../audio/notificationSounds";
@@ -941,8 +941,8 @@ export function OfficeApp() {
       setPersonalModelsError("Choose a .glb model file.");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setPersonalModelsError("Model must be 10 MB or smaller.");
+    if (file.size > CHARACTER_MODEL_MAX_BYTES) {
+      setPersonalModelsError(CHARACTER_MODEL_SIZE_ERROR);
       return;
     }
     const header = new Uint8Array(await file.slice(0, 4).arrayBuffer());
@@ -3266,7 +3266,7 @@ export function OfficeApp() {
           </section>
           <CharacterPicker value={characterDraft} currentCharacterId={authUser.characterId ?? DEFAULT_CHARACTER_ID} onChange={setCharacterDraft} />
           <section className="personal-models-section" aria-label="Personal 3D models">
-            <div className="personal-models-heading"><div><span className="eyebrow">YOUR MODELS</span><p className="personal-model-help">One GLB file with embedded model textures, up to 10 MiB. Only you can choose or remove it.</p></div><button type="button" className="personal-model-add" disabled={avatarUploadBusy} onClick={() => avatarUploadInputRef.current?.click()}>{avatarUploadBusy ? "Uploading…" : "Add model"}</button></div>
+            <div className="personal-models-heading"><div><span className="eyebrow">YOUR MODELS</span><p className="personal-model-help">One GLB file with embedded textures, up to {CHARACTER_MODEL_MAX_MIB} MiB. Embed Idle and Walk clips for human or animal characters. Up to three models per account. Only you can choose or remove it.</p></div><button type="button" className="personal-model-add" disabled={avatarUploadBusy} onClick={() => avatarUploadInputRef.current?.click()}>{avatarUploadBusy ? "Uploading…" : "Add model"}</button></div>
             <input ref={avatarUploadInputRef} className="visually-hidden" type="file" accept=".glb,model/gltf-binary" onChange={(event) => void uploadPersonalAvatar(event)} aria-label="Upload a GLB character model" />
             {personalModelsBusy && <p className="personal-model-status">Loading your models…</p>}
             {personalModelsError && <p className="auth-error" role="alert">{personalModelsError}</p>}

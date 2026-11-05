@@ -22,7 +22,7 @@ function writeMetadata(current: Map2dPlayer, target: Map2dPlayer): void {
   current.vehiclePropZ = target.vehiclePropZ;
   current.vehiclePropRotation = target.vehiclePropRotation;
 }
-function updatePlayer(current: Map2dRenderedPlayer, target: Map2dPlayer, deltaS: number, local: boolean): boolean {
+function updatePlayer(current: Map2dRenderedPlayer, target: Map2dPlayer, deltaS: number, local: boolean, animateDance: boolean): boolean {
   const previousX = current.x;
   const previousZ = current.z;
   const previousRotation = current.rotation;
@@ -34,7 +34,7 @@ function updatePlayer(current: Map2dRenderedPlayer, target: Map2dPlayer, deltaS:
     current.rotation = target.rotation;
   }
   const visualChanged = advanceMap2dAvatarVisual(current.visual, {
-    previousX, previousZ, x: current.x, z: current.z, deltaS, sittingPropId: target.sittingPropId,
+    previousX, previousZ, x: current.x, z: current.z, deltaS, sittingPropId: target.sittingPropId, dancing: animateDance && target.dancing && !target.vehicleId,
   });
   writeMetadata(current, target);
   return visualChanged || metadataChanged || previousX !== current.x || previousZ !== current.z || previousRotation !== current.rotation;
@@ -42,12 +42,12 @@ function updatePlayer(current: Map2dRenderedPlayer, target: Map2dPlayer, deltaS:
 /** Persistent render poses: allocation occurs on join, never for a steady player frame. */
 export class Map2dPlayerFrames {
   readonly players = new Map<string, Map2dRenderedPlayer>();
-  update(targets: ReadonlyMap<string, Map2dPlayer>, localId: string | null, deltaS: number): boolean {
+  update(targets: ReadonlyMap<string, Map2dPlayer>, localId: string | null, deltaS: number, animateDance = true): boolean {
     let changed = false;
     for (const [id, target] of targets) {
       const current = this.players.get(id);
       if (current) {
-        changed = updatePlayer(current, target, deltaS, id === localId) || changed;
+        changed = updatePlayer(current, target, deltaS, id === localId, animateDance) || changed;
       } else {
         this.players.set(id, { ...target, visual: createMap2dAvatarVisual(target.sittingPropId) });
         changed = true;

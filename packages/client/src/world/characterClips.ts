@@ -5,14 +5,14 @@ export type CharacterClips<T extends NamedClip> = { idle?: T; walk?: T; run?: T;
 // and use words like "Walking" or "Standing Idle". The word lists below accept those while leaving unrelated clips alone.
 const CLIP_PATTERNS = {
   idle: /\b(idle|standing|breath\w*)/i,
-  walk: /\bwalk/i,
+  walk: /\b(?:walk|walking)\b/i,
   run: /\b(run|running|jog|jogging|sprint\w*)\b/i,
   sit: /\b(sit|sitting)\b/i,
   dance: /danc(e|ing)/i,
 } as const;
 const NAME_SEPARATORS = /[|:_.\-/\s]+/g;
 
-const normalised = (name: string) => name.replace(NAME_SEPARATORS, " ").trim().toLowerCase();
+const normalised = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(NAME_SEPARATORS, " ").trim().toLowerCase();
 
 function find<T extends NamedClip>(clips: readonly T[], kind: keyof typeof CLIP_PATTERNS): T | undefined {
   const exact = clips.find(clip => normalised(clip.name) === kind);
@@ -21,14 +21,16 @@ function find<T extends NamedClip>(clips: readonly T[], kind: keyof typeof CLIP_
   return clips.find(clip => CLIP_PATTERNS[kind].test(normalised(clip.name)));
 }
 
-export function pickCharacterClips<T extends NamedClip>(clips: readonly T[], fallbackToFirst = false): CharacterClips<T> {
+export function pickCharacterClips<T extends NamedClip>(clips: readonly T[], importedModel = false): CharacterClips<T> {
   const walk = find(clips, "walk");
   const sit = find(clips, "sit");
   const run = find(clips.filter(clip => clip !== walk), "run");
   // "Sitting Idle" is a sitting pose, not the standing idle.
-  const idle = find(clips.filter(clip => clip !== sit), "idle");
-  const fallback = fallbackToFirst && !idle && !walk ? clips[0] : undefined;
-  return { idle: idle ?? fallback, walk: walk ?? fallback, run, sit, dance: find(clips, "dance") };
+  const idleCandidates = clips.filter(clip => !CLIP_PATTERNS.sit.test(normalised(clip.name)));
+  const idle = find(idleCandidates, "idle")
+    ?? (importedModel ? idleCandidates.find(clip => /\b(?:rest|resting|breathe|breathing)\b/.test(normalised(clip.name))) : undefined);
+  const trot = importedModel ? clips.find(clip => /\b(?:trot|trotting)\b/.test(normalised(clip.name))) : undefined;
+  return { idle, walk: walk ?? trot ?? (importedModel ? run : undefined), run, sit, dance: find(clips, "dance") };
 }
 
 /**

@@ -7,8 +7,8 @@ test("atlas budget includes pending snapshots, so a crowded scene cannot keep re
   const requests: Parameters<typeof queueAvatarSnapshot>[0][] = [];
   const portraits = new AvatarPortraits(request => requests.push(request));
   try {
-    for (let index = 0; index < 21; index += 1) portraits.get(`character-${index}`);
-    assert.equal(requests.length, 20);
+    for (let index = 0; index < 3; index += 1) portraits.get(`character-${index}`);
+    assert.equal(requests.length, 2);
   } finally { portraits.dispose(); }
 });
 
@@ -19,7 +19,7 @@ test("visible atlases stay pinned and evicted characters can reload after the ac
   globalThis.cancelAnimationFrame = () => {};
   const requests: Parameters<typeof queueAvatarSnapshot>[0][] = [];
   const portraits = new AvatarPortraits(request => requests.push(request));
-  const ids = Array.from({ length: 21 }, (_, index) => `character-${index}`);
+  const ids = Array.from({ length: 3 }, (_, index) => `character-${index}`);
   const canvas = {} as HTMLCanvasElement;
   try {
     portraits.setActiveCharacters(ids);
@@ -28,15 +28,15 @@ test("visible atlases stay pinned and evicted characters can reload after the ac
       portraits.get(id);
       if (requests.length > requestCount) requests.at(-1)!.complete(canvas);
     }
-    assert.equal(requests.length, 20);
+    assert.equal(requests.length, 2);
     assert.equal(portraits.get(ids[0]), canvas, "overflow cannot retire an active selected character");
     portraits.setActiveCharacters(ids.slice(1));
-    portraits.get(ids[20]);
-    assert.equal(requests.length, 21);
+    portraits.get(ids[2]);
+    assert.equal(requests.length, 3);
     requests.at(-1)!.complete(canvas);
     portraits.setActiveCharacters([ids[0]]);
     portraits.get(ids[0]);
-    assert.equal(requests.length, 22, "an evicted character must remain eligible for reloading");
+    assert.equal(requests.length, 4, "an evicted character must remain eligible for reloading");
     requests.at(-1)!.complete(canvas);
     assert.equal(portraits.get(ids[0]), canvas);
     portraits.dispose();
@@ -48,4 +48,13 @@ test("visible atlases stay pinned and evicted characters can reload after the ac
     globalThis.requestAnimationFrame = originalAnimationFrame;
     globalThis.cancelAnimationFrame = originalCancelFrame;
   }
+});
+
+test("pending imported atlases reserve room for their additional idle frames", () => {
+  const requests: Parameters<typeof queueAvatarSnapshot>[0][] = [];
+  const portraits = new AvatarPortraits(request => requests.push(request));
+  try {
+    for (let index = 0; index < 3; index += 1) portraits.get(`custom-${index}`);
+    assert.equal(requests.length, 2);
+  } finally { portraits.dispose(); }
 });

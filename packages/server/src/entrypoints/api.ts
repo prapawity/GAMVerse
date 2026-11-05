@@ -11,7 +11,7 @@ import { accountRoleEndpoint } from "./accountRoleEndpoint.js";
 import { accountSuspensionEndpoint } from "./accountSuspensionEndpoint.js";
 import express from "express";
 import { createServer } from "node:http";
-import { readRoomLayout } from "@gammyverse/shared";
+import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_SIZE_ERROR, readRoomLayout } from "@gammyverse/shared";
 import { changeAccountPassword, completePasswordReset, createPasswordResetLink, getSession, listAccountsForMaintainer, loginAccount, pruneInactiveAccounts, registerAccount, revokeSession, setAccountPlatformRole, setAccountSuspended, updateAccountCharacter, updateAccountNickname } from "../auth/service.js";
 import { deleteUserCharacterModel, getCharacterModel, listUserCharacterModels, uploadUserCharacterModel } from "../auth/characterModels.js";
 import { database, databaseIsReady, initializeDatabase } from "../infra/db.js";
@@ -312,9 +312,9 @@ function configureApi() {
           response.status(415).json({ error: "Upload one binary glTF 2.0 GLB file." }); return;
         }
         const length = Number(request.headers["content-length"] ?? 0);
-        if (length > 10 * 1024 * 1024) { response.status(413).json({ error: "Model must be no larger than 10 MiB." }); return; }
+        if (length > CHARACTER_MODEL_MAX_BYTES) { response.status(413).json({ error: CHARACTER_MODEL_SIZE_ERROR }); return; }
         try {
-          const bytes = await readLimitedBody(request, 10 * 1024 * 1024);
+          const bytes = await readLimitedBody(request, CHARACTER_MODEL_MAX_BYTES);
           const result = await uploadUserCharacterModel(session.username, request.header("x-model-name"), bytes);
           if ("error" in result) response.status(result.error?.startsWith("You can store") ? 413 : 400).json(result);
           else { response.setHeader("Cache-Control", "no-store"); response.status(201).json(result); }
@@ -725,7 +725,7 @@ async function importLegacyAccountsIfRequested() {
 }
 
 class RequestTooLargeError extends Error {
-  constructor() { super("Model must be no larger than 10 MiB."); }
+  constructor() { super(CHARACTER_MODEL_SIZE_ERROR); }
 }
 
 function readLimitedBody(request: AuthRequest, maxBytes: number): Promise<Buffer> {

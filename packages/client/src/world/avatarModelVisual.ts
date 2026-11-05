@@ -21,7 +21,9 @@ export interface AvatarAnimationState {
   currentAction?: THREE.AnimationAction;
   danceBasePosition?: THREE.Vector3;
   danceBaseRotation?: THREE.Euler;
-  proceduralDanceActive?: boolean;
+  danceModel?: THREE.Object3D;
+  danceElapsedS?: number;
+  danceRestore?: { position: THREE.Vector3; rotation: THREE.Quaternion };
   proceduralRig?: ProceduralHumanoidRig;
 }
 
@@ -85,7 +87,7 @@ export function createAvatarModelVisual(asset: LoadedCharacterAsset, characterId
     const runAction = clips.run ? mixer?.clipAction(clips.run) : undefined;
     const sitAction = chairSitClip ? mixer?.clipAction(chairSitClip) : undefined;
     const danceAction = clips.dance ? mixer?.clipAction(clips.dance) : undefined;
-    const currentAction = idleAction ?? walkAction;
+    const currentAction = idleAction;
     currentAction?.play();
     return {
       model,

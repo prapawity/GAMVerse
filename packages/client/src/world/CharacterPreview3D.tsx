@@ -122,8 +122,7 @@ export function CharacterPreview3D({ characterId, modelUrl, endpoint, label, fal
       if (proceduralRig) updateProceduralHumanoidRig(proceduralRig, 0, false, false, false);
       scene.add(model);
 
-      const idleClip = clips.idle;
-      const firstClip = idleClip ?? asset.animations[0];
+      const firstClip = clips.idle ?? clips.walk ?? asset.animations[0];
       // Procedural humanoid models need their rig pose to remain authoritative;
       // a bundled clip can otherwise restore the source T-pose each frame.
       if (!proceduralRig && !reduceMotion && firstClip && !isolatedRig) {

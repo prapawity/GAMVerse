@@ -31,12 +31,11 @@ test("unrelated or opaque clip names match nothing", () => {
   assert.equal(picked.sit, undefined);
 });
 
-test("custom models use an opaque first clip for idle and movement", () => {
-  const [clip] = clips("Take 001");
-  const picked = pickCharacterClips([clip], true);
-  assert.equal(picked.idle, clip);
-  assert.equal(picked.walk, clip);
-  assert.equal(pickCharacterClips([clip]).idle, undefined);
+test("custom models prefer named walking, then running, and never guess from an opaque clip", () => {
+  const [opaque, dance, walkway, jog, walking] = clips("Take 001", "Dance", "Walkway", "FastJog", "Armature|ForwardWalking");
+  assert.equal(pickCharacterClips([opaque, dance, walkway], true).walk, undefined);
+  assert.equal(pickCharacterClips([opaque, jog], true).walk, jog);
+  assert.equal(pickCharacterClips([jog, walking], true).walk, walking);
 });
 
 test("an uploaded model with no walk clip is driven by the procedural rig, one with a walk clip is not", () => {
@@ -56,4 +55,13 @@ test("the procedural rig finds bones whatever their letter case", async () => {
   for (const name of ["Armature_UpperArm.L", "Armature_UpperArm.R"]) { const bone = new THREE.Bone(); bone.name = name; root.add(bone); }
   assert.ok(createProceduralHumanoidRig(root), "Blender-style upper arm bones are found");
   assert.equal(createProceduralHumanoidRig(new THREE.Group()), null);
+});
+
+test("imported animal clips resolve rest and trot without treating a sitting clip as idle", () => {
+  const [rest, trot, run, seated] = clips("Dog|Rest", "Dog|Trotting", "Dog|Run", "Dog|Sitting Idle");
+  const picked = pickCharacterClips([seated, rest, trot, run], true);
+  assert.equal(picked.idle, rest);
+  assert.equal(picked.walk, trot);
+  assert.equal(picked.run, run);
+  assert.equal(picked.sit, seated);
 });

@@ -6,9 +6,7 @@ import { useRemoteMediaViewer } from "./media/useRemoteMediaViewer";
 import { readVoiceRosterActivity } from "./media/voiceRosterActivity";
 import { playerName } from "../identity/playerName";
 import { vehicleLabel } from "../assets/vehicleAssets";
-import { useClientDiagnostics } from "./diagnostics/useClientDiagnostics";
 import { MaintainerDiagnosticsPage } from "./diagnostics/MaintainerDiagnosticsPage";
-import { reportClientDiagnostic } from "./diagnostics/clientDiagnostics";
 import { createOfficeMediaSession } from "./media/officeMediaSession";
 import { voiceParticipantUsername } from "./media/mediaIdentity";
 import { type ChatTransport } from "./social/ChatPanel";
@@ -661,7 +659,6 @@ export function OfficeApp() {
   const toiletReturnPositionRef = useRef<{ x: number; z: number } | null>(null);
   const availability = useAvailabilityStatus(status === "connected" ? roomRef.current : null);
   const officeDesks = useOfficeDesks({ endpoint, officeId: activeOffice?.id ?? null, username: authUser?.username ?? null, sessionKey: status === "connected" ? roomRef.current?.sessionId ?? null : null, configVersion: mapServerVersion });
-  useClientDiagnostics(endpoint, authUser?.username ?? null, activeOffice?.id ?? null, voiceRetryExhausted);
   const deskAssignmentNotice = useDeskAssignmentNotice({ room: status === "connected" ? roomRef.current : null,
     officeId: activeOffice?.id ?? null, sessionKey: status === "connected" ? roomRef.current?.sessionId ?? null : null,
     username: authUser?.username ?? null, desks: officeDesks.desks, configVersion: officeDesks.configVersion, onRefresh: officeDesks.refresh });
@@ -1700,7 +1697,7 @@ export function OfficeApp() {
   const issueResetLink = async (username: string) => {
     setAccountError(null);
     try {
-      const response = await fetch(`${endpoint}/maintainer/users/${encodeURIComponent(username)}/password-reset`, { method: "POST", credentials: "include" });
+      const response = await fetch(`${endpoint}/api/maintainer/users/${encodeURIComponent(username)}/password-reset`, { method: "POST", credentials: "include" });
       const result = await response.json() as { resetPath?: string; expiresAt?: string; error?: string };
       if (!response.ok || !result.resetPath) throw new Error(result.error ?? "Could not create reset link.");
       setResetUrls((current) => ({ ...current, [username]: `${window.location.origin}${result.resetPath}` }));
@@ -2781,7 +2778,6 @@ export function OfficeApp() {
         room.onDrop((code, reason) => {
           console.info(DROP_EVENT_LABEL, { roomId: room.roomId, sessionId: room.sessionId, code, reason });
           if (disposed) return;
-          reportClientDiagnostic("connection_drop", { closeCode: code });
           reconnectingRef.current = true;
           meetingZoneActiveRef.current = false;
           privateZoneIdRef.current = null;
@@ -2807,7 +2803,6 @@ export function OfficeApp() {
           console.info(LEAVE_EVENT_LABEL, { roomId: room.roomId, sessionId: room.sessionId, code, reason });
           if (disposed) return;
           if (![CONSENTED_CLOSE_CODE, REPLACED_CLOSE_CODE, REMOVED_CLOSE_CODE].includes(code)) {
-            reportClientDiagnostic("connection_drop", { closeCode: code });
           }
           if ([CONSENTED_CLOSE_CODE, REPLACED_CLOSE_CODE, REMOVED_CLOSE_CODE].includes(code)) voiceSessionRef.current?.dispose();
           else voiceSessionRef.current?.suspend("realtime");
@@ -2843,7 +2838,6 @@ export function OfficeApp() {
         });
         room.onError((_code, message) => {
           if (!disposed) {
-            reportClientDiagnostic("connection_error", { closeCode: Math.max(0, Math.min(_code, 3_600_000)) });
             if (/authentication required|session (expired|invalid)|unauthori[sz]ed/i.test(message ?? "")) {
               returnToSignIn();
               return;
@@ -2859,7 +2853,6 @@ export function OfficeApp() {
         }, INPUT_HEARTBEAT_INTERVAL_MS);
       } catch (cause) {
         if (!disposed) {
-          reportClientDiagnostic("join_error");
           const reason = cause instanceof Error ? cause.message : String(cause);
           if (/authentication required|session (expired|invalid)|unauthori[sz]ed/i.test(reason)) {
             returnToSignIn();

@@ -13,18 +13,18 @@ test("server pressure uses one-core CPU and exact five-second thresholds", () =>
   assert.equal(processPressure(0, 5_250, 0).loopStall, true);
 });
 
-test("structured server errors notify only the service, never error text or fields", t => {
+test("structured server errors notify the service and event name without error text or fields", t => {
   const original = console.error;
   console.error = () => {};
   t.after(() => { console.error = original; });
-  const observed: string[] = [];
-  const stop = observeServerErrors(service => observed.push(service));
+  const observed: string[][] = [];
+  const stop = observeServerErrors((...details) => observed.push(details));
   try {
     logServerError("api", "private.event", new Error("private error"), { private: "secret" });
-    assert.deepEqual(observed, ["api"]);
+    assert.deepEqual(observed, [["api", "private.event"]]);
   } finally { stop(); }
   logServerError("realtime", "private.event", new Error("private"));
-  assert.deepEqual(observed, ["api"]);
+  assert.deepEqual(observed, [["api", "private.event"]]);
 });
 
 test("diagnostics persist technical events, paginate and prune seven-day retention in a rolled-back transaction", {

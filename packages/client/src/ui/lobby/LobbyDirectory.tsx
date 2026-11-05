@@ -53,7 +53,7 @@ function InvitationsPanel({ props }: { props: Props }) {
 }
 
 function AccountsPanel({ props }: { props: Props }) {
-  const collection = useLobbyCollection<MaintainerAccount>(props.endpoint, "/maintainer/users", "users");
+  const collection = useLobbyCollection<MaintainerAccount>(props.endpoint, "/api/maintainer/users", "users");
   return <div className="lobby-accounts-panel">
     <MaintainerAccountSafety accounts={collection.items} total={collection.total} loading={collection.loading} loadError={collection.error} onRetry={collection.retry}
       collectionControls={<LobbyCollectionSearch label="accounts" {...collection} />}

@@ -86,7 +86,7 @@ export function MaintainerAccountSafety({ accounts, total = accounts.length, col
     setPendingUsername(account.username);
     setFeedback((current) => ({ ...current, [account.username]: { message: "", error: false } }));
     try {
-      const response = await fetch(`${endpoint}/maintainer/users/${encodeURIComponent(account.username)}/suspension`, {
+      const response = await fetch(`${endpoint}/api/maintainer/users/${encodeURIComponent(account.username)}/suspension`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -123,7 +123,7 @@ export function MaintainerAccountSafety({ accounts, total = accounts.length, col
     setPendingUsername(account.username);
     setFeedback((current) => ({ ...current, [account.username]: { message: "", error: false } }));
     try {
-      const response = await fetch(`${endpoint}/maintainer/users/${encodeURIComponent(account.username)}/role`, {
+      const response = await fetch(`${endpoint}/api/maintainer/users/${encodeURIComponent(account.username)}/role`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

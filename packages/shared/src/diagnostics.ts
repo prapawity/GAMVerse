@@ -5,7 +5,7 @@ export const CLIENT_DIAGNOSTIC_CODES = [
 export const SERVER_DIAGNOSTIC_CODES = ["cpu_peak", "event_loop_stall", "server_error"] as const;
 export type ClientDiagnosticCode = typeof CLIENT_DIAGNOSTIC_CODES[number];
 export type DiagnosticCode = ClientDiagnosticCode | typeof SERVER_DIAGNOSTIC_CODES[number];
-export type DiagnosticMetrics = { durationMs?: number; count?: number; closeCode?: number; cpuPercent?: number };
+export type DiagnosticMetrics = { durationMs?: number; count?: number; closeCode?: number; cpuPercent?: number; serverEvent?: string };
 export type ClientDiagnostic = { code: ClientDiagnosticCode; officeId: string | null; metrics: DiagnosticMetrics };
 export type DiagnosticItem = {
   id: string; occurredAt: string; source: "browser" | "api" | "realtime";

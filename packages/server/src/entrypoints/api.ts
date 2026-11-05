@@ -1,5 +1,5 @@
 import { registerShareLinkEndpoints } from "../http/shareLinkEndpoints.js";
-import { receiveDiagnostic, readDiagnostics } from "../http/diagnosticEndpoints.js";
+import { readDiagnostics } from "../http/diagnosticEndpoints.js";
 import { startDiagnostics } from "../infra/diagnostics.js";
 import { registerDeskAssignmentEndpoints } from "../http/deskAssignmentEndpoints.js";
 import { lobbyPageEndpoint } from "../http/lobbyEndpoints.js";
@@ -85,16 +85,6 @@ function configureApi() {
         // Express trims the mounted `/auth` prefix from `request.path` inside this middleware.
         skip: (request) => request.method === "POST" && ["/models", "/auth/models"].includes(request.path.replace(/\/+$/, "")),
       }));
-      app.post("/auth/diagnostics", async (request: AuthRequest, response: AuthResponse) => {
-        response.setHeader("Cache-Control", "no-store");
-        try {
-          const result = await receiveDiagnostic(await requestSession(request), request.body);
-          response.status(result.status).json(result.body);
-        } catch {
-          console.warn("Diagnostic submission failed.");
-          response.status(503).json({ error: "Could not store diagnostic event." });
-        }
-      });
       app.get("/maintainer/diagnostics", async (request: AuthRequest, response: AuthResponse) => {
         response.setHeader("Cache-Control", "no-store");
         try {

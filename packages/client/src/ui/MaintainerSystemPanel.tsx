@@ -45,7 +45,7 @@ function formatTimestamp(value: Date | null) {
 }
 
 async function fetchOverview(endpoint: string, signal: AbortSignal) {
-  const response = await fetch(`${endpoint}/maintainer/overview`, { credentials: "include", signal });
+  const response = await fetch(`${endpoint}/api/maintainer/overview`, { credentials: "include", signal });
   const result = await response.json().catch(() => ({})) as OverviewResponse;
   if (!response.ok) throw new Error(result.error || `Could not load system status (${response.status}).`);
   return result;
@@ -134,7 +134,7 @@ export function MaintainerSystemPanel({ endpoint, view = "overview" }: { endpoin
       const currentResponse = await fetch(`${endpoint}/offices/platform-features`, { credentials: "include", cache: "no-store" });
       const current = await currentResponse.json() as FeatureFlags & { error?: string };
       if (!currentResponse.ok) throw new Error(current.error ?? "Could not check the current feature setting.");
-      const response = await fetch(`${endpoint}/maintainer/features/${featurePath}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !current[feature] }) });
+      const response = await fetch(`${endpoint}/api/maintainer/features/${featurePath}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !current[feature] }) });
       const result = await response.json() as FeatureFlags & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not update feature.");
       setFeatures(result);

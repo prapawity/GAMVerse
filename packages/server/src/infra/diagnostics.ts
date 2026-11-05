@@ -51,7 +51,7 @@ export async function listDiagnostics(cursor?: string, queryable: Pick<PoolClien
     office_id: string | null; metrics: DiagnosticItem["metrics"];
   }>(`SELECT id::text, occurred_at, source, code, office_id, metrics
       FROM app_runtime_diagnostics
-      WHERE occurred_at >= now() - ($2::integer * interval '1 day') AND ($1::bigint IS NULL OR id < $1::bigint)
+      WHERE source IN ('api', 'realtime') AND occurred_at >= now() - ($2::integer * interval '1 day') AND ($1::bigint IS NULL OR id < $1::bigint)
       ORDER BY app_runtime_diagnostics.id DESC LIMIT 51`, [cursor ?? null, DIAGNOSTIC_RETENTION_DAYS]);
   const rows = result.rows.slice(0, 50);
   return {
@@ -99,8 +99,8 @@ export function startDiagnostics(service: "api" | "realtime"): () => void {
     }
     queue.push({ occurredAt: new Date().toISOString(), source: service, code, officeId: null, metrics });
   };
-  const stopObserving = observeServerErrors(source => {
-    if (source === service) enqueue("server_error", {});
+  const stopObserving = observeServerErrors((source, event) => {
+    if (source === service) enqueue("server_error", { serverEvent: event });
   });
   const flush = async () => {
     if (flushing) return;
@@ -117,7 +117,7 @@ export function startDiagnostics(service: "api" | "realtime"): () => void {
       console.warn(`Diagnostics persistence failed; ${batch.length} events were not stored.`);
     } finally { flushing = false; }
   };
-  const onFatal = () => { enqueue("server_error", {}); void flush(); };
+  const onFatal = () => { enqueue("server_error", { serverEvent: "process.uncaught_exception" }); void flush(); };
   process.on("uncaughtExceptionMonitor", onFatal);
   const timer = setInterval(() => {
     const now = performance.now();

@@ -83,17 +83,12 @@ auto-resume a remembered office. Ordinary authenticated accounts see an access
 denial without being logged out; the API independently enforces maintainer access.
 Runtime diagnostics is separate durable, sampled incident history.
 Migration `030` adds `app_runtime_diagnostics`, retaining seven days (API cleanup
-hourly and retention filtering on reads). `GET /maintainer/diagnostics` checks the
+hourly and retention filtering on reads). Caddy serves the web app at `/maintainer` and its subpages. It routes browser API requests under `/api/maintainer/*` to the API and strips the `/api` prefix. `GET /api/maintainer/diagnostics` checks the
 current platform role and uses bounded numeric-ID cursor pagination; office
-ownership/admin permission grants no access. Authenticated browsers submit only
-shared-validated event codes, nullable office UUIDs and allowlisted numeric
-measurements through `POST /auth/diagnostics`; office attribution requires current
-server-checked membership or maintainer access. Caller-supplied roles, severity,
-timestamps, source, messages, URLs and arbitrary metadata are not accepted.
-Browser reports remain unverified observations. Their bounded memory queue and
-per-code cooldown complement per-account/global API-process admission limits.
-API and realtime record five-second process CPU/event-loop threshold crossings
-and sampled structured server errors through bounded queues. No raw error
+ownership/admin permission grants no access. The API accepts no browser submissions
+and excludes historical browser rows before pagination. API and realtime record
+five-second process CPU/event-loop threshold crossings and sampled structured
+server errors with their logger event names through bounded queues. No raw error
 payloads or user identity are copied into the incident table. This is lightweight
 diagnostics, not crash-proof external monitoring or proof of production capacity.
 

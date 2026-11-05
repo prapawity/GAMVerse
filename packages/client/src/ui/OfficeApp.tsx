@@ -39,6 +39,7 @@ import { useOfficeDesks } from "./workspace/useOfficeDesks";
 import { SHARE_OFFICE_LABEL } from "./workspace/officeShareLinks";
 import { useOfficeShareLinks } from "./workspace/useOfficeShareLinks";
 import { acceptOfficeEntryLink, acceptPendingOfficeInvite, getInviteRouteToken, getOfficeShareRouteToken } from "./workspace/officeEntryLink";
+import { isKnownAppRoute } from "./workspace/defaultAppRoute";
 import { useSignOutConfirmation } from "./workspace/useSignOutConfirmation";
 import { CreateOfficeDialog } from "./workspace/CreateOfficeDialog";
 import { areOfficeTeamNamesValid, createDefaultOfficeTeamNames, normalizeOfficeTeamNames, resizeOfficeTeamNames } from "./workspace/teamNames";
@@ -335,7 +336,12 @@ const getOfficeRouteId = (path = window.location.pathname) => path.match(/^\/off
 export function OfficeApp() {
   const workspaceTheme = useWorkspaceTheme();
   const pwaInstall = usePwaInstall();
-  const [routePath, setRoutePath] = useState(() => window.location.pathname);
+  const [routePath, setRoutePath] = useState(() => {
+    const path = window.location.pathname;
+    if (isKnownAppRoute(path)) return path;
+    window.history.replaceState(window.history.state, "", "/");
+    return "/";
+  });
   const [meetingEntry, setMeetingEntry] = useState(() => Boolean(getMeetingRouteOfficeId(window.location.pathname)));
   const [meetingTargetZoneId, setMeetingTargetZoneId] = useState(() => getMeetingRouteZoneId(window.location.search));
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
@@ -1338,7 +1344,8 @@ export function OfficeApp() {
     setPendingOfficeEntry(null);
     localStorage.removeItem("gammyverse.activeOfficeId");
     exitMapEditMode();
-    if (syncUrl && (getOfficeRouteId() || getMeetingRouteOfficeId(window.location.pathname))) window.history.pushState({}, "", "/");
+    const returnPath = authUser?.role === "maintainer" ? "/maintainer/offices" : "/";
+    if (syncUrl && (getOfficeRouteId() || getMeetingRouteOfficeId(window.location.pathname))) window.history.pushState({}, "", returnPath);
     if (syncUrl) setRoutePath(window.location.pathname);
     setActiveOffice(null);
     setMeetingEntry(false);
@@ -1358,6 +1365,9 @@ export function OfficeApp() {
 
   useEffect(() => {
     const onPopState = () => {
+      if (!isKnownAppRoute(window.location.pathname)) {
+        window.history.replaceState(window.history.state, "", "/");
+      }
       const path = window.location.pathname;
       setRoutePath(path);
       setMeetingEntry(Boolean(getMeetingRouteOfficeId(path)));
@@ -1658,7 +1668,7 @@ export function OfficeApp() {
             window.history.replaceState(null, "", "/");
             setRoutePath("/");
             setMeetingEntry(false);
-          } else if (currentPath.replace(/\/+$/, "") !== "/maintainer/diagnostics") {
+          } else if (!currentPath.replace(/\/+$/, "").startsWith("/maintainer")) {
             const savedOfficeId = localStorage.getItem("gammyverse.activeOfficeId");
             const destination = (result.offices ?? []).find((office) => office.id === savedOfficeId);
             if (destination) selectOffice(destination);
@@ -1733,7 +1743,8 @@ export function OfficeApp() {
     setOfficeName("");
     setCreateOfficeDialogOpen(false);
     setLobbyBusy(false);
-    selectOffice(outcome.office);
+    if (authUser?.role === "maintainer") activateOffice(outcome.office);
+    else selectOffice(outcome.office);
   };
 
   const deleteManagedOffice = async () => {

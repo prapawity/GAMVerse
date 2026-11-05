@@ -101,6 +101,7 @@ import { MeetingNotesDialog } from "./meetings/MeetingNotesDialog";
 import { MeetingReservationsDialog } from "./meetings/MeetingReservationsDialog";
 import { MeetingToolsMenu } from "./meetings/MeetingToolsMenu";
 import { browserPrejoinStorage, readPrejoinSkipPreference, writePrejoinSkipPreference } from "./meetings/prejoinPreference";
+import { clearOfficeForReload, officeReloadStorage, rememberOfficeForReload, shouldResumeOfficeAfterReload } from "./connection/officeReloadEntry";
 import { useMeetingRecording } from "./meetings/useMeetingRecording";
 import { MeetingRecordingControl } from "./meetings/MeetingRecordingControl";
 import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_MAX_MIB, CHARACTER_MODEL_SIZE_ERROR, countMeetingRoomSeats } from "@gammyverse/shared";
@@ -1273,6 +1274,7 @@ export function OfficeApp() {
 
   const activateOffice = (office: Office, syncUrl = true) => {
     setPendingOfficeEntry(null);
+    if (authUser) rememberOfficeForReload(officeReloadStorage(), authUser.username, office.id);
     exitMapEditMode();
     localStorage.setItem("gammyverse.activeOfficeId", office.id);
     if (syncUrl && window.location.pathname !== `/office/${office.id}`) {
@@ -1293,7 +1295,9 @@ export function OfficeApp() {
   };
 
   const selectOffice = (office: Office, syncUrl = true) => {
-    if (activeOfficeRef.current?.id === office.id || readPrejoinSkipPreference(browserPrejoinStorage(), authUser?.username)) {
+    const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    const resume = !syncUrl && authUser && shouldResumeOfficeAfterReload(officeReloadStorage(), authUser.username, office.id, navigation?.type);
+    if (activeOfficeRef.current?.id === office.id || resume || readPrejoinSkipPreference(browserPrejoinStorage(), authUser?.username)) {
       activateOffice(office, syncUrl);
       return;
     }
@@ -1342,6 +1346,7 @@ export function OfficeApp() {
 
   const clearSelectedOffice = (syncUrl = true) => {
     setPendingOfficeEntry(null);
+    clearOfficeForReload(officeReloadStorage());
     localStorage.removeItem("gammyverse.activeOfficeId");
     exitMapEditMode();
     const returnPath = authUser?.role === "maintainer" ? "/maintainer/offices" : "/";
@@ -1654,7 +1659,7 @@ export function OfficeApp() {
           } else if (getOfficeRouteId(currentPath) || getMeetingRouteOfficeId(currentPath)) {
             const officeId = getOfficeRouteId(currentPath) ?? getMeetingRouteOfficeId(currentPath)!;
             const destination = (result.offices ?? []).find((office) => office.id === officeId);
-            if (destination) selectOffice(destination);
+            if (destination) selectOffice(destination, false);
             else {
               setLobbyError("You need an invitation for this account before opening the office. Ask an office admin to invite your username or send you a one-time invite link.");
               localStorage.removeItem("gammyverse.activeOfficeId");

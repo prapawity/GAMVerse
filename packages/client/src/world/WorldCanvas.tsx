@@ -22,6 +22,7 @@ import { cacheLocalMatrix, cacheStaticModelLocalMatrices } from "./staticModelTr
 import { abbreviateRoomName } from "./roomLabel";
 import { createPetModelInstance, disposePetAsset, type PetModelInstance } from "./petModelInstance";
 import { shouldShowNameTag } from "./nameTagVisibility";
+import { createTeamZoneLabels } from "./teamZoneLabels";
 import { applyAvatarDance, restoreAvatarDance } from "./avatarDanceVisual";
 import { updateProceduralHumanoidRig } from "./proceduralHumanoidMotion";
 import { advanceDeferredAvatarPosition, createAvatarModelVisual, jumpHasExpired, shouldCreateAvatarRoot, shouldLoadAvatarModel, type AvatarAnimationState } from "./avatarModelVisual";
@@ -1380,6 +1381,8 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     const mapZoneSelectionHighlights = new Map<string, THREE.Group>();
     const campusRoomNameLabels: THREE.Sprite[] = [];
     const zoneNameLabels = new Map<string, { label: THREE.Sprite; owned: boolean; x: number; z: number }>();
+    const teamZoneLabels = createTeamZoneLabels(roomLayout, mapWorld.width / 2, mapWorld.depth / 2);
+    for (const label of teamZoneLabels) campusMapProps.add(label);
     campusMapProps.name = "Office map props and private zones";
     campusRoot.add(campusMapProps);
     // New props are previewed directly on the shared 3D map while the editor
@@ -3558,6 +3561,9 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         && Math.hypot(x - (labelObserver.x + mapWorld.width / 2), z - (labelObserver.z + mapWorld.depth / 2)) <= ROOM_LABEL_RADIUS_BLOCKS);
       for (const label of campusRoomNameLabels) {
         label.visible = lobbyRoomNamesVisible && isWithinRoomLabelRadius(label.userData.roomLabelX, label.userData.roomLabelZ);
+      }
+      for (const label of teamZoneLabels) {
+        label.visible = lobbyRoomNamesVisible;
       }
       for (const [zoneId, entry] of zoneNameLabels) {
         entry.label.visible = lobbyRoomNamesVisible && !entry.owned && isWithinRoomLabelRadius(entry.x, entry.z);

@@ -1,4 +1,5 @@
 import type { RoomLayout, RoomLayoutZone } from "@gammyverse/shared";
+import { groupTeamZones } from "../../teamZones";
 
 /** Coarse categories drawn on the zone map; colours live in ZoneMapOverlay.css. */
 export type ZoneMapCategory = "team" | "meeting" | "townhall" | "restroom" | "common" | "room";
@@ -12,8 +13,6 @@ export type ZoneMapRegion = ZoneMapRect & {
   seats: ZoneMapSeat[];
 };
 
-export const ZONE_MAP_TEAM_PADDING_M = 2;
-const LEGACY_TEAM_OFFICE_NAME = /^T(\d+)\s+Office\s*(.*)$/i;
 const TOWN_HALL_NAME = /town\s*hall/i;
 const MEETING_NAME = /meeting/i;
 
@@ -24,44 +23,23 @@ function zoneCategory(zone: RoomLayoutZone): ZoneMapCategory {
   return MEETING_NAME.test(zone.name) || zone.id.startsWith("meeting-") ? "meeting" : "common";
 }
 
-function boundsOf(rects: readonly ZoneMapRect[], padding: number): ZoneMapRect {
-  const minX = Math.min(...rects.map((r) => r.x - r.width / 2)) - padding;
-  const maxX = Math.max(...rects.map((r) => r.x + r.width / 2)) + padding;
-  const minZ = Math.min(...rects.map((r) => r.z - r.depth / 2)) - padding;
-  const maxZ = Math.max(...rects.map((r) => r.z + r.depth / 2)) + padding;
-  return { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2, width: maxX - minX, depth: maxZ - minZ };
-}
-
 /**
  * Collapses the detailed layout into a few readable regions: one block per team
  * (with its desks as seats) and one block per shared room.
  */
 export function buildZoneMapRegions(zones: readonly RoomLayoutZone[]): ZoneMapRegion[] {
-  const teams = new Map<number, RoomLayoutZone[]>();
-  const regions: ZoneMapRegion[] = [];
-  for (const zone of zones) {
-    const teamId = zone.kind === "private" ? /^team-(\d+)-office-/i.exec(zone.id) : null;
-    const legacyTeam = zone.kind === "private" && !teamId ? LEGACY_TEAM_OFFICE_NAME.exec(zone.name) : null;
-    if (teamId || legacyTeam) {
-      const number = Number(teamId?.[1] ?? legacyTeam?.[1]);
-      teams.set(number, [...(teams.get(number) ?? []), zone]);
-      continue;
-    }
-    regions.push({ id: zone.id, label: zone.name, category: zoneCategory(zone), x: zone.x, z: zone.z, width: zone.width, depth: zone.depth, seats: [] });
-  }
-  for (const [number, members] of [...teams].sort((a, b) => a[0] - b[0])) {
-    const firstName = members[0]?.name ?? "";
-    const isLegacyName = LEGACY_TEAM_OFFICE_NAME.test(firstName);
-    const teamLabel = isLegacyName ? `Team ${number}` : firstName.replace(/\s+Office\s+\d+$/i, "");
+    const { teams, otherZones } = groupTeamZones(zones);
+  const regions: ZoneMapRegion[] = otherZones.map(zone => ({
+    id: zone.id, label: zone.name, category: zoneCategory(zone),
+    x: zone.x, z: zone.z, width: zone.width, depth: zone.depth, seats: [],
+  }));
+  for (const { id, label, legacy, members, ...bounds } of teams) {
     regions.push({
-      id: `team-${number}`,
-      label: teamLabel || `Team ${number}`,
-      category: "team",
-      ...boundsOf(members, ZONE_MAP_TEAM_PADDING_M),
-      seats: members.map((zone) => ({ id: zone.id, label: zone.ownerUsername?.trim() || (isLegacyName ? zone.name : zone.name.match(/(Office\s+\d+)$/i)?.[1] || zone.name), x: zone.x, z: zone.z, width: zone.width, depth: zone.depth })),
+      id, label, category: "team", ...bounds,
+      seats: members.map((zone) => ({ id: zone.id, label: zone.ownerUsername?.trim() || (legacy ? zone.name : zone.name.match(/(Office\s+\d+)$/i)?.[1] || zone.name), x: zone.x, z: zone.z, width: zone.width, depth: zone.depth })),
     });
   }
-  return regions;
+return regions;
 }
 
 function contains(rect: ZoneMapRect, point: { x: number; z: number }): boolean {

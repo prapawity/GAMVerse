@@ -3015,7 +3015,7 @@ export function OfficeApp() {
           <footer className="character-drawer-footer"><button type="button" className="right-drawer-map-mode" aria-label={map2dViewActive ? "Switch to 3D view" : "Switch to 2D view"} onClick={() => map2dToggleRef.current()}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 7 6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z"/><path d="M9 4v13m6-10v13"/></svg><span>{map2dViewActive ? "Switch to 3D" : "Switch to 2D"}</span></button><button type="button" className="account-action signout" onClick={signOut.request}>Sign out</button></footer>
         </aside>}
         <section className="lobby-content">
-          {pendingOfficeEntry && !maintainerPage && <section className="meeting-prejoin-card" aria-labelledby="meeting-prejoin-title">
+          {pendingOfficeEntry && <section className="meeting-prejoin-card" aria-labelledby="meeting-prejoin-title">
             <h1 id="meeting-prejoin-title">Join {pendingOfficeEntry.office.name}</h1>
             <p>Camera and microphone start off.</p>
             <div className="meeting-prejoin-devices">

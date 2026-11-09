@@ -2,6 +2,36 @@
 
 GAMVerse is a self-hosted virtual office that runs in a browser. Members share a 2D or 3D campus, claim private workrooms, meet in shared spaces, and talk through room or proximity-based audio. The project is an active prototype; the included production Compose profile has not been validated as a public deployment.
 
+## Highlights
+
+| | |
+| --- | --- |
+| **Walk around your office** | A shared 3D campus (or a 2.5D/2D map, toggled with `N`) where avatars walk, sit, drive, dance and jump. The server owns movement and collision. |
+| **Talk like you are there** | Proximity and room-based voice, camera and screen sharing over self-hosted LiveKit. Walk up to someone to join their conversation. |
+| **Build your own campus** | Generate a campus from headcount and team count, then edit rooms, roads, buildings and 1,600+ props. Each member can claim a private workroom. |
+| **Run meetings** | Book rooms, spotlight a speaker, raise hands, react, take private notes and request consent-based local recordings. |
+| **Make it yours** | Upload custom GLB avatars (auto-rigged when possible), set status, nickname and Light/Dark theme. Installable as a PWA. |
+
+## Demo
+
+![GAMVerse demo: walking the 3D campus, then the 2D view and zone map](docs/media/demo.gif)
+
+| Create an office | 3D campus |
+| --- | --- |
+| ![Create office dialog](docs/media/create-office.png) | ![3D campus view](docs/media/office-3d.png) |
+| **2D view** | **Zone map (`M`)** |
+| ![2D play view](docs/media/office-2d.png) | ![Zone map](docs/media/zone-map.png) |
+
+Captured from a local Compose stack with one test account, so the voice, multi-user and meeting features are not shown. Sign-in page: [docs/media/sign-in.png](docs/media/sign-in.png). To refresh the media, see [docs/media/README.md](docs/media/README.md).
+
+## Quick tour
+
+1. Start the stack with `docker compose up -d` and open **https://localhost:5173** (see [Run locally](#run-locally)).
+2. Register, then create an office. Pick the headcount, name each team and choose a furnished starter.
+3. Move with `W A S D` (hold Shift to sprint, Space to jump). Click the map to auto-walk. `V` toggles first/third person, `N` toggles 2D/3D, `M` opens the zone map.
+4. Walk into a meeting room or next to a teammate. Voice joins automatically; the microphone and camera stay off until you turn them on.
+5. Open **Share office** to invite teammates, `Cmd/Ctrl+K` to search people and rooms, and **Edit Map / Props** to rearrange the campus.
+
 ## Features in this repository
 
 - Account registration and sign-in, office invitations, office-scoped owner/admin/member roles, and a separate maintainer portal.

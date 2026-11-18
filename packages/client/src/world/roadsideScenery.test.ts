@@ -16,8 +16,9 @@ test("every generated prop, including park, building and restroom families, belo
   const chunked = groupRoadsideProps(layout.props).flatMap(chunk => chunk.props);
   assert.equal(chunked.length, layout.props.length);
   for (const family of [
-    "campus-border-tree-", "campus-civic-park-tree", "campus-civic-park-surface", "campus-civic-park-canopy",
-    "campus-city-building-", "campus-finished-building", "campus-vehicle", "shared-restroom-",
+    // The generator now emits park props under the public-park id and has no canopy or city-building families (6b882a87 onward).
+    "campus-border-tree-", "campus-civic-park-west-public-park-tree", "campus-civic-park-surface", "campus-civic-park-pond",
+    "campus-roadside-tree", "campus-finished-building", "campus-vehicle", "shared-restroom-",
   ]) {
     assert.ok(layout.props.some(item => item.id.startsWith(family)), family);
     assert.ok(chunked.some(item => item.id.startsWith(family)), family);

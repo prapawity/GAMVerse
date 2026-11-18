@@ -1,8 +1,8 @@
-import { AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_ABOVE_ANCHOR_PX } from "./avatarSpriteGeometry";
+import { AVATAR_SPRITE_FRAME_HEIGHT_M, AVATAR_SPRITE_ABOVE_ANCHOR_PX, AVATAR_SPRITE_TARGET_HEIGHT_M } from "./avatarSpriteGeometry";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MAP2D_MIN_SCALE_PX_PER_M, MAP2D_MAX_SCALE_PX_PER_M } from "./constants";
-import { avatarSpriteScale } from "./avatarSpriteGeometry";
+import { avatarMarkerScale, avatarSpriteScale } from "./avatarSpriteGeometry";
 import { map2dHeadRadiusPx } from "./avatarPortraitGeometry";
 import { drawMap2dAvatar } from "./map2dAvatarDrawing";
 import { drawMap2dDynamic } from "./map2dDynamicLayer";
@@ -48,7 +48,7 @@ test("dense names preserve every head/status and hand/speaker cue in both presen
     const bob = { ...player(), username: "bob", displayName: "Bob", handRaised: true };
     drawMap2dDynamic(drawing.ctx, projection, new Map([["bob", bob], ["alice", alice]]), "alice", new Set(["bob"]), [], 0, undefined, presentation);
     const arcs = drawing.calls.filter(call => call.method === "arc");
-    assert.equal(arcs.filter(call => call.args[2] === 3 * avatarSpriteScale(projection.pxPerM)).length, 2, "each player retains a status dot");
+    assert.equal(arcs.filter(call => call.args[2] === 3 * avatarMarkerScale(projection.pxPerM)).length, 2, "each player retains a status dot");
     const text = drawing.calls.filter(call => call.method === "fillText").map(call => call.args[0]);
     assert.ok(text.includes("✋"), "raised hands must survive name suppression");
     assert.ok(text.includes("Alice"));
@@ -131,11 +131,14 @@ test("name clearance and foreground indicators track the scaled character at bot
     const drawing = drawingContext();
     drawMap2dDynamic(drawing.ctx, { ...projection, pxPerM }, new Map([["alice", avatar]]), "alice", new Set(["alice"]), [], 0);
     const scale = avatarSpriteScale(pxPerM);
+    // Rings and indicators use the clamped marker scale, not the sprite scale (a2b30fcf).
+    const markerScale = avatarMarkerScale(pxPerM);
     const markerRadiusPx = map2dHeadRadiusPx(pxPerM);
     const rings = drawing.calls.filter(call => call.method === "arc" && call.args[0] === 400 && Number(call.args[2]) > markerRadiusPx);
-    assert.deepEqual(rings.map(call => call.args[2]), [markerRadiusPx + 4 * scale, markerRadiusPx + 8 * scale]);
+    assert.deepEqual(rings.map(call => call.args[2]), [markerRadiusPx + 4 * markerScale, markerRadiusPx + 8 * markerScale]);
     const label = drawing.calls.filter(call => call.method === "roundRect").at(-1)!;
-    const characterTopPx = 300 - AVATAR_SPRITE_ABOVE_ANCHOR_PX * scale;
+    // Names clear the visible body height (AVATAR_SPRITE_TARGET_HEIGHT_M), not the padded sprite frame.
+    const characterTopPx = 300 - AVATAR_SPRITE_TARGET_HEIGHT_M * pxPerM;
     assert.ok(Number(label.args[1]) + Number(label.args[3]) < characterTopPx, "name stays above the scaled full body");
   }
 });

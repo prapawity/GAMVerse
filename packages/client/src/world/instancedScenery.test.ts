@@ -38,8 +38,11 @@ for (const farId of ["campus-landscape-3", "campus-city-tree-south-1--1-58", "ca
     assert.deepEqual(batches.map(batch => batch.visible), [false, true]);
     assert.deepEqual(batches.map(batch => (batch.children[0] as THREE.InstancedMesh).count), [0, 1]);
     roadside.update({ x: 0, z: 0 }, true);
-    assert.ok(batches.every(batch => batch.visible));
-    assert.deepEqual(batches.map(batch => (batch.children[0] as THREE.InstancedMesh).count), [2, 1]);
+    // Editing no longer lifts the distance cull (1fb17c6a): the observer decides, so the far prop stays dropped.
+    assert.deepEqual(batches.map(batch => batch.visible), [true, false]);
+    assert.deepEqual(batches.map(batch => (batch.children[0] as THREE.InstancedMesh).count), [2, 0]);
+    roadside.update({ x: 600, z: 0 }, true);
+    assert.deepEqual(batches.map(batch => batch.visible), [false, true]);
   });
 }
 

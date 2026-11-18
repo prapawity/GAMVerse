@@ -7,6 +7,8 @@ import { applyLyingCharacterPose } from "./lyingCharacterPose";
 import { CAMPUS_LAYOUT, CAMPUS_WORLD, CAMERA, lerpAngle, DEFAULT_CHARACTER_ID, JUMP_DURATION_MS, jumpHeightAt, KENNEY_BLASTER_IDS, KENNEY_VEHICLE_IDS, WORLD, ROOM_PROP_CATALOG, TEMPLATE_PRIVATE_WALL_ASSETS, templatePrivateWallAsset, parseRoomPropSeatReference, roomPropCollisionFootprint, roomWallSolidSegments, roomBoundaryWalls, roomPropPlacementSupport, roomPropSeatAnchors, campusPropPlacements, type CampusRoom, type KenneyBlasterId, type KenneyCharacterId, type KenneyVehicleId, type RoomLayout, type RoomLayoutProp, type RoomLayoutZone, type UserStatus } from "@gammyverse/shared";
 import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
+import { createRenderActivityController } from "./renderActivity/renderActivityController";
+import { shouldSkipFrame } from "./renderActivity/renderActivityPolicy";
 import { updateFootstepSound, updateVehicleEngineSound } from "../audio/movementSounds";
 import * as THREE from "three";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
@@ -789,6 +791,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
   const propActionMenuElementRef = useRef<HTMLDivElement>(null);
   const movePropArmedIdRef = useRef<string | null>(null);
   const [movePropArmedId, setMovePropArmedId] = useState<string | null>(null);
+  const [renderIdlePaused, setRenderIdlePaused] = useState(false);
   const [nearbyVehicle, setNearbyVehicle] = useState<{ vehicleId: KenneyVehicleId; propId: string } | null>(null);
   const nearbyVehicleRef = useRef<{ vehicleId: KenneyVehicleId; propId: string } | null>(null);
   const [isDriving, setIsDriving] = useState(false);
@@ -3017,8 +3020,12 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
     resize();
 
     clientRuntimeMetrics.resetFrameSequence();
+    let lastRenderedAtMs = 0;
     const render = (now: number) => {
-      if (document.visibilityState !== "visible") return;
+      const activity = renderActivity.current();
+      if (activity.mode === "paused") return;
+      if (shouldSkipFrame(activity, now, lastRenderedAtMs)) { animationFrame = requestAnimationFrame(render); return; }
+      lastRenderedAtMs = now;
       const frameStartedAtMs = performance.now();
       const framePolicy = worldFramePolicy(cameraStateRef.current.mode, previousCameraMode);
       const showMap2d = framePolicy.showMap2d;
@@ -3904,22 +3911,22 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
         renderer.render(scene, camera);
         clientRuntimeMetrics.recordRender(performance.now() - renderStartedAtMs);
       }
-      if (document.visibilityState === "visible") {
+      if (renderActivity.current().mode !== "paused") {
         clientRuntimeMetrics.recordFrame(performance.now() - frameStartedAtMs, now);
         animationFrame = requestAnimationFrame(render);
       }
     };
-    const onDocumentVisibilityChange = () => {
+    // Hidden tab or 10 min idle stops the loop; an unfocused window renders at a reduced rate. Audio/video live outside this loop.
+    const renderActivity = createRenderActivityController((decision) => {
       clientRuntimeMetrics.resetFrameSequence();
-      if (document.visibilityState === "visible") {
+      setRenderIdlePaused(decision.pauseReason === "idle");
+      cancelAnimationFrame(animationFrame);
+      if (decision.mode !== "paused") {
         previousFrame = performance.now();
         animationFrame = requestAnimationFrame(render);
-      } else {
-        cancelAnimationFrame(animationFrame);
       }
-    };
-    document.addEventListener("visibilitychange", onDocumentVisibilityChange);
-    if (document.visibilityState === "visible") animationFrame = requestAnimationFrame(render);
+    });
+    if (renderActivity.current().mode !== "paused") animationFrame = requestAnimationFrame(render);
 
     return () => {
       if (draggingMapProp) endMapPropDrag(draggingMapProp);
@@ -3930,7 +3937,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
       disposed = true;
       zoneLockIconsRef.current.clear();
       cancelAnimationFrame(animationFrame);
-      document.removeEventListener("visibilitychange", onDocumentVisibilityChange);
+      renderActivity.dispose();
       renderer.domElement.removeEventListener("webglcontextlost", onWebglContextLost);
       observer.disconnect();
       renderer.domElement.removeEventListener("contextmenu", onCanvasContextMenu);
@@ -4041,6 +4048,7 @@ export function WorldCanvas({ activeRoomKey, cameraRoomKey = activeRoomKey, play
           <span>3D is unavailable. The 2D map is active; editing is unavailable.</span>
           {!buildMode && !mapEditMode && <button type="button" onClick={retryWebglAfterReload}>Retry 3D</button>}
         </div>}
+        {renderIdlePaused && <div role="status" className="world-idle-paused">Paused to save power. Move the mouse or press a key to continue.</div>}
       </div>
       {buildMode && movePropArmedId && <div className="modify-props-move-toast" role="status">Click and drag the selected prop. Right-drag rotates the camera in 3D.</div>}
       {buildMode && propActionMenu && <div ref={propActionMenuElementRef} className="prop-action-menu" style={{ left: propActionMenu.x, top: propActionMenu.y }} role="toolbar" aria-label="Actions for selected prop" onPointerDown={(event) => event.stopPropagation()}>

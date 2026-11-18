@@ -13,8 +13,9 @@ test("interaction validator rejects unsafe URLs and bounds text", () => {
     "https://user:pass@youtube.com/watch?v=abcdefghijk",
     "https://youtube.com:444/watch?v=abcdefghijk",
     "javascript:alert(1)",
-    "https://youtube.com:444/watch?v=abcdefghijk",
-    "https://xn--yutube-9za.com/watch?v=abcdefghijk",
+    // Never parseable on any Node version. Parseable punycode look-alikes are
+    // covered by "a parseable punycode provider look-alike is a link…" below.
+    "https://exa mple.com/watch?v=abcdefghijk",
   ])
     assert.equal(
       isValidPropInteraction({ kind: "embed", title: "Video", url }),

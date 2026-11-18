@@ -60,7 +60,9 @@ flowchart LR
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Sign in, register, office list and office creation |
+| `/` | Sign in (username/password or Google), register, office list and office creation |
+| `/signup/google` | Choose a username after a first Google sign-in (one-use token in the URL fragment) |
+| `/settings` | Return target after connecting Google; opens Settings → Security |
 | `/office/:officeId` | Authenticated office workspace |
 | `/meeting/:officeId` | Office-member meeting link |
 | `/join/:token` | Accept an office invitation after sign-in |
@@ -91,6 +93,8 @@ five-second process CPU/event-loop threshold crossings and sampled structured
 server errors with their logger event names through bounded queues. No raw error
 payloads or user identity are copied into the incident table. This is lightweight
 diagnostics, not crash-proof external monitoring or proof of production capacity.
+
+Sign-in identity: accounts sign in with a username and password, with Google, or both. Google identities live in `app_user_identities` (migration `035`), keyed by provider and Google `sub`; one Google account per user. Accounts are never linked by email: a Google account is attached only through the explicit settings flow while signed in, and a first Google sign-in with an unknown `sub` creates a new account through a 10-minute, single-use, hashed pending token. `app_users.email` holds only the verified Google email (username registration takes none) and an unverified legacy email is cleared, with an audit entry, when a Google identity claims it. The OAuth flow uses a signed, short-lived state cookie with PKCE (S256) and a nonce; ID tokens are verified with `jose` (RS256, issuer, audience, expiry, `email_verified`). Google sign-in works only when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` are set **and** the `google_sign_in` platform flag (migration `036`, default off) is on; maintainers toggle it in Platform controls, and enabling without keys is refused. Maintainers may sign in with Google and keep the maintainer role. Google-only accounts can set a first password with only their session (no step-up; the trade-off and mitigations are in `docs/GOOGLE_LOGIN_PLAN.md`), and cannot disconnect Google until they have one. Maintainers can unlink a user's Google account (revoking their sessions) or clear a stored email; both are audited. Auth routes rate-limit by socket address, or by `X-Forwarded-For` when `TRUST_PROXY_HEADERS=1` behind Caddy.
 
 ### Persistence and map contract
 

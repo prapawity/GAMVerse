@@ -1,0 +1,120 @@
+name: Release
+
+# Manual: Actions → Release → Run workflow → choose patch/minor/major.
+# Bumps package versions, commits to main, tags vX.Y.Z, creates a GitHub Release with
+# the client bundle attached, and pushes server/web images to GHCR.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: minor
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          current=$(node -p "require('./packages/shared/package.json').version")
+          next=$(node -e '
+            const [maj, min, pat] = process.argv[1].split(".").map(Number);
+            const b = process.argv[2];
+            console.log(b === "major" ? `${maj + 1}.0.0` : b === "minor" ? `${maj}.${min + 1}.0` : `${maj}.${min}.${pat + 1}`);
+          ' "$current" "$BUMP")
+          if git rev-parse -q --verify "refs/tags/v$next" >/dev/null; then echo "::error::Tag v$next already exists"; exit 1; fi
+          echo "Releasing $current -> $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Bump package versions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for f in package.json packages/shared/package.json packages/server/package.json packages/client/package.json; do
+            node -e '
+              const fs = require("fs"); const [f, v] = process.argv.slice(1);
+              const pkg = JSON.parse(fs.readFileSync(f, "utf8"));
+              const out = pkg.version === undefined ? { name: pkg.name, version: v, ...pkg } : { ...pkg, version: v };
+              fs.writeFileSync(f, JSON.stringify(out, null, 2) + "\n");
+            ' "$f" "$VERSION"
+          done
+
+      - name: Build
+        run: pnpm build
+
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v$VERSION"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin HEAD:main "v$VERSION"
+
+      - name: Package client bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: cd packages/client/dist && zip -qr "$GITHUB_WORKSPACE/gamverse-client-v$VERSION.zip" .
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "v$VERSION" "gamverse-client-v$VERSION.zip" --title "v$VERSION" --generate-notes --verify-tag
+
+      - name: Image names
+        id: image
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/gamverse" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push server image (api + realtime)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image.outputs.prefix }}-server:${{ steps.version.outputs.version }}
+            ${{ steps.image.outputs.prefix }}-server:latest
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+      - name: Push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/client/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image.outputs.prefix }}-web:${{ steps.version.outputs.version }}
+            ${{ steps.image.outputs.prefix }}-web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

@@ -43,10 +43,11 @@ export async function listLobbyPage(
     order = "created_at DESC, id DESC";
     values = [session.username, pattern];
   } else if (kind === "users") {
-    source = `SELECT username, email, last_active_at, suspended_at, is_maintainer FROM app_users
+    source = `SELECT username, email, last_active_at, suspended_at, is_maintainer,
+      (SELECT identities.email FROM app_user_identities identities WHERE identities.username = app_users.username AND identities.provider = 'google') AS google_email FROM app_users
       WHERE ($1::text IS NULL OR username ILIKE $1 OR email ILIKE $1
         OR (CASE WHEN is_maintainer THEN 'maintainer' ELSE 'user' END) ILIKE $1)`;
-    projection = `username, email, last_active_at AS "lastActiveAt", suspended_at AS "suspendedAt",
+    projection = `username, email, google_email AS "googleEmail", google_email IS NOT NULL AS "googleLinked", last_active_at AS "lastActiveAt", suspended_at AS "suspendedAt",
       CASE WHEN is_maintainer THEN 'maintainer' ELSE 'user' END AS role`;
     order = "username ASC";
     values = [pattern];

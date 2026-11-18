@@ -5,6 +5,9 @@ type Position = { x: number; z: number };
 
 export const AUTO_MOVE_TELEPORT_DISTANCE_BLOCKS = 200;
 const AUTO_ROUTE_COLLISION_SAMPLE_STEP_M = 0.24;
+// Smoothing replaces many validated grid edges with one long shortcut, so it
+// samples finer to avoid cutting thin corners that the coarse grid step skips.
+const AUTO_ROUTE_SMOOTHING_SAMPLE_STEP_M = 0.1;
 const AUTO_ROUTE_WALKABILITY_CACHE_MAX_ENTRIES = 100_000;
 
 export function autoMoveTravelMode(distanceBlocks: number): "vehicle" | "teleport" {
@@ -193,7 +196,7 @@ function smoothAutoRoute(start: Position, route: Position[], isWalkable: (positi
       // Smoothing is optional: keep the already validated remaining grid path
       // when the computation deadline is reached.
       if (budget.exhausted) return [...result, ...route.slice(firstCandidate)];
-      if (isAutoRouteEdgeWalkable(anchor, route[candidate]!, isWalkable, budget)) {
+      if (isAutoRouteEdgeWalkable(anchor, route[candidate]!, isWalkable, budget, AUTO_ROUTE_SMOOTHING_SAMPLE_STEP_M)) {
         furthestVisible = candidate;
         break;
       }
@@ -206,9 +209,9 @@ function smoothAutoRoute(start: Position, route: Position[], isWalkable: (positi
   return result;
 }
 
-function isAutoRouteEdgeWalkable(first: Position, second: Position, isWalkable: (position: Position) => boolean, budget: RouteSearchBudget) {
+function isAutoRouteEdgeWalkable(first: Position, second: Position, isWalkable: (position: Position) => boolean, budget: RouteSearchBudget, sampleStepM = AUTO_ROUTE_COLLISION_SAMPLE_STEP_M) {
   const distance = Math.hypot(second.x - first.x, second.z - first.z);
-  const samples = Math.max(1, Math.ceil(distance / AUTO_ROUTE_COLLISION_SAMPLE_STEP_M));
+  const samples = Math.max(1, Math.ceil(distance / sampleStepM));
   for (let index = 1; index <= samples; index += 1) {
     if (budget.exhausted) return false;
     const progress = index / samples;

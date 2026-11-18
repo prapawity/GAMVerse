@@ -920,7 +920,8 @@ test("office maintainers can acquire the map edit lock", async () => {
     internals.officeRolesBySessionId.set(SESSION_ID, "maintainer");
     internals.usernamesBySessionId.set(SESSION_ID, "alice");
     const results: unknown[] = [];
-    handlers.get("map-edit-lock")!({ sessionId: SESSION_ID, send: (event, payload) => { if (event === "map-edit-lock-result") results.push(payload); } }, { active: true });
+    // The handler is async (it reads platform feature flags first), so it must be awaited.
+    await handlers.get("map-edit-lock")!({ sessionId: SESSION_ID, send: (event, payload) => { if (event === "map-edit-lock-result") results.push(payload); } }, { active: true });
     assert.deepEqual(results, [{ granted: true }]);
   } finally { room.onDispose(); room.clock.stop(); mock.restoreAll(); }
 });

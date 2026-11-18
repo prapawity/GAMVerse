@@ -64,6 +64,7 @@ function fixture() {
     sessionId: SESSION_ID,
     auth: { role: "user" },
     send: () => {},
+    raw: () => {}, // onJoin wraps client.raw for outbound-frame metrics
     leave: (code: number) => { leaveCodes.push(code); },
   } as unknown as Client;
   let rejectSeat!: (error: Error) => void;

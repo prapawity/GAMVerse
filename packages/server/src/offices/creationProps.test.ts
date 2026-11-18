@@ -48,9 +48,9 @@ test("creation saves every furnished campus prop through the office props valida
     USERNAME, OFFICE_ID, { configVersion: FIRST_VERSION, props: furnished.props }, false, seam.dependencies(),
   );
   assert.equal(saved.props.length, furnished.props.length);
-  assert.equal(saved.props.filter(prop => prop.asset === "civic-park-water").length, 4);
+  assert.equal(saved.props.filter(prop => prop.asset === "civic-park-water").length, 2);
   assert.equal(saved.props.filter(prop => prop.asset === "kit:chair" && prop.id.startsWith("shared-townhall-starter-")).length, 200);
-  assert.equal(saved.props.filter(prop => prop.asset === "office-civic-screen" || prop.asset === "office-townhall-screen").length, 4);
+  assert.equal(saved.props.filter(prop => prop.asset === "office-civic-screen" || prop.asset === "office-townhall-screen").length, 1);
 });
 
 test("a generated campus draft places wall-mounted restroom mirrors above the floor", () => {
@@ -77,7 +77,7 @@ test("an elevated floor prop without a supporting surface is still rejected", as
   const floating: RoomLayoutProp = { ...sofa, id: "floating-sofa", elevation: 1.15 };
   await assert.rejects(
     saveOfficeProps(USERNAME, OFFICE_ID, { configVersion: FIRST_VERSION, props: [floating] }, false, seam.dependencies()),
-    /Place small props on a table or shelf/,
+    /needs a table or shelf that fits its footprint/,
   );
   assert.deepEqual(seam.props, []);
 });

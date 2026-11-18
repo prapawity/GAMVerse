@@ -86,7 +86,7 @@ test("empty room ticks skip projections without disabling deadlines or retained-
   } finally { room.onDispose(); room.clock.stop(); mock.restoreAll(); }
 });
 
-test("stationary admitted-guest expiry rotates its epoch, removes grants and sends actual room snapshots", async () => {
+test("stationary admitted-guest expiry keeps the room epoch, denies the guest grants and sends actual room snapshots", async () => {
   mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const { room, internal } = await fixture();
   const removedRooms: string[] = [];
@@ -126,8 +126,12 @@ test("stationary admitted-guest expiry rotates its epoch, removes grants and sen
     removedRooms.length = 0; events.length = 0;
     mock.timers.tick(PRIVATE_ADMISSION_TTL_MS);
     await settle();
-    assert.ok(removedRooms.includes(oldDescriptor.roomName), "expired admission retires its media room");
-    assert.ok(internal.privacy.descriptor("room").generation > oldDescriptor.generation);
+    // Since c0cd2439 an expired guest is removed from the live room (onDeparture)
+    // instead of rotating it, so everyone else stays connected. Access is cut by
+    // denying new grants (asserted below) plus the short token TTL.
+    assert.deepEqual(removedRooms, [], "expiry must not delete the shared media room");
+    assert.equal(internal.privacy.descriptor("room").generation, oldDescriptor.generation);
+    assert.equal(internal.privacy.descriptor("room").roomName, oldDescriptor.roomName);
     assert.equal(internal.privacy.mayHear("bob", "room"), false);
     assert.equal(internal.privacy.canEnter("bob", "room"), false);
     assert.equal(internal.conversations.snapshot("bob").conversation, null);

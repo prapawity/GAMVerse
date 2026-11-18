@@ -5,6 +5,8 @@ const MAX_FINISHED_BUILDINGS = 18;
 const PLACEMENT_PASSES = 2;
 const PLACEMENT_GRID_M = 2;
 const PLACEMENT_CLEARANCE_M = 0.75;
+/** Keep buildings this far from a room so the outside approach to every entrance stays walkable. */
+const ZONE_ENTRANCE_CLEARANCE_M = 3;
 /** A finished building must sit within this distance of a road to read as a street block. */
 const ROAD_FRONTAGE_M = 16;
 
@@ -30,9 +32,9 @@ function propFootprint(prop: RoomLayoutProp): Footprint {
   return { x: prop.x, z: prop.z, ...rotated };
 }
 
-function overlaps(a: Footprint, b: Footprint) {
-  return Math.abs(a.x - b.x) < (a.width + b.width) / 2 + PLACEMENT_CLEARANCE_M
-    && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 + PLACEMENT_CLEARANCE_M;
+function overlaps(a: Footprint, b: Footprint, clearance = PLACEMENT_CLEARANCE_M) {
+  return Math.abs(a.x - b.x) < (a.width + b.width) / 2 + clearance
+    && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 + clearance;
 }
 
 function gridValues(min: number, max: number) {
@@ -77,7 +79,7 @@ export function placeCampusFinishedBuildings(layout: RoomLayout, random: () => n
       for (const point of candidates) {
         const footprint = { ...point, ...size };
         if (reservedAreas.some(area => overlaps(footprint, area))) continue;
-        if (occupiedRoads.some((area) => overlaps(footprint, area)) || occupiedZones.some((area) => overlaps(footprint, area))) continue;
+        if (occupiedRoads.some((area) => overlaps(footprint, area)) || occupiedZones.some((area) => overlaps(footprint, area, ZONE_ENTRANCE_CLEARANCE_M))) continue;
         if (!facesRoad(footprint)) continue;
         if (occupiedProps.some((prop) => overlaps(footprint, prop))) continue;
         if (placed.some((prop) => overlaps(footprint, propFootprint(prop)))) continue;

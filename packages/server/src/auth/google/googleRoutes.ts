@@ -3,9 +3,10 @@ import { database } from "../../infra/db.js";
 import { createWriteRateLimiter } from "../../http/writeRateLimit.js";
 import { logServerError } from "../../infra/logger.js";
 import type { HttpRequest, HttpResponse } from "../../http/middleware.js";
-import { issueSession as defaultIssueSession } from "../service.js";
+import { issueSession as defaultIssueSession, setInitialAccountPassword } from "../service.js";
 import { isGoogleLoginEnabled, readGoogleConfig, readStateSecret } from "./googleConfig.js";
-import { completePendingSignup, createPendingSignup, emailHeldByIdentity, findUserByIdentity, linkIdentity, touchIdentity, unlinkIdentity } from "./identityRepository.js";
+import { readPlatformFeatureFlags } from "../../infra/platformFeatures.js";
+import { completePendingSignup, readGoogleAccountStatus, createPendingSignup, emailHeldByIdentity, findUserByIdentity, linkIdentity, touchIdentity, unlinkIdentity } from "./identityRepository.js";
 import { createOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_TTL_MS, readOAuthStateCookie, verifyOAuthState } from "./oauthState.js";
 import { buildGoogleAuthUrl, exchangeGoogleCode, verifyGoogleIdToken } from "./googleTokens.js";
 import type { PlatformRole } from "../service.js";
@@ -19,7 +20,7 @@ const PENDING_TOKEN_FORMAT = /^[A-Za-z0-9_-]{30,100}$/;
 const REDIRECT_HOME = "/";
 const REDIRECT_SETTINGS_CONNECTED = "/settings?google=connected";
 const REDIRECT_SIGNUP = "/signup/google";
-const redirectError = (code: "google_denied" | "google_failed" | "google_conflict" | "google_rate_limited") => `/?error=${code}`;
+const redirectError = (code: "google_denied" | "google_failed" | "google_conflict" | "google_rate_limited" | "google_disabled") => `/?error=${code}`;
 
 /** The API and the web client can sit on different origins, so every redirect is a fixed path on the first CLIENT_ORIGIN. */
 export function clientUrl(path: string, env: NodeJS.ProcessEnv = process.env): string {
@@ -49,12 +50,19 @@ export type GoogleRouteInternals = {
   linkIdentity: typeof linkIdentity;
   unlinkIdentity: typeof unlinkIdentity;
   issueSession: typeof defaultIssueSession;
+  /** The maintainer "googleSignIn" platform flag. Read per request, so a toggle applies immediately. */
+  readFlag(): Promise<boolean>;
+  readStatus: typeof readGoogleAccountStatus;
+  setInitialPassword: typeof setInitialAccountPassword;
 };
 const defaults: GoogleRouteInternals = {
   hasDatabase: () => Boolean(database),
   exchangeCode: exchangeGoogleCode, verifyIdToken: verifyGoogleIdToken,
   findUserByIdentity, touchIdentity, emailHeldByIdentity, createPendingSignup, completePendingSignup, linkIdentity, unlinkIdentity,
   issueSession: defaultIssueSession,
+  readFlag: async () => (await readPlatformFeatureFlags()).googleSignIn,
+  readStatus: readGoogleAccountStatus,
+  setInitialPassword: setInitialAccountPassword,
 };
 
 const limiter = createWriteRateLimiter(AUTH_RATE_LIMIT, AUTH_RATE_WINDOW_MS);
@@ -83,7 +91,10 @@ function clearStateCookie(response: HttpResponse) {
 export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependencies) {
   const d: GoogleRouteInternals = { ...defaults, ...dependencies.overrides };
   const redirectTo = (response: GoogleResponse, path: string) => response.redirect(302, clientUrl(path));
-  const enabled = () => d.hasDatabase() && isGoogleLoginEnabled();
+  const configured = () => d.hasDatabase() && isGoogleLoginEnabled();
+  /** Fails closed: a flag read error counts as disabled. */
+  const flagOn = async () => { try { return await d.readFlag(); } catch (error) { logServerError("api", "google.flag.read.failed", error, {}); return false; } };
+  const enabled = async () => configured() && await flagOn();
   const limited = (request: HttpRequest, response: GoogleResponse) => {
     const wait = limiter.check(clientKey(request));
     if (wait === 0) return false;
@@ -92,9 +103,9 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
     return true;
   };
 
-  app.get("/auth/config", (_request, response) => {
+  app.get("/auth/config", async (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    response.json({ google: enabled() });
+    response.json({ google: await enabled() });
   });
 
   const startFlow = (response: GoogleResponse, intent: "login" | "link", username: string | null) => {
@@ -107,8 +118,8 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
     return buildGoogleAuthUrl(config, { state: payload.state, nonce: payload.nonce, challenge });
   };
 
-  app.get("/auth/google/start", (request, response) => {
-    if (!enabled() || !readStateSecret()) { response.sendStatus(404); return; }
+  app.get("/auth/google/start", async (request, response) => {
+    if (!await enabled() || !readStateSecret()) { response.sendStatus(404); return; }
     if (limited(request, response)) return;
     // Link is POST-only (origin-guarded) so a cross-site page cannot start it with a plain navigation.
     if (request.query?.intent !== "login") { response.status(400).json({ error: "Unknown sign-in intent." }); return; }
@@ -118,7 +129,7 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
   });
 
   app.post("/auth/google/link", async (request, response) => {
-    if (!enabled() || !readStateSecret()) { response.sendStatus(404); return; }
+    if (!await enabled() || !readStateSecret()) { response.sendStatus(404); return; }
     if (limited(request, response)) return;
     const session = await dependencies.requestSession(request);
     if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
@@ -130,12 +141,14 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
   app.get("/auth/google/callback", async (request, response) => {
     const config = readGoogleConfig();
     const secret = readStateSecret();
-    if (!enabled() || !config || !secret) { response.sendStatus(404); return; }
+    if (!configured() || !config || !secret) { response.sendStatus(404); return; }
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");
     // The state cookie is single use: clear it whatever happens next.
     const cookie = readOAuthStateCookie(request.header("cookie"));
     clearStateCookie(response);
+    // Switched off by a maintainer while a flow was in flight: nothing is exchanged, linked or signed in.
+    if (!await flagOn()) { redirectTo(response, redirectError("google_disabled")); return; }
     if (limiter.check(clientKey(request)) !== 0) { redirectTo(response, redirectError("google_rate_limited")); return; }
     if (typeof request.query?.error === "string") { redirectTo(response, redirectError("google_denied")); return; }
     const state = verifyOAuthState(cookie, request.query?.state, secret);
@@ -175,7 +188,7 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
   });
 
   app.post("/auth/google/complete", async (request, response) => {
-    if (!enabled()) { response.sendStatus(404); return; }
+    if (!await enabled()) { response.sendStatus(404); return; }
     if (limited(request, response)) return;
     const token = request.body?.pendingToken;
     const username = normalizeAccountUsername(request.body?.username);
@@ -198,8 +211,9 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
     }
   });
 
+  // Unlink deliberately ignores the maintainer flag so people can clean up while Google sign-in is off.
   app.delete("/auth/google", async (request, response) => {
-    if (!enabled()) { response.sendStatus(404); return; }
+    if (!d.hasDatabase()) { response.sendStatus(404); return; }
     const session = await dependencies.requestSession(request);
     if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
     try {
@@ -210,6 +224,44 @@ export function registerGoogleRoutes(app: App, dependencies: GoogleRouteDependen
     } catch (error) {
       logServerError("api", "google.unlink.failed", error, {});
       response.status(503).json({ error: "Could not disconnect Google. Try again." });
+    }
+  });
+
+  /** Own-account Google/password state for the settings page. Never takes a username from the request. */
+  app.get("/auth/google/status", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const session = await dependencies.requestSession(request);
+    if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+    try {
+      const status = await d.readStatus(session.username);
+      if (!status) { response.status(404).json({ error: "Account not found." }); return; }
+      response.json({ enabled: await enabled(), linked: status.linked, email: status.email, hasPassword: status.hasPassword });
+    } catch (error) {
+      logServerError("api", "google.status.failed", error, {});
+      response.status(503).json({ error: "Could not load Google status. Try again." });
+    }
+  });
+
+  /** First password for a passwordless account. Rejects accounts that already have one (use /auth/password/change). */
+  app.post("/auth/password/set", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    if (limited(request, response)) return;
+    const session = await dependencies.requestSession(request);
+    if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
+    try {
+      const result = await d.setInitialPassword(session.username, request.body?.newPassword);
+      if ("error" in result) {
+        const code = "code" in result ? result.code : undefined;
+        response.status(code === "has_password" ? 409 : code === "suspended" ? 403 : 400).json({ error: result.error });
+        return;
+      }
+      // Password saved but the new session could not be issued: tell the client to sign in again.
+      if ("reauth" in result) { response.json({ user: null, reauth: true, message: "Password set. Sign in again." }); return; }
+      dependencies.setSessionCookie(response, result.sessionToken);
+      response.json({ user: result.user });
+    } catch (error) {
+      logServerError("api", "password.set.failed", error, {});
+      response.status(503).json({ error: "Could not set the password. Try again." });
     }
   });
 }

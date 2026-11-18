@@ -486,6 +486,14 @@ button.voice-participant-media:disabled { opacity: .45; cursor: default; }
 .permission-message, .permission-help { margin: 12px 0 0; color: #5e7968; font-size: 10px; line-height: 1.5; }
 .permission-help { padding: 10px; border-radius: 8px; background: #f1f5f1; color: #78867d; }
 .security-password-action { margin-top: 14px; }
+.sign-in-methods { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e8eee9; display: grid; gap: 10px; }
+.sign-in-methods h3 { margin: 0; }
+.sign-in-methods .settings-intro, .sign-in-methods .auth-error { margin: 0; }
+.sign-in-methods-notice { padding: 9px 11px; border-radius: 8px; background: #f1f5f1; color: #3b8a60; font-size: 11px; }
+.sign-in-methods-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sign-in-methods-form { display: grid; gap: 4px; margin-top: 4px; }
+.sign-in-methods-form .sound-device-field input { width: 100%; min-width: 0; min-height: 38px; padding: 0 10px; border: 1px solid #d7e2dc; border-radius: 9px; background: rgba(255,255,255,.86); color: #34463b; font: 500 11px "DM Sans", sans-serif; box-sizing: border-box; }
+.sign-in-methods-form .lobby-button { justify-self: start; min-height: 36px; margin-top: 4px; }
 .manager-backdrop { z-index: 40; }
 .character-current { display: flex; align-items: center; gap: 13px; padding: 12px 18px; border-bottom: 1px solid #e9eeea; }
 .character-current img { width: 58px; height: 58px; object-fit: contain; border-radius: 10px; background: #edf2ee; }
@@ -867,7 +875,7 @@ button:focus-visible, .focus-character-control:focus-visible { outline-color: va
 }
 :root :is(.auth-card input, .create-office-dialog input, .password-dialog input,
   .manager-name-form input, .manager-invite-form input, .manager-invite-form select,
-  .nickname-settings input, .sound-device-field select) {
+  .nickname-settings input, .sound-device-field select, .sign-in-methods-form input) {
   background: color-mix(in srgb, var(--color-surface-soft) 92%, transparent);
   color: var(--color-ink);
   border-color: var(--color-border);

@@ -18,7 +18,7 @@ type Session = { username: string; role: "maintainer" | "user" } | null;
 type Existing = { username: string; suspended: boolean; isMaintainer: boolean; nickname: string | null; characterId: string | null } | null;
 
 let counter = 0;
-function harness(options: { session?: Session; existing?: Existing; identityEmailHeld?: boolean; link?: { ok: boolean; reason?: string }; verify?: () => Promise<typeof profile> } = {}) {
+function harness(options: { flagError?: boolean; flag?: boolean; status?: { linked: boolean; email: string | null; hasPassword: boolean } | null; setResult?: unknown; unlink?: unknown; session?: Session; existing?: Existing; identityEmailHeld?: boolean; link?: { ok: boolean; reason?: string }; verify?: () => Promise<typeof profile> } = {}) {
   const handlers = new Map<string, (request: HttpRequest, response: any) => Promise<void> | void>();
   const app = { get: (p: string, h: any) => handlers.set(`GET ${p}`, h), post: (p: string, h: any) => handlers.set(`POST ${p}`, h), delete: (p: string, h: any) => handlers.set(`DELETE ${p}`, h) };
   const issued: unknown[][] = [];
@@ -31,12 +31,15 @@ function harness(options: { session?: Session; existing?: Existing; identityEmai
     emailHeldByIdentity: async () => options.identityEmailHeld ?? false,
     createPendingSignup: async () => "pending-token-value-0123456789abcdef",
     linkIdentity: async () => (options.link ?? { ok: true }) as never,
-    unlinkIdentity: async () => ({ ok: true }),
+    unlinkIdentity: async () => (options.unlink ?? { ok: true }) as never,
+    readFlag: async () => { if (options.flagError) throw new Error("db down"); return options.flag ?? true; },
+    readStatus: async () => (options.status === undefined ? { linked: true, email: "p@example.com", hasPassword: false } : options.status),
+    setInitialPassword: (async () => options.setResult ?? { sessionToken: "new-tok", user: { username: "alice" } }) as never,
     issueSession: (async (...args: unknown[]) => { issued.push(args); return { sessionToken: "tok", user: {} }; }) as never,
   };
   registerGoogleRoutes(app, { requestSession: async () => options.session ?? null, setSessionCookie: () => {}, overrides });
-  async function call(key: string, init: { query?: Record<string, string>; cookie?: string; body?: Record<string, unknown> } = {}) {
-    const address = `10.0.0.${++counter}`;
+  async function call(key: string, init: { address?: string; query?: Record<string, string>; cookie?: string; body?: Record<string, unknown> } = {}) {
+    const address = init.address ?? `10.0.0.${++counter}`;
     const request = { headers: {}, method: key.split(" ")[0], path: key.split(" ")[1], query: init.query ?? {}, body: init.body, params: {}, socket: { remoteAddress: address }, header: (n: string) => (n.toLowerCase() === "cookie" ? init.cookie : undefined), on() {}, destroy() {} } as unknown as HttpRequest;
     const out = { status: 200, json: undefined as unknown, redirects: [] as string[], cleared: [] as string[], cookies: [] as string[] };
     const response = {
@@ -47,7 +50,8 @@ function harness(options: { session?: Session; existing?: Existing; identityEmai
     await handlers.get(key)!(request, response);
     return out;
   }
-  return { call, issued };
+  const callFrom = (address: string, key: string, init: { body?: Record<string, unknown> } = {}) => call(key, { ...init, address });
+  return { call, callFrom, issued };
 }
 const stateFor = (intent: "login" | "link", username: string | null = null) => {
   const created = createOAuthState(intent, username, SECRET);
@@ -188,4 +192,59 @@ test("callback: rate limited requests redirect to the client with google_rate_li
   for (let i = 0; i < 25; i += 1) { counter -= 1; last = await h.call("GET /auth/google/callback", { query: { code: "c", state: s.state }, cookie: s.cookie }); }
   assert.equal(last!.redirects[0], `${CLIENT}/?error=google_rate_limited`);
   assert.deepEqual(last!.cleared, [OAUTH_STATE_COOKIE]);
+});
+
+test("flag off: config false, start/link/complete 404, unlink still works", async () => {
+  const h = harness({ flag: false, session: { username: "alice", role: "user" } });
+  assert.deepEqual((await h.call("GET /auth/config")).json, { google: false });
+  assert.equal((await h.call("GET /auth/google/start", { query: { intent: "login" } })).status, 404);
+  assert.equal((await h.call("POST /auth/google/link")).status, 404);
+  assert.equal((await h.call("POST /auth/google/complete", { body: { pendingToken: "a".repeat(40), username: "alice" } })).status, 404);
+  assert.equal((await h.call("DELETE /auth/google")).status, 200);
+  const on = harness({ flag: true });
+  assert.deepEqual((await on.call("GET /auth/config")).json, { google: true });
+});
+
+test("flag read failure fails closed", async () => {
+  const h = harness({ flagError: true });
+  assert.deepEqual((await h.call("GET /auth/config")).json, { google: false });
+});
+
+test("flag off: in-flight callback redirects google_disabled and issues no session", async () => {
+  const h = harness({ flag: false, existing: user() });
+  const out = await callback(h);
+  assert.deepEqual(out.redirects, [`${CLIENT}/?error=google_disabled`]);
+  assert.equal(h.issued.length, 0);
+  assert.ok(out.cleared.includes(OAUTH_STATE_COOKIE));
+});
+
+test("status is own-account only and needs a session", async () => {
+  assert.equal((await harness().call("GET /auth/google/status")).status, 401);
+  const out = await harness({ session: { username: "alice", role: "user" } }).call("GET /auth/google/status");
+  assert.deepEqual(out.json, { enabled: true, linked: true, email: "p@example.com", hasPassword: false });
+  const off = await harness({ flag: false, session: { username: "alice", role: "user" } }).call("GET /auth/google/status");
+  assert.equal((off.json as { enabled: boolean }).enabled, false);
+});
+
+test("password set: auth required, success, already-has-password 409, invalid 400", async () => {
+  assert.equal((await harness().call("POST /auth/password/set", { body: { newPassword: "longenough1" } })).status, 401);
+  const session = { username: "alice", role: "user" as const };
+  assert.equal((await harness({ session }).call("POST /auth/password/set", { body: { newPassword: "longenough1" } })).status, 200);
+  assert.equal((await harness({ session, setResult: { error: "This account already has a password.", code: "has_password" } }).call("POST /auth/password/set", { body: { newPassword: "longenough1" } })).status, 409);
+  assert.equal((await harness({ session, setResult: { error: "New password must be between 8 and 128 characters." } }).call("POST /auth/password/set", { body: { newPassword: "x" } })).status, 400);
+});
+
+test("password set: suspended 403, reauth when session issuance fails, 429 when rate limited", async () => {
+  const session = { username: "alice", role: "user" as const };
+  const suspended = await harness({ session, setResult: { error: "This account is suspended. Contact a maintainer.", code: "suspended" } }).call("POST /auth/password/set", { body: { newPassword: "longenough1" } });
+  assert.equal(suspended.status, 403);
+  const reauth = await harness({ session, setResult: { reauth: true } }).call("POST /auth/password/set", { body: { newPassword: "longenough1" } });
+  assert.equal(reauth.status, 200);
+  assert.deepEqual(reauth.json, { user: null, reauth: true, message: "Password set. Sign in again." });
+  const h = harness({ session });
+  const key = "POST /auth/password/set";
+  // Same socket address for every call: the limiter is keyed by client address.
+  let last = 0;
+  for (let i = 0; i < 25; i++) last = (await h.callFrom("10.9.9.9", key, { body: { newPassword: "longenough1" } })).status;
+  assert.equal(last, 429);
 });

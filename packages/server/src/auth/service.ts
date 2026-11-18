@@ -172,6 +172,37 @@ export async function changeAccountPassword(usernameValue: unknown, currentPassw
   return issueSession(username, database ? (record.isMaintainer ? "maintainer" : "user") : "user", record.characterId === undefined ? DEFAULT_CHARACTER_ID : record.characterId, record.nickname ?? null);
 }
 
+/** Lets a passwordless (Google-only) account set its first password. Refused when a password already exists; use changeAccountPassword then. All sessions are revoked and a fresh one is issued. */
+export async function setInitialAccountPassword(usernameValue: unknown, newPassword: unknown, pool: Pick<NonNullable<typeof database>, "connect"> | null | undefined = database) {
+  const username = normalizeUsername(usernameValue);
+  if (!validPassword(newPassword)) return { error: "New password must be between 8 and 128 characters." };
+  if (!username || !pool) return { error: "Could not set a password for this account." };
+  const salt = randomBytes(16).toString("hex");
+  const passwordHash = (await hashPassword(newPassword, salt)).toString("hex");
+  const client = await pool.connect();
+  let record: { isMaintainer: boolean; characterId: string | null; nickname: string | null } | undefined;
+  try {
+    await client.query("BEGIN");
+    const updated = await client.query<{ isMaintainer: boolean; characterId: string | null; nickname: string | null }>(
+      "UPDATE app_users SET password_salt = $2, password_hash = $3 WHERE username = $1 AND password_hash IS NULL AND suspended_at IS NULL RETURNING is_maintainer AS \"isMaintainer\", nickname, COALESCE('custom-' || custom_character_model_id::text, character_id) AS \"characterId\"",
+      [username, salt, passwordHash]);
+    record = updated.rows[0];
+    if (!record) {
+      // Sessions of suspended users are normally rejected earlier; this tells the two refusals apart if one slips through.
+      const state = await client.query<{ suspended: boolean }>("SELECT (suspended_at IS NOT NULL) AS suspended FROM app_users WHERE username = $1", [username]);
+      await client.query("ROLLBACK");
+      return state.rows[0]?.suspended ? { error: "This account is suspended. Contact a maintainer.", code: "suspended" as const } : { error: "This account already has a password.", code: "has_password" as const };
+    }
+    await client.query("UPDATE app_sessions SET revoked_at = now() WHERE username = $1 AND revoked_at IS NULL", [username]);
+    await recordAuditEvent(client as never, { actorUsername: username, action: "account.password_set", targetType: "account", targetId: username });
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  // The password is already committed and old sessions revoked; a failure here must not look like a failed change.
+  try { return await issueSession(username, record.isMaintainer ? "maintainer" : "user", record.characterId, record.nickname ?? null); }
+  catch { return { reauth: true as const }; }
+}
+
 export async function listAccountsForMaintainer() {
   if (!database) return (await users()).map(({ username, email = null, lastActiveAt = null, suspendedAt = null, isMaintainer = false }) => ({ username, email, googleLinked: false, googleEmail: null, lastActiveAt, suspendedAt, role: isMaintainer ? "maintainer" as const : "user" as const }));
   const result = await database.query<{ username: string; email: string | null; googleEmail: string | null; lastActiveAt: string | null; suspendedAt: string | null; isMaintainer: boolean }>(

@@ -151,6 +151,11 @@ pnpm test
 
 `pnpm dev` starts the three application processes but does not start PostgreSQL, LiveKit, or the Caddy routing/TLS profile. Use Compose for the full office experience. The root `pnpm test` script runs the shared-package and client connection, camera, and Gather feature tests; the server package also has its own test script.
 
+## CI and releases
+
+- Every pull request and push to `main` runs `pnpm build` (required) and the test suites (reported, not yet blocking because of known failures).
+- To release, open **Actions → Release → Run workflow** on `main` and pick `patch`, `minor` or `major`. The workflow bumps the package versions, commits `chore(release): vX.Y.Z` to `main`, pushes tag `vX.Y.Z`, creates a GitHub Release with generated notes and the client bundle zip, and pushes `ghcr.io/<owner>/gamverse-server` and `gamverse-web` images tagged with the version and `latest`.
+
 ## Repository layout
 
 ```text

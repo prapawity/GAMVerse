@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4 # version comes from packageManager
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type check + production bundles
+        run: pnpm build
+
+  test:
+    runs-on: ubuntu-latest
+    # Some tests already fail (docs/PERFORMANCE_REVIEW.md, P1). Report them without blocking merges
+    # until the baseline is fixed; then remove continue-on-error.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Shared + client tests
+        run: pnpm test
+      - name: Server tests
+        if: always()
+        run: pnpm --filter @gammyverse/server test

@@ -20,7 +20,10 @@ type Overview = {
   recentErrors?: { count?: number | null; windowMinutes?: number | null; complete?: boolean | null } | null;
 };
 type OverviewResponse = Overview & { error?: string };
-type FeatureFlags = { mapEditing: boolean; propEditing: boolean };
+type FeatureFlags = { mapEditing: boolean; propEditing: boolean; googleSignIn?: boolean; googleConfigured?: boolean };
+type FeatureKey = "mapEditing" | "propEditing" | "googleSignIn";
+const FEATURE_PATHS: Record<FeatureKey, string> = { mapEditing: "map-editing", propEditing: "prop-editing", googleSignIn: "google-sign-in" };
+const GOOGLE_NOT_CONFIGURED_NOTE = "Google keys are not configured on the server (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI).";
 
 function availableCount(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value.toLocaleString() : "Unavailable";
@@ -125,16 +128,16 @@ export function MaintainerSystemPanel({ endpoint, view = "overview" }: { endpoin
     } catch (cause) { setFeatureError(cause instanceof Error ? cause.message : "Could not load feature switches."); }
   }, [endpoint]);
   useEffect(() => { if (view === "platform") void refreshFeatures(); }, [refreshFeatures, view]);
-  const toggleFeature = async (feature: "mapEditing" | "propEditing") => {
+  const toggleFeature = async (feature: FeatureKey) => {
     if (!features || savingFeature) return;
-    const featurePath = feature === "mapEditing" ? "map-editing" : "prop-editing";
+    const featurePath = FEATURE_PATHS[feature];
     setSavingFeature(feature);
     setFeatureError(null);
     try {
       const currentResponse = await fetch(`${endpoint}/offices/platform-features`, { credentials: "include", cache: "no-store" });
       const current = await currentResponse.json() as FeatureFlags & { error?: string };
       if (!currentResponse.ok) throw new Error(current.error ?? "Could not check the current feature setting.");
-      const response = await fetch(`${endpoint}/api/maintainer/features/${featurePath}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !current[feature] }) });
+      const response = await fetch(`${endpoint}/api/maintainer/features/${featurePath}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !(current[feature] ?? false) }) });
       const result = await response.json() as FeatureFlags & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not update feature.");
       setFeatures(result);
@@ -169,7 +172,7 @@ export function MaintainerSystemPanel({ endpoint, view = "overview" }: { endpoin
     </> : <>
       <div className="card-heading"><div><span className="eyebrow">PLATFORM CONTROLS</span><h2 id="maintainer-system-title">Feature availability</h2><p>Changes take effect across offices as soon as they are saved.</p></div></div>
       <section className="maintainer-feature-toggles" aria-label="Platform feature switches">
-        {([ ["mapEditing", "Edit map", "Allow office admins to change shared map layout."], ["propEditing", "Edit props", "Allow office members with access to place and modify props."] ] as const).map(([key, title, description]) => <div className="maintainer-feature-row" key={key}><span><strong>{title}</strong><small>{description}</small></span><button type="button" role="switch" aria-checked={features?.[key] ?? false} aria-label={`${title} ${features?.[key] ? "on" : "off"}`} disabled={!features || Boolean(savingFeature)} onClick={() => void toggleFeature(key)}>{savingFeature === key ? "Saving…" : features?.[key] ? "On" : "Off"}</button></div>)}
+        {([ ["mapEditing", "Edit map", "Allow office admins to change shared map layout."], ["propEditing", "Edit props", "Allow office members with access to place and modify props."], ["googleSignIn", "Sign in with Google", features?.googleConfigured === false ? GOOGLE_NOT_CONFIGURED_NOTE : "Allow signing in and connecting accounts with Google."] ] as const).map(([key, title, description]) => <div className="maintainer-feature-row" key={key}><span><strong>{title}</strong><small>{description}</small></span><button type="button" role="switch" aria-checked={features?.[key] ?? false} aria-label={`${title} ${features?.[key] ? "on" : "off"}`} disabled={!features || Boolean(savingFeature) || (key === "googleSignIn" && features.googleConfigured === false && !features.googleSignIn)} onClick={() => void toggleFeature(key)}>{savingFeature === key ? "Saving…" : features?.[key] ? "On" : "Off"}</button></div>)}
         {featureError && <p className="maintainer-system-error" role="alert">{featureError}</p>}
       </section>
     </>}

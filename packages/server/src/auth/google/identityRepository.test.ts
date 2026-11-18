@@ -121,3 +121,11 @@ test("clearStoredEmail refuses when a Google identity exists and audits otherwis
   const missing = fakePool(() => ({ rowCount: 0 }));
   assert.deepEqual(await clearStoredEmail("root", "ghost", missing.pool), { ok: false, reason: "not_found" });
 });
+
+test("google status reads only the given username and reports linked/password state", async () => {
+  const { readGoogleAccountStatus } = await import("./identityRepository.js");
+  const { pool, calls } = fakePool(() => ({ rows: [{ email: "a@example.com", has_password: false }] }));
+  assert.deepEqual(await readGoogleAccountStatus("alice", pool), { linked: true, email: "a@example.com", hasPassword: false });
+  assert.deepEqual(calls[0]!.values, ["alice", "google"]);
+  assert.equal(await readGoogleAccountStatus("nobody", fakePool(() => ({ rows: [] })).pool), null);
+});

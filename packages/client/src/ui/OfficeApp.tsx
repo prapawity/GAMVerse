@@ -38,6 +38,8 @@ import { useOfficeDesks } from "./workspace/useOfficeDesks";
 import { SHARE_OFFICE_LABEL } from "./workspace/officeShareLinks";
 import { useOfficeShareLinks } from "./workspace/useOfficeShareLinks";
 import { acceptOfficeEntryLink, acceptPendingOfficeInvite, getInviteRouteToken, getOfficeShareRouteToken } from "./workspace/officeEntryLink";
+import { SignInMethods } from "./auth/SignInMethods";
+import { parseSettingsReturn, type SettingsReturn } from "./auth/settingsReturn";
 import { isKnownAppRoute } from "./workspace/defaultAppRoute";
 import { useSignOutConfirmation } from "./workspace/useSignOutConfirmation";
 import { CreateOfficeDialog } from "./workspace/CreateOfficeDialog";
@@ -584,6 +586,21 @@ export function OfficeApp() {
   const [waveAlerts, setWaveAlerts] = useState<WaveAlert[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [settingsReturn, setSettingsReturn] = useState<SettingsReturn | null>(null);
+  const [googleHasPassword, setGoogleHasPassword] = useState<boolean | null>(null);
+  const handleGoogleStatus = useCallback((status: { hasPassword: boolean } | null) => setGoogleHasPassword(status ? status.hasPassword : null), []);
+  useEffect(() => { if (!settingsOpen) setSettingsReturn(null); }, [settingsOpen]);
+  useEffect(() => {
+    // Back from the Google link flow: open Security settings once, then clean the URL.
+    if (!authUser) return;
+    const landed = parseSettingsReturn(window.location.pathname, window.location.search);
+    if (!landed) return;
+    window.history.replaceState(window.history.state, "", landed.cleanUrl);
+    setRoutePath(window.location.pathname);
+    setSettingsReturn(landed);
+    setSettingsSection("security");
+    setSettingsOpen(true);
+  }, [authUser]);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
@@ -2988,7 +3005,7 @@ export function OfficeApp() {
             {permissionMessage && <p className="permission-message" role="status">{permissionMessage}</p>}{screenPermissionResult && <p className="permission-message" role="status">{screenPermissionResult}</p>}
             {(browserPermissions.microphone === "denied" || browserPermissions.camera === "denied") && <p className="permission-help">If access is blocked, open this site’s permissions from the browser address bar, allow the device, then select Check again.</p>}
           </section>}
-            {settingsSection === "security" && <section aria-labelledby="security-title"><span className="eyebrow">ACCOUNT SECURITY</span><h3 id="security-title">Security</h3><p className="settings-intro">Update the password you use to sign in to GAMVerse.</p><button type="button" className="settings-menu-row security-password-action" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Choose a new sign-in password</small></span><span aria-hidden="true">›</span></button></section>}
+            {settingsSection === "security" && <section aria-labelledby="security-title"><span className="eyebrow">ACCOUNT SECURITY</span><h3 id="security-title">Security</h3><p className="settings-intro">Update the password you use to sign in to GAMVerse.</p>{googleHasPassword !== false && <button type="button" className="settings-menu-row security-password-action" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Choose a new sign-in password</small></span><span aria-hidden="true">›</span></button>}<SignInMethods endpoint={endpoint} onStatus={handleGoogleStatus} onReauth={(message) => { setSettingsOpen(false); returnToSignIn(message); }} notice={settingsReturn?.notice ?? null} initialError={settingsReturn?.error ?? null} /></section>}
             {settingsSection === "theme" && <OfficeThemeSettings theme={workspaceTheme.theme} onThemeChange={workspaceTheme.setTheme} />}
           </div>
         </div>
@@ -3012,7 +3029,7 @@ export function OfficeApp() {
         {characterPanelMounted && <aside id="character-drawer" className={`character-drawer sidebar-transition${characterPanelOpen ? " is-open" : ""}`} aria-label="User account" aria-hidden={!characterPanelOpen} inert={!characterPanelOpen}>
           <header className="character-drawer-header"><div><span className="eyebrow">YOUR ACCOUNT</span><h2>Account & settings</h2></div></header>
           <section className="character-account" aria-label="Your account"><span className="character-account-avatar">{(authUser?.username ?? "U").slice(0, 1).toUpperCase()}</span><div className="character-account-name"><strong>{playerName({ displayName: authUser.username, isMaintainer: authUser.role === "maintainer" })}</strong><span>{authUser.role}</span></div></section>
-          <div className="user-settings-content"><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setCharacterPanelOpen(false); setProfileDialogOpen(true); }}><span><strong>Profile</strong><small>Edit your display name</small></span><span aria-hidden="true">›</span></button></section>{pwaInstall.canInstall && <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => void pwaInstall.promptInstall()}><span><strong>Install GAMVerse</strong><small>Add the app to your device</small></span><span aria-hidden="true">↓</span></button></section>}<section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Update your sign-in password</small></span><span aria-hidden="true">›</span></button></section><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setSettingsSection("general"); setPermissionMessage(null); setCharacterPanelOpen(false); setSettingsOpen(true); void refreshBrowserPermissions(); }}><span><strong>Settings</strong><small>General, sound, camera, permissions, theme</small></span><span aria-hidden="true">›</span></button></section></div>
+          <div className="user-settings-content"><section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setCharacterPanelOpen(false); setProfileDialogOpen(true); }}><span><strong>Profile</strong><small>Edit your display name</small></span><span aria-hidden="true">›</span></button></section>{pwaInstall.canInstall && <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => void pwaInstall.promptInstall()}><span><strong>Install GAMVerse</strong><small>Add the app to your device</small></span><span aria-hidden="true">↓</span></button></section>}{googleHasPassword !== false && <section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setAccountError(null); setChangePasswordOpen(true); }}><span><strong>Change password</strong><small>Update your sign-in password</small></span><span aria-hidden="true">›</span></button></section>}<section className="user-settings-section"><button type="button" className="settings-menu-row" onClick={() => { setSettingsSection("general"); setPermissionMessage(null); setCharacterPanelOpen(false); setSettingsOpen(true); void refreshBrowserPermissions(); }}><span><strong>Settings</strong><small>General, sound, camera, permissions, theme</small></span><span aria-hidden="true">›</span></button></section></div>
           <footer className="character-drawer-footer"><button type="button" className="right-drawer-map-mode" aria-label={map2dViewActive ? "Switch to 3D view" : "Switch to 2D view"} onClick={() => map2dToggleRef.current()}><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 7 6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z"/><path d="M9 4v13m6-10v13"/></svg><span>{map2dViewActive ? "Switch to 3D" : "Switch to 2D"}</span></button><button type="button" className="account-action signout" onClick={signOut.request}>Sign out</button></footer>
         </aside>}
         <section className="lobby-content">

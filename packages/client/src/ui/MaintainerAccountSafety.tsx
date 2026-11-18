@@ -1,10 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { WorkspaceDialog } from "./workspace/WorkspaceDialog";
+import { maintainerGoogleActionPath, maintainerGoogleAvailability, maintainerGoogleConfirmText, type MaintainerGoogleAction } from "./maintainerGoogleActions";
+import { errorFromBody } from "./auth/signInMethodsView";
 import "./MaintainerAccountSafety.css";
 
 export type MaintainerAccount = {
   username: string;
   email: string | null;
+  googleLinked?: boolean;
+  googleEmail?: string | null;
   lastActiveAt: string | null;
   suspendedAt: string | null;
   role: "user" | "maintainer";
@@ -47,6 +51,21 @@ export function MaintainerAccountSafety({ accounts, total = accounts.length, col
   const [roleOverrides, setRoleOverrides] = useState<Record<string, "user" | "maintainer">>({});
   const [feedback, setFeedback] = useState<Record<string, { message: string; error: boolean }>>({});
   const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
+  const [googlePending, setGooglePending] = useState<{ username: string; action: MaintainerGoogleAction } | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const runGoogleAction = async (account: MaintainerAccount, action: MaintainerGoogleAction) => {
+    const username = account.username;
+    setGoogleBusy(true);
+    try {
+      const response = await fetch(`${endpoint}${maintainerGoogleActionPath(username, action)}`, { method: "DELETE", credentials: "include" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(errorFromBody(body, "Could not complete this action."));
+      setRowFeedback(username, action === "google" ? "Google disconnected." : "Email cleared.", false);
+      setGooglePending(null);
+      onAccountUpdated(action === "google" ? { ...account, googleLinked: false, googleEmail: null } : { ...account, email: null });
+    } catch (cause) { setRowFeedback(username, cause instanceof Error ? cause.message : "Could not complete this action.", true); setGooglePending(null); }
+    finally { setGoogleBusy(false); }
+  };
 
   const setRowFeedback = (username: string, message: string, error: boolean) => {
     setFeedback((current) => ({ ...current, [username]: { message, error } }));
@@ -191,6 +210,7 @@ export function MaintainerAccountSafety({ accounts, total = accounts.length, col
             <h3 id="account-overview-title">Overview</h3>
             <dl className="maintainer-account-details">
               <div><dt>Email</dt><dd>{account.email || "No email"}</dd></div>
+              {account.googleLinked && <div><dt>Google</dt><dd><span className="maintainer-account-status">Google</span> {account.googleEmail ?? ""}</dd></div>}
               <div><dt>Platform role</dt><dd>{role === "maintainer" ? "Maintainer" : "User"}</dd></div>
               <div><dt>Account status</dt><dd><span className={`maintainer-account-status${suspendedAt ? " is-suspended" : ""}`}>{suspendedAt ? "Suspended" : "Active"}</span></dd></div>
               <div><dt>Last active</dt><dd>{formatTimestamp(account.lastActiveAt)}</dd></div>
@@ -210,6 +230,22 @@ export function MaintainerAccountSafety({ accounts, total = accounts.length, col
             </div>
             {isSelf && <small className="maintainer-account-note">Your own maintainer access and account cannot be changed here.</small>}
           </section>
+          {(() => {
+            const { canDisconnectGoogle, canClearEmail } = maintainerGoogleAvailability(account);
+            if (!canDisconnectGoogle && !canClearEmail) return null;
+            const pending = googlePending?.username === account.username ? googlePending : null;
+            return <section className="maintainer-account-dialog-section" aria-labelledby="account-google-title">
+              <h3 id="account-google-title">Google and email</h3>
+              {pending ? <div role="group" aria-label="Confirm action"><p>{maintainerGoogleConfirmText(account.username, pending.action)}</p>
+                <div className="maintainer-account-dialog-actions">
+                  <button className="lobby-button danger" type="button" disabled={googleBusy} onClick={() => void runGoogleAction(account, pending.action)}>{googleBusy ? "Working…" : "Confirm"}</button>
+                  <button className="lobby-button" type="button" disabled={googleBusy} onClick={() => setGooglePending(null)}>Cancel</button></div></div>
+              : <div className="maintainer-account-dialog-actions">
+                {canDisconnectGoogle && <button className="lobby-button danger" type="button" onClick={() => setGooglePending({ username: account.username, action: "google" })}>Disconnect Google</button>}
+                {canClearEmail && <button className="lobby-button" type="button" onClick={() => setGooglePending({ username: account.username, action: "email" })}>Clear email</button>}
+              </div>}
+            </section>;
+          })()}
           {onGenerateResetLink && <section className="maintainer-account-dialog-section" aria-labelledby="account-recovery-title">
             <h3 id="account-recovery-title">Password recovery</h3>
             <p>Generate a one-use password reset link. It expires in 15 minutes; generating another link invalidates it.</p>

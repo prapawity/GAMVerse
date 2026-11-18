@@ -15,13 +15,14 @@ import { CHARACTER_MODEL_MAX_BYTES, CHARACTER_MODEL_SIZE_ERROR, readRoomLayout }
 import { changeAccountPassword, completePasswordReset, createPasswordResetLink, getSession, listAccountsForMaintainer, loginAccount, pruneInactiveAccounts, registerAccount, revokeSession, setAccountPlatformRole, setAccountSuspended, updateAccountCharacter, updateAccountNickname } from "../auth/service.js";
 import { deleteUserCharacterModel, getCharacterModel, listUserCharacterModels, uploadUserCharacterModel } from "../auth/characterModels.js";
 import { database, databaseIsReady, initializeDatabase } from "../infra/db.js";
-import { listMaintainerAuditEvents } from "../infra/audit.js";
+import { listMaintainerAuditEvents, recordAuditEvent } from "../infra/audit.js";
 import { readPlatformFeatureFlags, setPlatformFeatureFlag } from "../infra/platformFeatures.js";
 import { getRecentServerErrorCount, logServerError, logServerEvent } from "../infra/logger.js";
 import { getPlatformOperationsCounts } from "../infra/operations.js";
 import { listOfficeActivity, startOfficeActivityCleanup } from "../offices/activity.js";
 import { MAX_OFFICE_MAP_REQUEST_BYTES, MAX_OFFICE_PROPS_REQUEST_BYTES } from "../offices/limits.js";
 import { createWriteRateLimiter } from "../http/writeRateLimit.js";
+import { isGoogleLoginEnabled } from "../auth/google/googleConfig.js";
 import { registerGoogleRoutes } from "../auth/google/googleRoutes.js";
 import { createGoogleMaintainerDependencies, maintainerClearEmail, maintainerUnlinkGoogle } from "../auth/google/googleMaintainer.js";
 import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, applyOfficePropOps, getOfficeProps, getOfficeRole, isOfficeMapInitialized, isOfficePropsInitialized, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
@@ -223,22 +224,26 @@ function configureApi() {
         const session = await requestSession(request);
         if (!session) { response.status(401).json({ error: "Authentication required." }); return; }
         response.setHeader("Cache-Control", "no-store");
-        try { response.json(await readPlatformFeatureFlags()); }
+        // googleConfigured: GOOGLE_* env is complete. Not a secret; lets the maintainer UI explain a disabled toggle.
+        try { response.json({ ...(await readPlatformFeatureFlags()), googleConfigured: isGoogleLoginEnabled() }); }
         catch { response.status(503).json({ error: "Could not load platform features." }); }
       });
       app.patch("/maintainer/features/:feature", async (request: AuthRequest, response: AuthResponse) => {
         const session = await requestSession(request);
         if (!session || session.role !== "maintainer") { response.status(403).json({ error: "Maintainer access required." }); return; }
         const feature = request.params.feature;
-        const key = feature === "map-editing" ? "mapEditing" : feature === "prop-editing" ? "propEditing" : null;
+        const key = feature === "map-editing" ? "mapEditing" : feature === "prop-editing" ? "propEditing" : feature === "google-sign-in" ? "googleSignIn" : null;
         if (!key || typeof request.body?.enabled !== "boolean") { response.status(400).json({ error: "A valid feature and enabled value are required." }); return; }
+        if (key === "googleSignIn" && request.body.enabled && !isGoogleLoginEnabled()) { response.status(409).json({ error: "Google sign-in keys are not configured on the server." }); return; }
         try {
           const flags = await setPlatformFeatureFlag(key, request.body.enabled);
+          try { if (database) await recordAuditEvent(database as never, { actorUsername: session.username, action: "platform.feature_changed", targetType: "platform", targetId: String(feature), metadata: { feature: String(feature), enabled: request.body.enabled } }); }
+          catch (error) { logServerError("api", "maintainer.feature.audit.failed", error, { feature }); }
           try { await notifyRealtime("platform/features", { mapEditing: String(flags.mapEditing), propEditing: String(flags.propEditing) }); }
           catch (error) { logServerError("api", "maintainer.feature.broadcast.failed", error, { feature }); }
           logServerEvent("api", "maintainer.feature.updated", { actor: session.username, feature, enabled: request.body.enabled });
           response.setHeader("Cache-Control", "no-store");
-          response.json(flags);
+          response.json({ ...flags, googleConfigured: isGoogleLoginEnabled() });
         } catch { response.status(503).json({ error: "Could not update platform feature." }); }
       });
       app.post("/maintainer/users/:username/password-reset", async (request: AuthRequest, response: AuthResponse) => {

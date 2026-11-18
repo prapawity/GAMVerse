@@ -4,6 +4,7 @@ const MESSAGES: Record<string, string> = {
   google_denied: "Google sign-in was cancelled. You can try again or sign in with your username and password.",
   google_failed: "We could not sign you in with Google. Please try again.",
   google_conflict: "That Google account or its email is already used by another account. Sign in with your username and password and connect Google from settings, or contact a maintainer.",
+  google_disabled: "Google sign-in is currently turned off. Sign in with your username and password.",
   google_rate_limited: "Too many sign-in attempts. Please wait a moment and try again.",
 };
 

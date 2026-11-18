@@ -23,6 +23,7 @@ const AUDIT_METADATA_ALLOWLIST: Record<string, readonly string[]> = {
   "account.suspended": [],
   "account.reactivated": [],
   "account.role_changed": ["fromRole", "toRole"],
+  "platform.feature_changed": ["feature", "enabled"],
 };
 
 function allowlistedMetadata(action: string, metadata: AuditMetadata = {}): AuditMetadata {

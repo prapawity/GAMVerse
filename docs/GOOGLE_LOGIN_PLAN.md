@@ -18,6 +18,7 @@ People can sign in either with a **username and password** or with **Google**. A
 8. **Conflict check uses identity emails only.** A new Google sign-up is refused only when its email belongs to another account's Google identity (`app_user_identities.email`). Plain `app_users.email` values do not block it.
    When a verified Google email is claimed, any other account holding that email without a Google identity has it cleared in the same transaction (audited as `account.email_cleared`, actor `system:google`).
 9. **Maintainers can fix conflicts.** Maintainer-only, audited endpoints unlink a user's Google identity (refused if the account has no password; issue a reset link first) and clear a stored email that has no Google identity behind it. The maintainer account listing reports `googleLinked` and `googleEmail`.
+- **Setting a first password needs only a valid session (no step-up).** `POST /auth/password/set` works for passwordless accounts without re-authenticating with Google. Accepted trade-off. Mitigations: identity comes from the session only; the update is guarded by `password_hash IS NULL` and non-suspended; the endpoint is rate limited and origin guarded; an `account.password_set` audit event is written; every session is revoked and a fresh one is issued.
 
 ## Flow
 

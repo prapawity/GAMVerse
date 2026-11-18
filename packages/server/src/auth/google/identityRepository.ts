@@ -167,3 +167,18 @@ export async function clearStoredEmail(actor: string, username: string, pool: Po
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
+
+export type GoogleAccountStatus = { linked: boolean; email: string | null; hasPassword: boolean };
+
+/** Own-account status for the settings page. Callers must pass the session username, never a request value. */
+export async function readGoogleAccountStatus(username: string, pool: Pool | null | undefined = database): Promise<GoogleAccountStatus | null> {
+  if (!pool) return null;
+  const result = await pool.query<{ email: string | null; has_password: boolean }>(
+    `SELECT identities.email, (users.password_hash IS NOT NULL) AS has_password
+     FROM app_users users LEFT JOIN app_user_identities identities ON identities.username = users.username AND identities.provider = $2
+     WHERE users.username = $1`,
+    [username, PROVIDER],
+  );
+  const row = result.rows[0];
+  return row ? { linked: row.email !== null, email: row.email, hasPassword: row.has_password } : null;
+}

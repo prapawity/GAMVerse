@@ -37,6 +37,12 @@ services:
       API_PORT: "2568"
       REALTIME_INTERNAL_URL: "http://127.0.0.1:2567"
       INTERNAL_SERVICE_TOKEN: "gammyverse-dev-internal-token-change-before-production"
+      # Dev traffic reaches the API only through caddy-dev, which sets X-Forwarded-For.
+      TRUST_PROXY_HEADERS: "1"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-https://${DEV_HOST:-localhost}:2567/auth/google/callback}
+      GOOGLE_STATE_SECRET: ${GOOGLE_STATE_SECRET:-}
       # Per-account cap on props saves (per 10 s). Raise it only for load tests.
       OFFICE_PROPS_WRITE_LIMIT: ${OFFICE_PROPS_WRITE_LIMIT:-30}
       DEV_HOST: ${DEV_HOST:-localhost}

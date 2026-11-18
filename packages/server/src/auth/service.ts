@@ -19,7 +19,7 @@ const activityWriteIntervalMs = 24 * 60 * 60 * 1000;
 const sessions = new Map<string, { username: string; role: PlatformRole; expiresAt: number }>();
 const lastActivityWriteAt = new Map<string, number>();
 export type PlatformRole = "maintainer" | "user";
-type UserRecord = { username: string; salt: string; passwordHash: string; createdAt: string; lastActiveAt?: string; isMaintainer?: boolean; email?: string | null; characterId?: string | null; nickname?: string | null; suspendedAt?: string | null };
+type UserRecord = { username: string; salt: string | null; passwordHash: string | null; createdAt: string; lastActiveAt?: string; isMaintainer?: boolean; email?: string | null; characterId?: string | null; nickname?: string | null; suspendedAt?: string | null };
 let userRecordsPromise: Promise<UserRecord[]> | undefined;
 let writeQueue = Promise.resolve();
 
@@ -66,7 +66,7 @@ function normalizeCharacterId(characterId: string | null | undefined) {
   return KENNEY_CHARACTER_IDS.includes(characterId as KenneyCharacterId) ? characterId : DEFAULT_CHARACTER_ID;
 }
 
-async function issueSession(username: string, role: PlatformRole, characterId: string | null = DEFAULT_CHARACTER_ID, nickname: string | null = null) {
+export async function issueSession(username: string, role: PlatformRole, characterId: string | null = DEFAULT_CHARACTER_ID, nickname: string | null = null) {
   const sessionToken = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + sessionTtlMs);
   if (database) {
@@ -80,19 +80,10 @@ async function issueSession(username: string, role: PlatformRole, characterId: s
   return { sessionToken, user: { username, nickname, role, characterId: normalizeCharacterId(characterId) } };
 }
 
-function normalizeEmail(value: unknown): string | null | undefined {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") return undefined;
-  const email = value.trim().toLowerCase();
-  return email.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : undefined;
-}
-
-export async function registerAccount(usernameValue: unknown, passwordValue: unknown, emailValue?: unknown) {
+export async function registerAccount(usernameValue: unknown, passwordValue: unknown) {
   const username = normalizeUsername(usernameValue);
   if (!username) return { error: "Username must be 3–24 characters: letters, numbers, dot, dash or underscore." };
   if (!validPassword(passwordValue)) return { error: "Password must be between 8 and 128 characters." };
-  const email = normalizeEmail(emailValue);
-  if (email === undefined) return { error: "Enter a valid email address or leave it blank." };
 
   const salt = randomBytes(16).toString("hex");
   const passwordHash = (await hashPassword(passwordValue, salt)).toString("hex");
@@ -100,18 +91,18 @@ export async function registerAccount(usernameValue: unknown, passwordValue: unk
   if (database) {
     try {
       await database.query(
-        "INSERT INTO app_users(username, password_salt, password_hash, created_at, last_active_at, email, character_id) VALUES ($1, $2, $3, $4, $4, $5, NULL)",
-        [username, salt, passwordHash, now, email],
+        "INSERT INTO app_users(username, password_salt, password_hash, created_at, last_active_at, character_id) VALUES ($1, $2, $3, $4, $4, NULL)",
+        [username, salt, passwordHash, now],
       );
     } catch (error) {
-      if ((error as { code?: string; constraint?: string }).code === "23505") return { error: (error as { constraint?: string }).constraint === "app_users_email_unique" ? "That email is already in use." : "That username is already taken." };
+      if ((error as { code?: string }).code === "23505") return { error: "That username is already taken." };
       throw error;
     }
   } else {
     return enqueueUserWrite(async () => {
       const records = await users();
       if (records.some((record) => record.username === username)) return { error: "That username is already taken." };
-      records.push({ username, salt, passwordHash, createdAt: now.toISOString(), lastActiveAt: now.toISOString(), email, characterId: null });
+      records.push({ username, salt, passwordHash, createdAt: now.toISOString(), lastActiveAt: now.toISOString(), characterId: null });
       await saveUsers(records);
       lastActivityWriteAt.set(username, now.getTime());
       return issueSession(username, "user", null);
@@ -132,6 +123,8 @@ export async function loginAccount(usernameValue: unknown, passwordValue: unknow
     : (await users()).find((item) => item.username === username);
   if (!record) return { error: "Username or password is incorrect." };
   if (record.suspendedAt) return { error: "This account is suspended. Contact a maintainer." };
+  // Google-only accounts have no password and cannot sign in this way.
+  if (!record.salt || !record.passwordHash) return { error: "Username or password is incorrect." };
   const submitted = await hashPassword(passwordValue, record.salt);
   const expected = Buffer.from(record.passwordHash, "hex");
   if (submitted.length !== expected.length || !timingSafeEqual(submitted, expected)) {
@@ -150,7 +143,7 @@ export async function changeAccountPassword(usernameValue: unknown, currentPassw
   const record = database
     ? (await database.query<UserRecord>("SELECT username, nickname, is_maintainer AS \"isMaintainer\", password_salt AS salt, password_hash AS \"passwordHash\", COALESCE('custom-' || custom_character_model_id::text, character_id) AS \"characterId\" FROM app_users WHERE username = $1", [username])).rows[0]
     : (await users()).find((item) => item.username === username);
-  if (!record) return { error: "Current password is incorrect." };
+  if (!record || !record.salt || !record.passwordHash) return { error: "Current password is incorrect." };
   const submitted = await hashPassword(currentPassword, record.salt);
   const expected = Buffer.from(record.passwordHash, "hex");
   if (submitted.length !== expected.length || !timingSafeEqual(submitted, expected)) return { error: "Current password is incorrect." };
@@ -180,11 +173,12 @@ export async function changeAccountPassword(usernameValue: unknown, currentPassw
 }
 
 export async function listAccountsForMaintainer() {
-  if (!database) return (await users()).map(({ username, email = null, lastActiveAt = null, suspendedAt = null, isMaintainer = false }) => ({ username, email, lastActiveAt, suspendedAt, role: isMaintainer ? "maintainer" as const : "user" as const }));
-  const result = await database.query<{ username: string; email: string | null; lastActiveAt: string | null; suspendedAt: string | null; isMaintainer: boolean }>(
-    'SELECT username, email, last_active_at AS "lastActiveAt", suspended_at AS "suspendedAt", is_maintainer AS "isMaintainer" FROM app_users ORDER BY username',
+  if (!database) return (await users()).map(({ username, email = null, lastActiveAt = null, suspendedAt = null, isMaintainer = false }) => ({ username, email, googleLinked: false, googleEmail: null, lastActiveAt, suspendedAt, role: isMaintainer ? "maintainer" as const : "user" as const }));
+  const result = await database.query<{ username: string; email: string | null; googleEmail: string | null; lastActiveAt: string | null; suspendedAt: string | null; isMaintainer: boolean }>(
+    `SELECT users.username, users.email, identities.email AS "googleEmail", users.last_active_at AS "lastActiveAt", users.suspended_at AS "suspendedAt", users.is_maintainer AS "isMaintainer"
+     FROM app_users users LEFT JOIN app_user_identities identities ON identities.username = users.username AND identities.provider = 'google' ORDER BY users.username`,
   );
-  return result.rows.map(({ username, email, lastActiveAt, suspendedAt, isMaintainer }) => ({ username, email, lastActiveAt, suspendedAt, role: isMaintainer ? "maintainer" as const : "user" as const }));
+  return result.rows.map(({ username, email, googleEmail, lastActiveAt, suspendedAt, isMaintainer }) => ({ username, email, googleLinked: googleEmail !== null, googleEmail, lastActiveAt, suspendedAt, role: isMaintainer ? "maintainer" as const : "user" as const }));
 }
 
 export { setAccountPlatformRole } from "./platformRole.js";

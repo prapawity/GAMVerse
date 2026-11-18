@@ -87,6 +87,9 @@ importers:
       express:
         specifier: 5.2.1
         version: 5.2.1(supports-color@8.1.1)
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       livekit-server-sdk:
         specifier: 2.19.1
         version: 2.19.1

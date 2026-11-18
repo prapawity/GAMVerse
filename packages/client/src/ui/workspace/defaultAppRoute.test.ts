@@ -9,3 +9,8 @@ test("maintainer workspace links survive direct entry and refresh", () => {
   }
   assert.equal(isKnownAppRoute("/maintainer/unknown"), false);
 });
+
+test("the Google sign-up route survives direct entry", () => {
+  assert.equal(isKnownAppRoute("/signup/google"), true);
+  assert.equal(isKnownAppRoute("/signup/other"), false);
+});

@@ -79,6 +79,12 @@ import { PetThumbnail } from "./PetThumbnail";
 import { gobkitPet, kaykitCharacter, petModelUrl, petPreviewUrl, polygonalMindCharacter, QUATERNIUS_CHARACTERS, quaterniusPet } from "../assets/characterAssets";
 import { CHARACTER_SAVE_TIMEOUT_MS, characterSaveError } from "./characterSaveError";
 import { getRealtimeEndpoint } from "../realtimeEndpoint";
+import { AuthCard, type AuthSubmission } from "./auth/AuthCard";
+import { GoogleSignupPage } from "./auth/GoogleSignupPage";
+import { buildAuthRequest } from "./auth/authRequest";
+import { browserSessionStorage, clearEntryRoute, peekEntryRoute, takeEntryRoute } from "./auth/entryRouteStash";
+import { capturePendingToken } from "./auth/pendingSignupToken";
+import { GOOGLE_SIGNUP_ROUTE } from "./auth/googleSignupRoute";
 import { Minimap } from "./Minimap";
 import { ZoneMapOverlay } from "./zoneMap/ZoneMapOverlay";
 import type { Map2dLocateRequest } from "../world/map2d/map2dInput";
@@ -338,6 +344,13 @@ export function OfficeApp() {
   const pwaInstall = usePwaInstall();
   const [routePath, setRoutePath] = useState(() => {
     const path = window.location.pathname;
+    // Strip the Google sign-up token from the address bar before anything else can read or log it.
+    if (path.replace(/\/+$/, "") === GOOGLE_SIGNUP_ROUTE) capturePendingToken(window.location, window.history);
+    // Coming back from Google to the landing page: resume the invite or share link the visitor started from.
+    if (path === "/") {
+      const resumed = peekEntryRoute(browserSessionStorage());
+      if (resumed) { window.history.replaceState(window.history.state, "", `${resumed}${window.location.search}`); return resumed; }
+    }
     if (isKnownAppRoute(path)) return path;
     const fallbackPath = path.startsWith("/maintainer") ? "/maintainer" : "/";
     window.history.replaceState(window.history.state, "", fallbackPath);
@@ -347,6 +360,7 @@ export function OfficeApp() {
   const [meetingTargetZoneId, setMeetingTargetZoneId] = useState(() => getMeetingRouteZoneId(window.location.search));
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
   const [meetingReservationsOpen, setMeetingReservationsOpen] = useState(false);
+  useEffect(() => { if (routePath !== GOOGLE_SIGNUP_ROUTE) clearEntryRoute(browserSessionStorage()); }, []);
   const routePathRef = useRef(routePath);
   routePathRef.current = routePath;
   const normalizedRoutePath = routePath.replace(/\/+$/, "") || "/";
@@ -629,7 +643,6 @@ export function OfficeApp() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [email, setEmail] = useState("");
   const [resetPassword, setResetPassword] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -638,9 +651,6 @@ export function OfficeApp() {
   const [inviteRole, setInviteRole] = useState<"admin" | "user">("user");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">(() => getInviteRouteToken(window.location.pathname) ? "register" : "login");
-  const [authUsername, setAuthUsername] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authPasswordVisible, setAuthPasswordVisible] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -859,28 +869,31 @@ export function OfficeApp() {
       .finally(() => setAuthReady(true));
   }, []);
 
-  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const completeSignIn = (user: AuthUser) => {
+    positionStorageEpochRef.current += 1;
+    clearLastOfficePositions();
+    setInitialLobbyLoading(true);
+    setAuthUser(user);
+  };
+
+  const submitAuth = async ({ mode, username, password }: AuthSubmission): Promise<boolean> => {
     setAuthBusy(true);
     setAuthError(null);
     try {
-      const authPath = maintainerPortal ? "maintainer/login" : authMode;
-      const response = await fetch(`${endpoint}/auth/${authPath}`, {
+      const request = buildAuthRequest({ mode, maintainerPortal, username, password });
+      const response = await fetch(`${endpoint}/auth/${request.path}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: authUsername, password: authPassword, ...(authMode === "register" ? { email } : {}) }),
+        body: JSON.stringify(request.body),
       });
       const result = await response.json() as { user?: AuthUser; error?: string };
       if (!response.ok || !result.user) throw new Error(result.error ?? "Could not sign in.");
-      positionStorageEpochRef.current += 1;
-      clearLastOfficePositions();
-      setInitialLobbyLoading(true);
-      setAuthUser(result.user);
-      setAuthPassword("");
-      setEmail("");
+      completeSignIn(result.user);
+      return true;
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : "Could not connect to the sign-in service.");
+      return false;
     } finally {
       setAuthBusy(false);
     }
@@ -2932,21 +2945,9 @@ export function OfficeApp() {
           <div className="auth-world-footer"><span className="auth-world-status" aria-hidden="true" /> Your workspace is waiting</div>
         </section>
         <div className="auth-app-entry">
-        <form className="auth-card" onSubmit={(event) => void submitAuth(event)}>
-          <BrandMark />
-          <span className="eyebrow">{maintainerPortal ? "PLATFORM OPERATIONS" : authMode === "register" ? "JOIN GAMVERSE" : "YOUR WORKSPACE"}</span>
-          <h1>{maintainerPortal ? "Maintainer sign in" : authMode === "login" ? "Welcome back" : "Create your account"}</h1>
-          <p>{(inviteLinkToken || getOfficeShareRouteToken(routePath)) ? "You’ve been invited to an office. Create an account or sign in to join." : maintainerPortal ? "Sign in to manage GAMVerse and its offices." : authMode === "register" ? "Create your account and meet your team in a shared virtual office." : "Sign in to pick up where your team left off."}</p>
-          <label>Username<input data-tutorial-target="auth-username" autoComplete="username" required minLength={3} maxLength={24} value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} /></label>
-          {authMode === "register" && <label>Email (optional)<input type="email" autoComplete="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
-          <label>Password<div className="auth-password-field"><input data-tutorial-target="auth-password" type={authPasswordVisible ? "text" : "password"} autoComplete={authMode === "login" ? "current-password" : "new-password"} required minLength={8} maxLength={128} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><button className="password-visibility-toggle" type="button" aria-label={authPasswordVisible ? "Hide password" : "Show password"} aria-pressed={authPasswordVisible} onClick={() => setAuthPasswordVisible((visible) => !visible)}>{authPasswordVisible ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.7M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.8 4.4 10 7-.4.9-1.2 2-2.3 3M6.2 6.3C3.9 7.7 2.5 10 2 12c1.2 0 2-.2 2.9-.5" /></svg>}</button></div></label>
-          {authError && <p className="auth-error" role="alert">{authError}</p>}
-          <button data-tutorial-target="auth-submit" className="auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Please wait…" : maintainerPortal || authMode === "login" ? "Sign in" : "Create account"}</button>
-          {!maintainerPortal && <button className="auth-switch" type="button" onClick={() => { setAuthError(null); setAuthMode(authMode === "login" ? "register" : "login"); }}>
-            {authMode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
-          </button>}
-          <a className="auth-switch" href={maintainerPortal ? "/" : "/maintainer"}>{maintainerPortal ? "Regular user sign in" : "Maintainer sign in"}</a>
-        </form>
+        {normalizedRoutePath === GOOGLE_SIGNUP_ROUTE
+          ? <GoogleSignupPage endpoint={endpoint} onSignedIn={(user) => { completeSignIn(user as AuthUser); const next = takeEntryRoute(browserSessionStorage()) ?? "/"; window.history.replaceState(window.history.state, "", next); setRoutePath(next); }} />
+          : <AuthCard endpoint={endpoint} mode={authMode} onModeChange={setAuthMode} maintainerPortal={maintainerPortal} invited={Boolean(inviteLinkToken || getOfficeShareRouteToken(routePath))} busy={authBusy} error={authError} onClearError={() => setAuthError(null)} onSubmit={submitAuth} />}
         <InstallAppButton {...pwaInstall} />
         </div>
         <footer className="auth-credit">Made by <strong>PRAPAWITY and Friends</strong></footer>

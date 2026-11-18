@@ -1656,3 +1656,13 @@ button:focus-visible, .focus-character-control:focus-visible { outline-color: va
 @media (prefers-reduced-motion: reduce) {
   .auth-shell *, .auth-shell *::before, .auth-shell *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Google sign-in */
+.auth-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 44px; margin-top: 16px; border: 1px solid #d3d6dc; border-radius: 10px; background: #fff; color: #1f2430; font-size: 14px; font-weight: 600; cursor: pointer; }
+.auth-google svg { width: 18px; height: 18px; }
+.auth-google:hover:not(:disabled) { background: #f5f6f8; }
+.auth-google:focus-visible, .auth-link-button:focus-visible { outline: 3px solid #7045a2; outline-offset: 2px; }
+.auth-google:disabled { opacity: .6; cursor: not-allowed; }
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: #7a7f8a; font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: .3; }
+.auth-link-button { display: flex; align-items: center; justify-content: center; text-decoration: none; }

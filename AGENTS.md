@@ -58,6 +58,7 @@ This is the single rulebook for coding agents (Claude, Codex) and contributors. 
   - `docs/PERFORMANCE_REVIEW.md` — infrastructure and performance findings
   - `docs/GATHER_2D_PLAN.md` — Gather-style 2D play mode, chat, reactions, interactive objects, spotlight
   - `docs/MEDIA_SESSION_PLAN.md` — LiveKit session stability ("Client initiated disconnect", zone/proximity churn)
+  - `docs/GOOGLE_LOGIN_PLAN.md` — Google sign-in, explicit account linking, username-only sign-up
 - Update `README.md` for setup or public behaviour changes, and the current section of `PROJECT_DOCS.md` for durable architecture decisions. Do not start other project-wide Markdown files outside `docs/`.
 
 ## Verifying work

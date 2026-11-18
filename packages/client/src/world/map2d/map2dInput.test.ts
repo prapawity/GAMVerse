@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAP2D_MIN_SCALE_PX_PER_M, MAP2D_MAX_SCALE_PX_PER_M } from "./constants";
+import { MAP2D_MIN_SCALE_PX_PER_M, MAP2D_MAX_SCALE_PX_PER_M, MAP2D_PICK_RADIUS_PX } from "./constants";
+import { AVATAR_SPRITE_TARGET_HEIGHT_M } from "./avatarSpriteGeometry";
 import { pickMap2dPlayer, locateMap2d } from "./map2dInput";
 import { Map2dRenderer, type Map2dFrame } from "./Map2dRenderer";
 import { applyCameraView } from "../camera/cameraView";
@@ -233,6 +234,7 @@ test("the full character remains selectable above its ground point across zoom",
   const players = new Map([["alice", { x: 4, z: -7 }]]);
   for (const pxPerM of [MAP2D_MIN_SCALE_PX_PER_M, 12, MAP2D_MAX_SCALE_PX_PER_M]) {
     assert.equal(pickMap2dPlayer({ ...PROJECTION, pxPerM }, players, { x: 400, y: 300 - 1.6 * pxPerM }), "alice");
-    assert.equal(pickMap2dPlayer({ ...PROJECTION, pxPerM }, players, { x: 400, y: 300 - 3 * pxPerM }), null);
+    assert.equal(pickMap2dPlayer({ ...PROJECTION, pxPerM }, players, { x: 400, y: 300 - AVATAR_SPRITE_TARGET_HEIGHT_M * pxPerM - MAP2D_PICK_RADIUS_PX - 1 }), null,
+      "beyond the body top and the pick radius is not selectable");
   }
 });

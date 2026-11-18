@@ -11,8 +11,11 @@ test("calendar export uses UTC times, escapes text and keeps one VEVENT", () => 
   assert.match(calendar, /DTEND:20261103T040000Z/);
   assert.match(calendar, /SUMMARY:Planning\\, review\\; next\\\\steps\\nIgnore:BEGIN:VEVENT/);
   assert.match(calendar, /URL:https:\/\/gammyverse\.example\/meeting\/office\?room=meeting-1/);
-  assert.equal((calendar.match(/BEGIN:VEVENT/g) ?? []).length, 1);
-  assert.equal((calendar.match(/END:VEVENT/g) ?? []).length, 1);
+  // The escaped title legitimately contains "BEGIN:VEVENT" as text inside SUMMARY, so count real event lines only.
+  const lines = calendar.split("\r\n");
+  assert.equal(lines.filter(line => line === "BEGIN:VEVENT").length, 1);
+  assert.equal(lines.filter(line => line === "END:VEVENT").length, 1);
+  assert.ok(lines.some(line => line.startsWith("SUMMARY:") && line.includes("Ignore:BEGIN:VEVENT")), "injected text stays inside SUMMARY");
   assert.ok(calendar.endsWith("\r\n"));
 });
 

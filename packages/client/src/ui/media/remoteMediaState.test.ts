@@ -5,7 +5,13 @@ import { remoteMediaTiles, screenCameraTile, RemoteMediaViewerState } from "./re
 
 function selection(viewer: RemoteMediaViewerState) { return viewer.snapshot.selected; }
 function publication(source: string, sid = source) {
-  return { source, trackSid: sid, isSubscribed: true, isMuted: false, track: { kind: "video" } as RemoteTrack | undefined };
+  // isDesired/setSubscribed: the viewer now manages subscriptions itself (7c523044), so stubs record the requests.
+  const pub = {
+    source, trackSid: sid, isSubscribed: true, isDesired: true, isMuted: false, track: { kind: "video" } as RemoteTrack | undefined,
+    subscribeRequests: [] as boolean[],
+    setSubscribed(value: boolean) { pub.subscribeRequests.push(value); pub.isDesired = value; },
+  };
+  return pub;
 }
 function fixture(...publications: ReturnType<typeof publication>[]) {
   const participant = { identity: "alice-0123456789abcdef", name: "Alice", videoTrackPublications: new Map(publications.map(pub => [pub.trackSid, pub])) };
@@ -37,6 +43,7 @@ test("screen shares take focus automatically and the selected publication surviv
   const screen = publication("screen_share");
   participant.videoTrackPublications.set(screen.trackSid, screen);
   viewer.refresh(room);
+  assert.deepEqual(camera.subscribeRequests, [], "the camera stays desired next to the screen share");
   assert.equal(selection(viewer)?.track, screen.track, "screen share should take focus automatically");
   assert.equal(viewer.snapshot.minimized, true, "screen sharing opens minimized in the bottom corner");
   const screenKey = viewer.snapshot.tiles.find(tile => tile.source === "screen_share")!.key;

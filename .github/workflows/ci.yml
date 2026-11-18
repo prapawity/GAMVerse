@@ -25,9 +25,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # Some tests already fail (docs/PERFORMANCE_REVIEW.md, P1). Report them without blocking merges
-    # until the baseline is fixed; then remove continue-on-error.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

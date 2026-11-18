@@ -153,7 +153,7 @@ pnpm test
 
 ## CI and releases
 
-- Every pull request and push to `main` runs `pnpm build` (required) and the test suites (reported, not yet blocking because of known failures).
+- Every pull request and push to `main` runs `pnpm build` and the shared, client and server test suites; both must pass.
 - To release, open **Actions → Release → Run workflow** on `main` and pick `patch`, `minor` or `major`. The workflow bumps the package versions, commits `chore(release): vX.Y.Z` to `main`, pushes tag `vX.Y.Z`, creates a GitHub Release with generated notes and the client bundle zip, and pushes `ghcr.io/<owner>/gamverse-server` and `gamverse-web` images tagged with the version and `latest`.
 
 ## Repository layout

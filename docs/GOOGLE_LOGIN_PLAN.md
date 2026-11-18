@@ -1,6 +1,6 @@
 # Google login plan
 
-Status: planned. Owner decisions are recorded under **Decisions**. Each phase is one PR and leaves sign-in working.
+Status: implemented (phases 1–4 merged). Each phase was one PR and left sign-in working.
 
 ## Goal
 

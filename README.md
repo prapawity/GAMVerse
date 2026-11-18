@@ -34,7 +34,7 @@ Captured from a local Compose stack with one test account, so the voice, multi-u
 
 ## Features in this repository
 
-- Account registration and sign-in, office invitations, office-scoped owner/admin/member roles, and a separate maintainer portal.
+- Account registration and sign-in with a username and password or with Google (optional, maintainer-controlled), office invitations, office-scoped owner/admin/member roles, and a separate maintainer portal.
 - Platform operations for maintainers: account recovery, account role management and suspension, office-management audit history, and an aggregate system health overview.
 - A server-authoritative multiplayer world with movement, collision, presence, room zones, automatic travel, vehicles, seats, and beds that avatars can lie on after standing nearby.
 - Spacebar jumps in 3D view; jumps are shared with other players and do not bypass ground collision.
@@ -137,6 +137,30 @@ including worker threads), not container-wide CPU. See the
 [diagnostics implementation and verification record](docs/REALTIME_WORKLOAD_SEPARATION_PLAN.md#maintainer-runtime-diagnostics)
 for thresholds and remaining verification limits.
 
+### Google sign-in (optional)
+
+Google sign-in is off until the server has OAuth keys **and** a maintainer turns it on. Email addresses come only from Google: username registration has no email field, and an account's email is the verified address of its linked Google account.
+
+1. In Google Cloud Console, configure the OAuth consent screen (External; scopes `openid`, `email`, `profile`). While it is in Testing mode, add the Google accounts that may sign in as test users.
+2. Create an OAuth client of type **Web application** with:
+   - Authorized JavaScript origin: `https://localhost:5173`
+   - Authorized redirect URI: `https://localhost:2567/auth/google/callback` (in development the browser reaches the API on port 2567)
+3. Put the values in the ignored `.env` file and recreate the app container so it picks them up:
+
+   ```sh
+   GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+   GOOGLE_REDIRECT_URI=https://localhost:2567/auth/google/callback
+   ```
+
+   ```sh
+   docker compose up -d --force-recreate office-dev
+   ```
+
+4. Sign in as a maintainer, open **Platform controls** and turn on **Sign in with Google**. The switch stays disabled while the keys are incomplete. `GET https://localhost:2567/auth/config` then returns `{"google":true}`.
+
+Accounts are matched by Google's account ID, never by email. A username account adds Google from **Settings → Security → Connect Google** while signed in with its password; a Google-only account can set a password there before disconnecting Google. Maintainers can disconnect a user's Google account or clear a stored email from the account dialog. Turning the switch off stops new Google sign-ins, sign-ups and links immediately; disconnecting still works. Design and security decisions: [docs/GOOGLE_LOGIN_PLAN.md](docs/GOOGLE_LOGIN_PLAN.md).
+
 Stop the local stack with `docker compose down`. PostgreSQL and Caddy state remain in named volumes unless those volumes are explicitly removed.
 
 ### Workspace commands
@@ -172,6 +196,13 @@ AGENTS.md                     Contributor and coding-agent rules (CLAUDE.md impo
 ## Production profile
 
 The repository includes `compose.production.yaml`, `Caddyfile`, and `.env.production.example` for a single Linux host. Set a public `DOMAIN`, a `LIVEKIT_DOMAIN`, and distinct database, internal-service, and LiveKit secrets before starting it. The deployment also needs DNS, firewall rules for WebRTC/TURN, backups, and external-network verification. Details are in [PROJECT_DOCS.md](PROJECT_DOCS.md).
+
+To enable Google sign-in in production:
+
+1. In the Google OAuth client, add the origin `https://<DOMAIN>` and the redirect URI `https://<DOMAIN>/auth/google/callback`, and publish the consent screen (Testing mode allows at most 100 listed test users).
+2. On the host, set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI=https://<DOMAIN>/auth/google/callback` in `.env.production` (never commit it). `GOOGLE_STATE_SECRET` is optional; by default the state-signing key is derived from `INTERNAL_SERVICE_TOKEN`.
+3. Restart the API: `docker compose --env-file .env.production -f compose.production.yaml up -d api`. Caddy already routes `/auth/*` to the API, and the API trusts Caddy's `X-Forwarded-For` (`TRUST_PROXY_HEADERS=1`) for the auth rate limit.
+4. A maintainer turns on **Sign in with Google** in **Platform controls**. Turn it off at any time without redeploying.
 
 ## Assets and licensing
 

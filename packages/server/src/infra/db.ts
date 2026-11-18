@@ -66,6 +66,7 @@ export async function initializeDatabase() {
     { version: 32, file: "032_meeting_reservations.sql" },
     { version: 33, file: "033_meeting_reservation_attendees.sql" },
     { version: 34, file: "034_character_model_upload_limit.sql" },
+    { version: 35, file: "035_google_identities.sql" },
   ];
   const client = await database.connect();
   try {

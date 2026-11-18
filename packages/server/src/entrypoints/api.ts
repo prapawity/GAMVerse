@@ -22,6 +22,8 @@ import { getPlatformOperationsCounts } from "../infra/operations.js";
 import { listOfficeActivity, startOfficeActivityCleanup } from "../offices/activity.js";
 import { MAX_OFFICE_MAP_REQUEST_BYTES, MAX_OFFICE_PROPS_REQUEST_BYTES } from "../offices/limits.js";
 import { createWriteRateLimiter } from "../http/writeRateLimit.js";
+import { registerGoogleRoutes } from "../auth/google/googleRoutes.js";
+import { createGoogleMaintainerDependencies, maintainerClearEmail, maintainerUnlinkGoogle } from "../auth/google/googleMaintainer.js";
 import { acceptOfficeInvite, claimOfficeDeskZone, createOffice, createOfficeInvite, deleteOffice, getOfficeMapLayout, getOfficeMembers, applyOfficePropOps, getOfficeProps, getOfficeRole, isOfficeMapInitialized, isOfficePropsInitialized, listInvites, listOffices, OfficeMapVersionConflict, OfficePropsVersionConflict, pruneInactiveOffices, removeOfficeMember, saveOfficeMapLayout, saveOfficeProps, setOfficeMemberRole, unclaimOfficeDeskZone, updateOfficeName } from "../offices/repository.js";
 import { errorMessage, jsonBodyParser, originGuard, requestSession, sessionFromCookie, type HttpRequest as AuthRequest, type HttpResponse as AuthResponse, type Next } from "../http/middleware.js";
 
@@ -34,6 +36,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("API_PO
 const app: any = express();
 const server = createServer(app);
 configureApi();
+
+const googleMaintainerDependencies = createGoogleMaintainerDependencies((username) => notifyRealtime("members/kick-account", { username }));
 
 function hasLobbyPagination(request: AuthRequest) {
   return ["search", "page", "pageSize"].some((key) => request.query?.[key] !== undefined);
@@ -96,7 +100,7 @@ function configureApi() {
         }
       });
       app.post("/auth/register", async (request: AuthRequest, response: AuthResponse) => {
-        const result = await registerAccount(request.body?.username, request.body?.password, request.body?.email);
+        const result = await registerAccount(request.body?.username, request.body?.password);
         if ("error" in result) response.status(400).json(result);
         else {
           setSessionCookie(response, result.sessionToken);
@@ -244,6 +248,17 @@ function configureApi() {
         if ("error" in result) response.status(400).json(result);
         else { response.setHeader("Cache-Control", "no-store"); response.status(201).json({ resetPath: `/reset/${result.token}`, expiresAt: result.expiresAt }); }
       });
+      app.delete("/maintainer/users/:username/google", async (request: AuthRequest, response: AuthResponse) => {
+        const result = await maintainerUnlinkGoogle(await requestSession(request), request.params.username, googleMaintainerDependencies);
+        response.setHeader("Cache-Control", "no-store");
+        response.status(result.status).json(result.body);
+      });
+      app.delete("/maintainer/users/:username/email", async (request: AuthRequest, response: AuthResponse) => {
+        const result = await maintainerClearEmail(await requestSession(request), request.params.username, googleMaintainerDependencies);
+        response.setHeader("Cache-Control", "no-store");
+        response.status(result.status).json(result.body);
+      });
+      registerGoogleRoutes(app, { requestSession, setSessionCookie });
       app.post("/auth/login", async (request: AuthRequest, response: AuthResponse) => {
         const result = await loginAccount(request.body?.username, request.body?.password, "user");
         if ("error" in result) response.status(401).json(result);

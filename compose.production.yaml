@@ -62,6 +62,13 @@ services:
       IMPORT_LEGACY_AUTH: ${IMPORT_LEGACY_AUTH:-}
       REALTIME_INTERNAL_URL: http://realtime:2567
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in .env.production}
+      # Caddy replaces X-Forwarded-For with the real client IP, so rate limits may key on it.
+      TRUST_PROXY_HEADERS: "1"
+      # Google sign-in is off unless all three are set.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_STATE_SECRET: ${GOOGLE_STATE_SECRET:-}
     depends_on:
       db:
         condition: service_healthy

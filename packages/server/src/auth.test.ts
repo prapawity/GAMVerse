@@ -22,7 +22,7 @@ after(async () => {
 test("registration, password login, and logout use server-owned sessions", async () => {
   await assert.rejects(() => room.onAuth({} as never, {}, authContext()), /Authentication required/);
   await assert.rejects(() => room.onAuth({} as never, {}, { headers: new Headers({ origin: "https://attacker.invalid" }), ip: "127.0.0.1" }), /Origin is not allowed/);
-  const registration = await registerAccount(username, password, " QA.User@Example.COM ");
+  const registration = await registerAccount(username, password);
   assert.ok("sessionToken" in registration);
   if (!("sessionToken" in registration)) return;
   assert.deepEqual(registration.user, { username, nickname: null, role: "user", characterId: null });
@@ -33,7 +33,7 @@ test("registration, password login, and logout use server-owned sessions", async
   const [storedAccount] = JSON.parse(contents) as Array<{ salt: string; passwordHash: string }>;
   assert.equal(storedAccount.salt.length, 32);
   assert.equal(storedAccount.passwordHash.length, 128);
-  assert.equal((storedAccount as typeof storedAccount & { email?: string }).email, "qa.user@example.com");
+  assert.equal((storedAccount as typeof storedAccount & { email?: string }).email, undefined);
 
   const login = await loginAccount(username.toUpperCase(), password);
   assert.ok("sessionToken" in login);
